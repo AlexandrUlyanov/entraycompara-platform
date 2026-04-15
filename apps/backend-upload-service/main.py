@@ -269,7 +269,7 @@ def send_notification_email(application_data: dict, application_id: str, uploade
                 <ul>
                     <li><strong>Имя:</strong> {application_data['client_name']}</li>
                     <li><strong>Телефон:</strong> {application_data['client_phone']}</li>
-                    <li><strong>Email:</strong> {application_data['client_email']}</li>
+                    <li><strong>Email:</strong> {application_data['client_email'] or 'Не указан'}</li>
                     <li><strong>Тип услуги:</strong> <strong>{application_data['service_type']}</strong></li>
                     <li><strong>Заметки:</strong> {application_data['notes'] or 'Нет'}</li>
                 </ul>
@@ -320,9 +320,9 @@ def send_notification_email(application_data: dict, application_id: str, uploade
 async def submit_application(
     client_name: str = Form(...),
     client_phone: str = Form(...),
-    client_email: str = Form(...),
+    client_email: Optional[str] = Form(None),
     service_type: str = Form(...),
-    notes: str = Form(None), 
+    notes: Optional[str] = Form(None), 
     invoiceFiles: list[UploadFile] = File(...) 
 ):
     """Прием заявки, загрузка файлов, отправка уведомления и АВТОМАТИЧЕСКАЯ запись в Timeline."""
@@ -355,9 +355,9 @@ async def submit_application(
     application_data = {
         "client_name": client_name,
         "client_phone": client_phone,
-        "client_email": client_email,
+        "client_email": client_email or '',
         "service_type": service_type,
-        "notes": notes,
+        "notes": notes or '',
         "uploaded_files": uploaded_paths, # Здесь теперь публичные ссылки
         "submission_date": today,
         "status": Status.NEW_LEAD.value # Устанавливаем статус 'New Lead'

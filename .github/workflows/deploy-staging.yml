@@ -29,25 +29,8 @@ jobs:
       - name: Build and push backend image
         run: |
           gcloud builds submit \
-            --config=- \
-            --substitutions=_IMAGE_NAME=backend-upload-service-staging \
-            apps/backend-upload-service <<'EOF'
-          steps:
-            - name: gcr.io/cloud-builders/docker
-              args:
-                - build
-                - -t
-                - europe-west1-docker.pkg.dev/${_PROJECT_ID}/cloud-run-source-deploy/${_IMAGE_NAME}:latest
-                - .
-            - name: gcr.io/cloud-builders/docker
-              args:
-                - push
-                - europe-west1-docker.pkg.dev/${_PROJECT_ID}/cloud-run-source-deploy/${_IMAGE_NAME}:latest
-          images:
-            - europe-west1-docker.pkg.dev/${_PROJECT_ID}/cloud-run-source-deploy/${_IMAGE_NAME}:latest
-          EOF
-        env:
-          _PROJECT_ID: ${{ env.PROJECT_ID }}
+            apps/backend-upload-service \
+            --tag europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service-staging:latest
 
       - name: Deploy backend to Cloud Run (staging)
         run: |

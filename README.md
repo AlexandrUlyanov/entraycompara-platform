@@ -29,8 +29,8 @@ entraycompara-platform/
 │   ├── cloud-run-configs/         # JSON-конфигурации Cloud Run
 │   └── cloud-build-triggers.json  # Старые Cloud Build триггеры
 ├── .github/workflows/
-│   ├── deploy-staging.yml         # Автодеплой в staging
-│   └── deploy-production.yml      # Ручной деплой в продакшен
+│   ├── deploy-staging.yml         # Автодеплой в staging (preprod)
+│   └── deploy-production.yml      # Авто/ручной деплой в продакшен
 ├── AGENTS.md                      # ← Обязательно к прочтению для разработчиков
 └── README.md                      # Этот файл
 ```
@@ -68,17 +68,29 @@ entraycompara-platform/
 
 ---
 
-## CI/CD
+## CI/CD & Git Flow
+
+Мы используем **Git Flow** с тремя основными ветками:
+
+```
+feature/*  →  dev  →  staging  →  prod
+```
+
+| Ветка | Назначение | Триггер деплоя |
+|-------|------------|----------------|
+| `dev` | Активная разработка. От неё создаются `feature/*` ветки. | Нет |
+| `staging` | Pre-production / QA. Именно здесь висят домены `entraycompara.com` и `crm.entraycompara.com`. | **Auto** на push в `staging` → `*-staging` (europe-west1) |
+| `prod` | Production. Стабильный код для реальных пользователей. | **Auto** на push в `prod` + **Manual** (`workflow_dispatch`) → `*` / `*-prod` |
 
 ### Staging (автоматический деплой)
-**Триггер**: push в `main`
+**Триггер**: push в `staging`
 
-При каждом push GitHub Actions собирает Docker-образы всех трёх приложений и деплоит их в staging-сервисы в `europe-west1`.
+При каждом push GitHub Actions собирает Docker-образы всех трёх приложений и деплоит их в staging-сервисы в `europe-west1`, к которым привязаны боевые домены.
 
-### Production (ручной деплой)
-**Триггер**: `workflow_dispatch` в GitHub Actions
+### Production (авто + ручной деплой)
+**Триггер**: push в `prod` или ручной запуск `workflow_dispatch`
 
-Запускается вручную через вкладку **Actions → Deploy to Production → Run workflow**.
+Запускается автоматически при merge `staging → prod`, либо вручную через **Actions → Deploy to Production → Run workflow**.
 
 ### GitHub Secrets
 - `GCP_SA_KEY` — ключ сервисного аккаунта для GCP

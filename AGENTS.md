@@ -145,20 +145,32 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 
 ---
 
-## 4. CI/CD процесс
+## 4. CI/CD процесс & Git Flow
+
+Мы работаем по **Git Flow** с тремя основными ветками:
+
+```
+feature/*  →  dev  →  staging  →  prod
+```
+
+| Ветка | Назначение | Деплой |
+|-------|------------|--------|
+| `dev` | Разработка. Отсюда создаются `feature/*` ветки. | Нет |
+| `staging` | Pre-production / QA. На эту ветку автодеплоится staging. | Auto → `*-staging` (europe-west1) |
+| `prod` | Production. Стабильный код. | Auto на push + Manual (`workflow_dispatch`) → `*` / `*-prod` |
 
 ### Staging деплой (`deploy-staging.yml`)
-**Триггер**: push в `main`
+**Триггер**: push в `staging`
 **Что происходит**:
 1. Сборка и пуш Docker-образа backend
 2. Деплой backend в `backend-upload-service-staging` (europe-west1)
 3. Сборка и пуш Docker-образа landing
-4. Деплой landing в `entraycompara-landing-page-staging` (europe-west1)
+4. Деплой landing в `entraycompara-landing-page-staging` (europe-west1) — на этом сервисе висят домены
 5. Сборка и пуш Docker-образа admin
-6. Деплой admin в `entraycompara-adminpanel-staging` (europe-west1)
+6. Деплой admin в `entraycompara-adminpanel-staging` (europe-west1) — на этом сервисе висят домены
 
 ### Production деплой (`deploy-production.yml`)
-**Триггер**: только ручной запуск (`workflow_dispatch`)
+**Триггер**: push в `prod` или ручной запуск (`workflow_dispatch`)
 **Что происходит**:
 - Те же шаги, но в продакшен-сервисы:
   - `backend-upload-service`
@@ -176,11 +188,13 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 ### Алгоритм для любого изменения:
 
 1. **Пойми, какой сервис(ы) трогаешь**
-2. **Внеси изменения локально**
-3. **Для фронтендов**: обязательно обнови `compiled/`
-4. **Проверь staging** (автодеплой запустится после push в `main`)
-5. **Убедись, что всё работает на staging URL'ах**
-6. **Только потом** запускай `Deploy to Production` вручную через GitHub Actions
+2. **Создай feature-ветку от `dev`** (или работай напрямую в `dev` для мелких фиксов)
+3. **Внеси изменения локально**
+4. **Для фронтендов**: обязательно обнови `compiled/`
+5. **Замерджи в `dev`, затем в `staging`**
+6. **Проверь staging** (автодеплой запустится после push в `staging`)
+7. **Убедись, что всё работает на staging URL'ах**
+8. **Только потом** создавай PR / мердж `staging → prod` (или запускай `Deploy to Production` вручную)
 
 ### Что НЕЛЬЗЯ делать без разрешения пользователя:
 - Запускать production-деплой

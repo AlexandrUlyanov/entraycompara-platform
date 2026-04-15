@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchApplicationTimeline, createTimelineNote, deleteTimelineNote, sendWhatsAppMessage } from '../services/api';
+import { fetchApplicationTimeline, createTimelineNote, deleteTimelineNote } from '../services/api';
 import { ApplicationNote, NoteType, Status } from '../types';
 import { useTranslation } from '../i18n';
 import Spinner from './Spinner';
@@ -30,14 +30,6 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
     },
   });
 
-  const sendWhatsAppMutation = useMutation({
-    mutationFn: () => sendWhatsAppMessage(appId, newNoteContent),
-    onSuccess: () => {
-      setNewNoteContent('');
-      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
-    },
-  });
-
   const deleteMutation = useMutation({
     mutationFn: (noteId: string) => deleteTimelineNote(appId, noteId),
     onSuccess: () => {
@@ -48,11 +40,7 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNoteContent.trim()) return;
-    if (activeType === NoteType.WhatsApp) {
-      sendWhatsAppMutation.mutate();
-    } else {
-      createMutation.mutate();
-    }
+    createMutation.mutate();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -166,16 +154,7 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                     {t('timeline.type.NOTE')}
                 </button>
-                <button
-                    type="button"
-                    onClick={() => setActiveType(NoteType.WhatsApp)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors flex items-center gap-1.5 ${
-                        activeType === NoteType.WhatsApp ? 'bg-green-600 text-white' : 'bg-green-50 text-green-700 hover:bg-green-100'
-                    }`}
-                >
-                     <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z" /></svg>
-                    {t('timeline.type.WHATSAPP')}
-                </button>
+
                  <button
                     type="button"
                     onClick={() => setActiveType(NoteType.Call)}
@@ -210,10 +189,10 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
                 <div className="absolute bottom-2 right-2">
                     <button
                         type="submit"
-                        disabled={!newNoteContent.trim() || createMutation.isPending || sendWhatsAppMutation.isPending}
+                        disabled={!newNoteContent.trim() || createMutation.isPending}
                         className="p-1.5 bg-primary-600 text-white rounded-lg shadow-md hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {createMutation.isPending || sendWhatsAppMutation.isPending ? (
+                        {createMutation.isPending ? (
                             <Spinner size="h-4 w-4" />
                         ) : (
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -240,49 +219,8 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
                 </div>
             ) : (
                 <ul className="space-y-6">
-                    {notes.map((note) => {
+                    {notes.filter(n => n.type !== NoteType.WhatsApp).map((note) => {
                         const displayType = getDisplayType(note);
-                        const isWhatsApp = displayType === NoteType.WhatsApp;
-                        const isIncoming = note.direction === 'incoming' || note.created_by === 'Client';
-                        
-                        if (isWhatsApp) {
-                            return (
-                                <li key={note.id} className={`flex ${isIncoming ? 'justify-start' : 'justify-end'} group`}>
-                                    <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm relative ${
-                                        isIncoming 
-                                            ? 'bg-green-100 text-slate-800 rounded-tl-none' 
-                                            : 'bg-green-50 text-slate-800 border border-green-100 rounded-tr-none'
-                                    }`}>
-                                        <div className="flex items-center gap-2 mb-1">
-                                            {getIconForType(displayType)}
-                                            <span className="text-xs font-bold text-green-800">
-                                                {isIncoming ? `${t('timeline.type.WHATSAPP')} • ${t('detail.clientInfo.phone')}` : t('timeline.type.WHATSAPP')}
-                                            </span>
-                                            <span className="text-xs text-slate-400 ml-auto">
-                                                {formatDate(note.created_at)}
-                                            </span>
-                                        </div>
-                                        <div className="whitespace-pre-wrap leading-relaxed">
-                                            {renderNoteContent(note)}
-                                        </div>
-                                        {!isIncoming && (
-                                            <button 
-                                                onClick={() => {
-                                                    if(window.confirm(t('timeline.deleteConfirm'))) {
-                                                        deleteMutation.mutate(note.id);
-                                                    }
-                                                }}
-                                                className="absolute -top-2 -right-2 p-1 bg-white rounded-full text-slate-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shadow-sm"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                </svg>
-                                            </button>
-                                        )}
-                                    </div>
-                                </li>
-                            );
-                        }
                         
                         return (
                             <li key={note.id} className="relative pl-12 group">

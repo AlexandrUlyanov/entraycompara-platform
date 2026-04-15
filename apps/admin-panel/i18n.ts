@@ -88,7 +88,11 @@ const translations: Record<Language, Record<string, string>> = {
     "serviceType.Development": "Разработка",
     "serviceType.Support": "Поддержка",
     "serviceType.Marketing": "Маркетинг",
-    "serviceType.GasComparison": "Сравнение газа"
+    "serviceType.GasComparison": "Сравнение газа",
+    
+    "whatsappChat.openButton": "Открыть чат WhatsApp",
+    "whatsappChat.placeholder": "Введите сообщение...",
+    "whatsappChat.empty": "Начните переписку с клиентом"
   },
   es: {
     "header.title": "Entraycompara Panel",
@@ -174,7 +178,11 @@ const translations: Record<Language, Record<string, string>> = {
     "serviceType.Development": "Desarrollo",
     "serviceType.Support": "Soporte",
     "serviceType.Marketing": "Marketing",
-    "serviceType.GasComparison": "Gas"
+    "serviceType.GasComparison": "Gas",
+    
+    "whatsappChat.openButton": "Abrir chat de WhatsApp",
+    "whatsappChat.placeholder": "Escribe un mensaje...",
+    "whatsappChat.empty": "Inicia la conversación con el cliente"
   }
 };
 

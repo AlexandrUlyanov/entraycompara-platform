@@ -3,11 +3,13 @@ import os
 import uuid
 import datetime
 import smtplib
+import re
+import requests
 from typing import List, Optional, Dict, Any 
 from enum import Enum 
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Query, status, Header
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Query, status, Header, Body
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage, firestore 
 from pydantic import BaseModel
@@ -43,6 +45,13 @@ ALLOWED_MIME_TYPES = {
 MAX_FILE_SIZE_MB = 10
 BUCKET_NAME = os.environ.get("GCP_BUCKET_NAME", "entraycompara-invoices")
 FIRESTORE_COLLECTION = "applications" 
+
+# --- Настройки WhatsApp Business API ---
+WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
+WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
+WHATSAPP_VERIFY_TOKEN = os.environ.get("WHATSAPP_VERIFY_TOKEN")
+WHATSAPP_API_VERSION = "v18.0"
+# -------------------------
 
 # --- Настройки Email (Gmail SMTP) ---
 OPERATOR_EMAIL = "ulyanov.ht@gmail.com"
@@ -117,6 +126,10 @@ class SignedUrlRequest(BaseModel):
 class SignedUrlResponse(BaseModel): 
     url: str
     
+class WhatsAppSendRequest(BaseModel):
+    application_id: str
+    message: str
+    
 # --- Вспомогательные функции ---
 
 def create_timeline_event_internal(application_id: str, content: str, event_type: EventType, created_by: str):
@@ -175,6 +188,32 @@ def generate_signed_url(gcs_path: str, expiration_minutes: int = 60) -> str:
     except Exception as e:
         print(f"Signed URL Generation Error for {gcs_path}: {e}")
         raise e
+
+
+def normalize_phone(phone: str) -> str:
+    return re.sub(r'\D', '', phone)
+
+
+def send_whatsapp_message(to_phone: str, message: str) -> dict:
+    if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
+        raise ValueError("WhatsApp credentials not configured")
+    
+    url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": normalize_phone(to_phone),
+        "type": "text",
+        "text": {"body": message}
+    }
+    
+    resp = requests.post(url, headers=headers, json=payload)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def send_notification_email(application_data: dict, application_id: str, uploaded_paths: list):
@@ -678,3 +717,104 @@ async def delete_timeline_event(application_id: str, event_id: str):
         if "NOT_FOUND" in str(e):
              raise HTTPException(status_code=404, detail=f"Заявка или событие не найдены.")
         raise HTTPException(status_code=500, detail="Ошибка при удалении записи из ленты.")
+
+
+# --- WhatsApp Business API Endpoints ---
+
+@app.post("/api/whatsapp/send", tags=["WhatsApp"], dependencies=[Depends(authenticate_operator)])
+async def api_send_whatsapp(data: WhatsAppSendRequest):
+    """Отправляет текстовое сообщение клиенту через WhatsApp Business API и сохраняет его в Timeline."""
+    try:
+        doc = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        phone = doc.to_dict().get("client_phone")
+        if not phone:
+            raise HTTPException(status_code=400, detail="У заявки отсутствует телефон клиента.")
+        
+        result = send_whatsapp_message(phone, data.message)
+        wa_message_id = result.get("messages", [{}])[0].get("id")
+        
+        # Сохраняем в Timeline как исходящее сообщение
+        event_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).collection("timeline").document()
+        event_ref.set({
+            "application_id": data.application_id,
+            "content": data.message,
+            "type": EventType.WHATSAPP.value,
+            "created_by": "Operator",
+            "created_at": datetime.datetime.utcnow(),
+            "direction": "outgoing",
+            "wa_message_id": wa_message_id,
+        })
+        
+        return {"success": True, "wa_message_id": wa_message_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"WhatsApp Send Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка отправки WhatsApp: {str(e)}")
+
+
+@app.get("/api/whatsapp/webhook", tags=["WhatsApp"])
+async def whatsapp_webhook_verify(
+    hub_mode: str = Query(None, alias="hub.mode"),
+    hub_verify_token: str = Query(None, alias="hub.verify_token"),
+    hub_challenge: str = Query(None, alias="hub.challenge")
+):
+    """Верификация webhook от Meta."""
+    if hub_mode == "subscribe" and hub_verify_token == WHATSAPP_VERIFY_TOKEN:
+        return int(hub_challenge) if hub_challenge else "OK"
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+
+@app.post("/api/whatsapp/webhook", tags=["WhatsApp"])
+async def whatsapp_webhook_receive(payload: dict = Body(...)):
+    """Получение входящих сообщений и статусов доставки от Meta."""
+    try:
+        entries = payload.get("entry", [])
+        for entry in entries:
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                messages = value.get("messages", [])
+                
+                for msg in messages:
+                    if msg.get("type") == "text":
+                        from_phone_raw = msg.get("from", "")
+                        text_body = msg.get("text", {}).get("body", "")
+                        wa_message_id = msg.get("id", "")
+                        
+                        from_phone = normalize_phone(from_phone_raw)
+                        
+                        # Ищем заявку по телефону среди последних 100
+                        apps_query = firestore_client.collection(FIRESTORE_COLLECTION) \
+                            .order_by("submission_date", direction=firestore.Query.DESCENDING) \
+                            .limit(100) \
+                            .stream()
+                        
+                        matched_app_id = None
+                        for app_doc in apps_query:
+                            app_data = app_doc.to_dict()
+                            if app_data and normalize_phone(app_data.get("client_phone", "")) == from_phone:
+                                matched_app_id = app_doc.id
+                                break
+                        
+                        if matched_app_id:
+                            event_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(matched_app_id).collection("timeline").document()
+                            event_ref.set({
+                                "application_id": matched_app_id,
+                                "content": text_body,
+                                "type": EventType.WHATSAPP.value,
+                                "created_by": "Client",
+                                "created_at": datetime.datetime.utcnow(),
+                                "direction": "incoming",
+                                "wa_message_id": wa_message_id,
+                            })
+                        else:
+                            print(f"WhatsApp webhook: no application found for phone {from_phone_raw}")
+                            
+    except Exception as e:
+        print(f"WhatsApp Webhook Error: {e}")
+    
+    return {"status": "ok"}

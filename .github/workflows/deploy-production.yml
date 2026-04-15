@@ -46,6 +46,9 @@ jobs:
             --set-env-vars=GCP_BUCKET_NAME=entraycompara-invoices \
             --set-secrets="GMAIL_USER=GMAIL_USER:latest,GMAIL_APP_PASSWORD=GMAIL_APP_PASSWORD:latest" \
             --set-env-vars=OPERATOR_SECRET_KEY=${{ secrets.BACKEND_OPERATOR_SECRET_KEY }} \
+            --set-env-vars=WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }} \
+            --set-env-vars=WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }} \
+            --set-env-vars=WHATSAPP_VERIFY_TOKEN=${{ secrets.WHATSAPP_VERIFY_TOKEN }} \
             --service-account=910753338248-compute@developer.gserviceaccount.com \
             --memory=512Mi --cpu=1 --max-instances=3 --timeout=300
 

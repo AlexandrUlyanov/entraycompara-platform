@@ -188,3 +188,14 @@ export const generateSignedUrl = async (gcsPath: string): Promise<{ url: string 
   });
   return handleApiError(response);
 };
+
+// --- WhatsApp API ---
+
+export const sendWhatsAppMessage = async (applicationId: string, message: string): Promise<{ success: boolean; wa_message_id?: string }> => {
+  const response = await fetch(`${API_BASE_URL}/whatsapp/send`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ application_id: applicationId, message }),
+  });
+  return handleApiError(response);
+};

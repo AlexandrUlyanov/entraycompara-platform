@@ -180,6 +180,9 @@ feature/*  →  dev  →  staging  →  prod
 ### GitHub Secrets
 - `GCP_SA_KEY` — JSON-ключ сервисного аккаунта `github-actions@entraycompara.iam.gserviceaccount.com`
 - `BACKEND_OPERATOR_SECRET_KEY` — секретный ключ для авторизации операторов в API
+- `WHATSAPP_PHONE_NUMBER_ID` — ID номера телефона в WhatsApp Business API
+- `WHATSAPP_ACCESS_TOKEN` — Access Token для Meta Graph API
+- `WHATSAPP_VERIFY_TOKEN` — Verify Token для верификации webhook'ов Meta
 
 ---
 
@@ -219,11 +222,22 @@ feature/*  →  dev  →  staging  →  prod
 - `PUT /api/applications/{id}/status` — смена статуса
 - `GET /api/applications/{id}/timeline` — таймлайн событий
 - `POST /api/generate-signed-url` — подписанная ссылка на файл из GCS
+- `POST /api/whatsapp/send` — отправка сообщения клиенту через WhatsApp
+- `GET /api/whatsapp/webhook` — верификация webhook от Meta
+- `POST /api/whatsapp/webhook` — получение входящих сообщений от Meta
 - `GET /docs` — Swagger UI
 
 **Авторизация операторов**: Bearer-токен, сверяется с `OPERATOR_SECRET_KEY`
 
 **Email-уведомления**: Отправка через Gmail SMTP (`ulyanov.ht@gmail.com`) при создании заявки
+
+**WhatsApp Business API**:
+- Исходящие сообщения отправляются через `POST /api/whatsapp/send`
+- Входящие сообщения принимаются на `POST /api/whatsapp/webhook`
+- Webhook URL для настройки в Meta: `https://backend-upload-service-910753338248.europe-west1.run.app/api/whatsapp/webhook`
+- Сообщения автоматически привязываются к заявке по номеру телефона клиента
+- В Timeline сохраняется `direction: incoming/outgoing` и `created_by: Client/Operator`
+- Для поиска заявки используется нормализация номера (только цифры)
 
 **CORS**: Разрешены `*`, `http://localhost:3000`, `https://entraycompara.com`, `https://www.entraycompara.com`
 
@@ -238,6 +252,11 @@ feature/*  →  dev  →  staging  →  prod
 - `Timeline.tsx` — таймлайн коммуникаций
 - `Auth.tsx` — простая авторизация по секретному ключу
 - `services/api.ts` — HTTP-клиент к бэкенду
+
+**WhatsApp в CRM**:
+- В `Timeline.tsx` сообщения WhatsApp отображаются в виде chat bubbles (входящие слева, исходящие справа)
+- Оператор может отправить сообщение, выбрав тип **WhatsApp** в форме Timeline
+- Добавлена кнопка **Email** для создания email-заметок
 
 **Важно**: В `compiled/index.html` нет разделения на страницы — это SPA с хэш-роутингом (`#/`).
 

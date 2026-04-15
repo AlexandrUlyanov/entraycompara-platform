@@ -24,11 +24,14 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+
       - name: Build and push backend image
         run: |
-          gcloud builds submit \
-            apps/backend-upload-service \
-            --tag europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service:latest
+          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service:latest
+          docker build -t $IMAGE apps/backend-upload-service
+          docker push $IMAGE
 
       - name: Deploy backend to Cloud Run (production)
         run: |
@@ -58,11 +61,14 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+
       - name: Build and push landing page image
         run: |
-          gcloud builds submit \
-            apps/landing-page \
-            --tag europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-prod:latest
+          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-prod:latest
+          docker build -t $IMAGE apps/landing-page
+          docker push $IMAGE
 
       - name: Deploy landing page to Cloud Run (production)
         run: |
@@ -89,11 +95,14 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+
       - name: Build and push admin panel image
         run: |
-          gcloud builds submit \
-            apps/admin-panel \
-            --tag europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel:latest
+          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel:latest
+          docker build -t $IMAGE apps/admin-panel
+          docker push $IMAGE
 
       - name: Deploy admin panel to Cloud Run (production)
         run: |

@@ -13,7 +13,7 @@
 |--------|----------|-------------|
 | **Landing Page** | Публичный лендинг для привлечения клиентов | `https://entraycompara.com` |
 | **Admin Panel (CRM)** | Внутренняя CRM для операторов | `https://crm.entraycompara.com` |
-| **Backend Upload Service** | API для загрузки файлов, email-уведомлений, управления заявками | `https://backend-upload-service-910753338248.europe-west1.run.app` |
+| **Backend Upload Service** | API для загрузки файлов, email-уведомлений, управления заявками | `https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app` |
 
 ---
 

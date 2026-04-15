@@ -222,7 +222,7 @@ feature/*  →  dev  →  staging
 **WhatsApp Business API**:
 - Исходящие сообщения отправляются через `POST /api/whatsapp/send`
 - Входящие сообщения принимаются на `POST /api/whatsapp/webhook`
-- Webhook URL для настройки в Meta: `https://backend-upload-service-910753338248.europe-west1.run.app/api/whatsapp/webhook`
+- Webhook URL для настройки в Meta: `https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api/whatsapp/webhook`
 - Сообщения автоматически привязываются к заявке по номеру телефона клиента
 - В Timeline сохраняется `direction: incoming/outgoing` и `created_by: Client/Operator`
 - Для поиска заявки используется нормализация номера (только цифры)

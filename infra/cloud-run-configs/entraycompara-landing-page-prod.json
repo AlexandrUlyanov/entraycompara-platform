@@ -1,0 +1,146 @@
+﻿{
+  "apiVersion": "serving.knative.dev/v1",
+  "kind": "Service",
+  "metadata": {
+    "annotations": {
+      "generativelanguage.googleapis.com/type": "applet",
+      "run.googleapis.com/build-enable-automatic-updates": "false",
+      "run.googleapis.com/build-source-location": "gs://ai-studio-bucket-910753338248-us-west1/services/entraycompara-landing-page-prod/version-32/source.zip",
+      "run.googleapis.com/ingress": "all",
+      "run.googleapis.com/ingress-status": "all",
+      "run.googleapis.com/invoker-iam-disabled": "true",
+      "run.googleapis.com/maxScale": "3",
+      "run.googleapis.com/operation-id": "c50b692b-15b6-4b26-9581-322564cd4655",
+      "run.googleapis.com/urls": "[\"https://entraycompara-landing-page-prod-910753338248.us-west1.run.app\",\"https://entraycompara-landing-page-prod-bfuq4rsamq-uw.a.run.app\"]",
+      "serving.knative.dev/creator": "ulyanov.ht@gmail.com",
+      "serving.knative.dev/lastModifier": "ulyanov.ht@gmail.com"
+    },
+    "creationTimestamp": "2025-11-22T23:19:34.220636Z",
+    "generation": 32,
+    "labels": {
+      "cloud.googleapis.com/location": "us-west1",
+      "managed-by": "google-ai-studio"
+    },
+    "name": "entraycompara-landing-page-prod",
+    "namespace": "910753338248",
+    "resourceVersion": "AAZFCCnqTNY",
+    "selfLink": "/apis/serving.knative.dev/v1/namespaces/910753338248/services/entraycompara-landing-page-prod",
+    "uid": "a27c0ae1-1a0c-4e1f-a138-4f2609307f55"
+  },
+  "spec": {
+    "template": {
+      "metadata": {
+        "annotations": {
+          "autoscaling.knative.dev/maxScale": "3",
+          "autoscaling.knative.dev/minScale": "0",
+          "run.googleapis.com/base-images": "{\"\":\"us-central1-docker.pkg.dev/serverless-runtimes/google-22/runtimes/nodejs22\"}",
+          "run.googleapis.com/cpu-throttling": "true",
+          "run.googleapis.com/sessionAffinity": "false"
+        },
+        "labels": {
+          "run.googleapis.com/startupProbeType": "Default"
+        }
+      },
+      "spec": {
+        "containerConcurrency": 80,
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "API_KEY",
+                "value": "AIzaSyAp081j7KBRK0fCMj1cz64H7-lXh2QGWsM"
+              }
+            ],
+            "image": "us-docker.pkg.dev/cloudrun/container/aistudio/applet-proxy",
+            "ports": [
+              {
+                "containerPort": 8080,
+                "name": "http1"
+              }
+            ],
+            "resources": {
+              "limits": {
+                "cpu": "1000m",
+                "memory": "512Mi"
+              }
+            },
+            "startupProbe": {
+              "failureThreshold": 1,
+              "periodSeconds": 240,
+              "tcpSocket": {
+                "port": 8080
+              },
+              "timeoutSeconds": 240
+            },
+            "volumeMounts": [
+              {
+                "mountPath": "/app/dist",
+                "name": "applet"
+              }
+            ]
+          }
+        ],
+        "runtimeClassName": "run.googleapis.com/linux-base-image-update",
+        "serviceAccountName": "910753338248-compute@developer.gserviceaccount.com",
+        "timeoutSeconds": 300,
+        "volumes": [
+          {
+            "csi": {
+              "driver": "gcsfuse.run.googleapis.com",
+              "readOnly": true,
+              "volumeAttributes": {
+                "bucketName": "ai-studio-bucket-910753338248-us-west1",
+                "mountOptions": "only-dir=services/entraycompara-landing-page-prod/version-32/compiled"
+              }
+            },
+            "name": "applet"
+          }
+        ]
+      }
+    },
+    "traffic": [
+      {
+        "latestRevision": true,
+        "percent": 100
+      }
+    ]
+  },
+  "status": {
+    "address": {
+      "url": "https://entraycompara-landing-page-prod-bfuq4rsamq-uw.a.run.app"
+    },
+    "conditions": [
+      {
+        "lastTransitionTime": "2025-12-03T08:40:25.539798Z",
+        "status": "True",
+        "type": "Ready"
+      },
+      {
+        "severity": "Info",
+        "status": "True",
+        "type": "BaseImageValidated"
+      },
+      {
+        "lastTransitionTime": "2025-12-03T08:40:19.983157Z",
+        "status": "True",
+        "type": "ConfigurationsReady"
+      },
+      {
+        "lastTransitionTime": "2025-12-03T08:40:25.500904Z",
+        "status": "True",
+        "type": "RoutesReady"
+      }
+    ],
+    "latestCreatedRevisionName": "entraycompara-landing-page-prod-00032-8fp",
+    "latestReadyRevisionName": "entraycompara-landing-page-prod-00032-8fp",
+    "observedGeneration": 32,
+    "traffic": [
+      {
+        "latestRevision": true,
+        "percent": 100,
+        "revisionName": "entraycompara-landing-page-prod-00032-8fp"
+      }
+    ],
+    "url": "https://entraycompara-landing-page-prod-bfuq4rsamq-uw.a.run.app"
+  }
+}

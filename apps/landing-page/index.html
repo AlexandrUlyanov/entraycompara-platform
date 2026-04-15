@@ -1,0 +1,175 @@
+
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Entraycompara - Save on Your Bills</title>
+
+    <!-- SEO: Indexing Control for Search Engines and AI -->
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+    
+    <!-- SEO and Social Sharing Meta Tags (Dynamically managed by React) -->
+    <meta name="description" content="Discover how to save on your electricity, gas, and mobile bills. Upload your bill and Entraycompara offers you a free analysis." />
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Entraycompara - Save on Your Bills" />
+    <meta property="og:description" content="Discover how to save on your electricity, gas, and mobile bills. Upload your bill and Entraycompara offers you a free analysis." />
+    <meta property="og:image" content="https://entraycompara.com/image/entraycompara-social-preview.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:site_name" content="Entraycompara" />
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image" />
+    <meta property="twitter:title" content="Entraycompara - Save on Your Bills" />
+    <meta property="twitter:description" content="Discover how to save on your electricity, gas, and mobile bills. Upload your bill and Entraycompara offers you a free analysis." />
+    <meta property="twitter:image" content="https://entraycompara.com/image/entraycompara-social-preview.png" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💡</text></svg>">
+    
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              // Apple Design System Palette
+              primary: { 
+                light: '#2997FF', // Apple Blue Light
+                DEFAULT: '#0066CC', // Apple Blue
+                dark: '#004499',   
+              },
+              secondary: { 
+                light: '#86868b', // Secondary Text (Gray)
+                DEFAULT: '#1d1d1f', // Apple Black (Headings)
+                dark: '#000000',   
+              },
+              accent: '#2997FF', 
+              background: {
+                DEFAULT: '#FFFFFF',
+                off: '#F5F5F7', // Classic Apple Light Gray Background
+              },
+              slate: { 
+                50: '#fbfbfd', 
+                100: '#f5f5f7', 
+                200: '#e8e8ed',
+                300: '#d2d2d7',
+                400: '#86868b', 
+                500: '#6e6e73',
+                600: '#424245',
+                700: '#1d1d1f', 
+                800: '#121212',
+                900: '#000000',
+              },
+            },
+            fontFamily: {
+              sans: ['"SF Pro Display"', '"SF Pro Text"', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', 'sans-serif'],
+            },
+            borderRadius: {
+              '2xl': '1.25rem',
+              '3xl': '1.5rem',
+              '4xl': '2rem',
+            },
+            boxShadow: {
+              'apple': '0 4px 24px rgba(0, 0, 0, 0.04)',
+              'apple-hover': '0 12px 40px rgba(0, 0, 0, 0.08)',
+            },
+            fontSize: {
+              'xs': ['12px', '16px'],
+              'sm': ['14px', '20px'],
+              'base': ['18px', '26px'], // Increased for Richer Look
+              'lg': ['20px', '29px'],
+              'xl': ['22px', '30px'],
+              '2xl': ['26px', '34px'],
+              '3xl': ['32px', '40px'],
+              '4xl': ['40px', '48px'],
+              '5xl': ['52px', '58px'], // Rich Headlines
+              '6xl': ['64px', '70px'],
+              '7xl': ['72px', '80px'],
+            }
+          }
+        }
+      }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- Structured Data Placeholder - Will be hydrated by React -->
+<script id="website-schema" type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": []
+}
+</script>
+<style>
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Apple-style smooth fade in */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .animate-fadeInUp { animation: fadeIn 1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+
+  /* Subtle pulse */
+  @keyframes pulse-subtle {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+  }
+  .animate-pulse-subtle {
+    animation: pulse-subtle 3s infinite ease-in-out;
+  }
+
+  .initial-hidden { opacity: 0; }
+  
+  /* Custom Focus for accessibility but cleaner */
+  *:focus-visible {
+    outline: 2px solid #0066CC;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Hide scrollbar for cleaner look in horizontal scrolls if any */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+
+  /* Form transitions */
+  .form-element-transition {
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+  }
+  .form-element-hidden {
+    max-height: 0 !important; 
+    opacity: 0 !important;
+    margin-top: 0 !important; 
+    pointer-events: none; 
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-white text-secondary font-sans">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

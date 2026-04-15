@@ -1,0 +1,96 @@
+﻿[
+  {
+    "build": {
+      "images": [
+        "$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA"
+      ],
+      "options": {
+        "logging": "CLOUD_LOGGING_ONLY",
+        "substitutionOption": "ALLOW_LOOSE"
+      },
+      "steps": [
+        {
+          "args": [
+            "build",
+            "--no-cache",
+            "-t",
+            "$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA",
+            ".",
+            "-f",
+            "Dockerfile"
+          ],
+          "id": "Build",
+          "name": "gcr.io/cloud-builders/docker"
+        },
+        {
+          "args": [
+            "push",
+            "$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA"
+          ],
+          "id": "Push",
+          "name": "gcr.io/cloud-builders/docker"
+        },
+        {
+          "args": [
+            "run",
+            "services",
+            "update",
+            "$_SERVICE_NAME",
+            "--platform=managed",
+            "--image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA",
+            "--labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID",
+            "--region=$_DEPLOY_REGION",
+            "--quiet"
+          ],
+          "entrypoint": "gcloud",
+          "id": "Deploy",
+          "name": "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+        }
+      ],
+      "substitutions": {
+        "REPO_NAME": "entraycomparaprod",
+        "_AR_HOSTNAME": "europe-west1-docker.pkg.dev",
+        "_AR_PROJECT_ID": "entraycompara",
+        "_AR_REPOSITORY": "cloud-run-source-deploy",
+        "_DEPLOY_REGION": "europe-west1",
+        "_PLATFORM": "managed",
+        "_SERVICE_NAME": "entraycompara-prod",
+        "_TRIGGER_ID": "77604f38-7fab-4e0c-9cf3-7a94e35b43ff"
+      },
+      "tags": [
+        "gcp-cloud-build-deploy-cloud-run",
+        "gcp-cloud-build-deploy-cloud-run-managed",
+        "entraycompara-prod"
+      ]
+    },
+    "createTime": "2025-11-22T20:21:42.686052359Z",
+    "description": "Build and deploy to Cloud Run service entraycompara-prod on push to \"^main$\"",
+    "github": {
+      "name": "EntraycomparaPROD",
+      "owner": "AlexandrUlyanov",
+      "push": {
+        "branch": "^main$"
+      }
+    },
+    "id": "77604f38-7fab-4e0c-9cf3-7a94e35b43ff",
+    "includeBuildLogs": "INCLUDE_BUILD_LOGS_WITH_STATUS",
+    "name": "rmgpgab-entraycompara-prod-europe-west1-AlexandrUlyanov-Entrxkj",
+    "resourceName": "projects/entraycompara/locations/global/triggers/77604f38-7fab-4e0c-9cf3-7a94e35b43ff",
+    "serviceAccount": "projects/entraycompara/serviceAccounts/910753338248-compute@developer.gserviceaccount.com",
+    "substitutions": {
+      "REPO_NAME": "entraycomparaprod",
+      "_AR_HOSTNAME": "europe-west1-docker.pkg.dev",
+      "_AR_PROJECT_ID": "entraycompara",
+      "_AR_REPOSITORY": "cloud-run-source-deploy",
+      "_DEPLOY_REGION": "europe-west1",
+      "_PLATFORM": "managed",
+      "_SERVICE_NAME": "entraycompara-prod",
+      "_TRIGGER_ID": "77604f38-7fab-4e0c-9cf3-7a94e35b43ff"
+    },
+    "tags": [
+      "gcp-cloud-build-deploy-cloud-run",
+      "gcp-cloud-build-deploy-cloud-run-managed",
+      "entraycompara-prod"
+    ]
+  }
+]

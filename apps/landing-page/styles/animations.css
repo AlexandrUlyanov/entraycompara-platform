@@ -1,0 +1,145 @@
+
+@keyframes pulse-subtle {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.3); }
+  50% { transform: scale(1.03); box-shadow: 0 0 10px 5px rgba(56, 189, 248, 0.1); }
+}
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s infinite ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeIn { animation: fadeIn 1s ease-out forwards; }
+.fade-in { animation: fadeIn 0.5s ease forwards; }
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeInUp { animation: fadeInUp 0.8s ease-out forwards; }
+
+/* Initial state for animations */
+.initial-hidden { opacity: 0; }
+
+/* Gradient Blobs Animation */
+@keyframes blob {
+  0% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(30px, -50px) scale(1.1); }
+  66% { transform: translate(-20px, 20px) scale(0.9); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+.animate-blob {
+  animation: blob 20s infinite;
+}
+
+/* Rising Particles (Savings Flow) */
+@keyframes floatUp {
+  0% {
+    transform: translateY(100vh) scale(0.5);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.6;
+  }
+  90% {
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(-10vh) scale(1.2);
+    opacity: 0;
+  }
+}
+
+.particle {
+  position: absolute;
+  bottom: -20px;
+  border-radius: 50%;
+  opacity: 0;
+  animation: floatUp linear infinite;
+}
+
+/* Typewriter Cursor */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.typewriter-cursor::after {
+  content: '|';
+  animation: blink 1s step-end infinite;
+  color: #0066CC;
+  margin-left: 2px;
+}
+
+/* Smooth Transitions */
+.transition-all-300 {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Glassmorphism Utilities */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* Form transitions */
+.form-element-transition {
+  transition: max-height 0.4s ease-in-out, opacity 0.3s ease-in-out, margin-top 0.4s ease-in-out;
+  overflow: hidden;
+}
+.form-element-hidden {
+  max-height: 0 !important; 
+  opacity: 0 !important;
+  margin-top: 0 !important; 
+  pointer-events: none; 
+}
+
+/* Focus styles */
+*:focus-visible {
+  outline: 3px solid #0066CC;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Logo Golden Cycle Animation */
+@keyframes gold-cycle {
+  0%, 100% {
+    color: #1d1d1f; /* Base Dark Apple Color */
+    text-shadow: none;
+    transform: scale(1);
+  }
+  10%, 40% {
+    color: #D4AF37; /* Noble Gold */
+    text-shadow: 0 0 12px rgba(212, 175, 55, 0.6); /* Golden Glow */
+  }
+}
+
+.animate-gold-cycle {
+  animation: gold-cycle 4s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* New: Dropzone Border Breathe */
+@keyframes border-breathe {
+  0%, 100% { border-color: #e2e8f0; background-color: rgba(255, 255, 255, 1); }
+  50% { border-color: #3b82f6; background-color: rgba(239, 246, 255, 0.3); } /* blue-500, blue-50 */
+}
+.animate-border-breathe {
+  animation: border-breathe 4s infinite ease-in-out;
+}
+
+/* New: CTA Button Attention Pulse */
+@keyframes cta-attention {
+  0%, 100% { 
+    transform: scale(1); 
+    box-shadow: 0 4px 6px -1px rgba(0, 102, 204, 0.1), 0 2px 4px -1px rgba(0, 102, 204, 0.06);
+  }
+  50% { 
+    transform: scale(1.05); 
+    box-shadow: 0 10px 15px -3px rgba(0, 102, 204, 0.3), 0 4px 6px -2px rgba(0, 102, 204, 0.1); 
+  }
+}
+.animate-cta-attention {
+  animation: cta-attention 2.5s infinite ease-in-out;
+}

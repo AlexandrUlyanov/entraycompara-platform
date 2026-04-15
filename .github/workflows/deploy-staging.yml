@@ -6,8 +6,7 @@ on:
 
 env:
   PROJECT_ID: entraycompara
-  REGION_BACKEND: europe-west1
-  REGION_FRONTEND: us-west1
+  REGION: europe-west1
 
 jobs:
   deploy-backend:
@@ -38,7 +37,7 @@ jobs:
         run: |
           gcloud run deploy backend-upload-service-staging \
             --project=${{ env.PROJECT_ID }} \
-            --region=${{ env.REGION_BACKEND }} \
+            --region=${{ env.REGION }} \
             --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service-staging:latest \
             --platform=managed \
             --allow-unauthenticated \
@@ -75,7 +74,7 @@ jobs:
         run: |
           gcloud run deploy entraycompara-landing-page-staging \
             --project=${{ env.PROJECT_ID }} \
-            --region=${{ env.REGION_FRONTEND }} \
+            --region=${{ env.REGION }} \
             --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-staging:latest \
             --platform=managed \
             --allow-unauthenticated \
@@ -109,7 +108,7 @@ jobs:
         run: |
           gcloud run deploy entraycompara-adminpanel-staging \
             --project=${{ env.PROJECT_ID }} \
-            --region=${{ env.REGION_FRONTEND }} \
+            --region=${{ env.REGION }} \
             --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel-staging:latest \
             --platform=managed \
             --allow-unauthenticated \

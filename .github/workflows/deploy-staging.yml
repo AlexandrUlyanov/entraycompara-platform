@@ -1,0 +1,136 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [main]
+
+env:
+  PROJECT_ID: entraycompara
+  REGION_BACKEND: europe-west1
+  REGION_FRONTEND: us-west1
+  BACKEND_STAGING_URL: https://backend-upload-service-staging-910753338248.europe-west1.run.app
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Build and push backend image
+        run: |
+          gcloud builds submit \
+            --config=- \
+            --substitutions=_IMAGE_NAME=backend-upload-service-staging \
+            apps/backend-upload-service <<'EOF'
+          steps:
+            - name: gcr.io/cloud-builders/docker
+              args:
+                - build
+                - -t
+                - europe-west1-docker.pkg.dev/${_PROJECT_ID}/cloud-run-source-deploy/${_IMAGE_NAME}:latest
+                - .
+            - name: gcr.io/cloud-builders/docker
+              args:
+                - push
+                - europe-west1-docker.pkg.dev/${_PROJECT_ID}/cloud-run-source-deploy/${_IMAGE_NAME}:latest
+          images:
+            - europe-west1-docker.pkg.dev/${_PROJECT_ID}/cloud-run-source-deploy/${_IMAGE_NAME}:latest
+          EOF
+        env:
+          _PROJECT_ID: ${{ env.PROJECT_ID }}
+
+      - name: Deploy backend to Cloud Run (staging)
+        run: |
+          gcloud run deploy backend-upload-service-staging \
+            --project=${{ env.PROJECT_ID }} \
+            --region=${{ env.REGION_BACKEND }} \
+            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service-staging:latest \
+            --platform=managed \
+            --allow-unauthenticated \
+            --set-env-vars=GCP_BUCKET_NAME=entraycompara-invoices \
+            --set-secrets="GMAIL_USER=GMAIL_USER:latest,GMAIL_APP_PASSWORD=GMAIL_APP_PASSWORD:latest" \
+            --set-env-vars=OPERATOR_SECRET_KEY=${{ secrets.BACKEND_OPERATOR_SECRET_KEY }} \
+            --service-account=910753338248-compute@developer.gserviceaccount.com \
+            --memory=512Mi --cpu=1 --max-instances=3 --timeout=300
+
+  deploy-landing:
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Replace backend URL with staging
+        run: |
+          sed -i 's|backend-upload-service-910753338248.europe-west1.run.app|backend-upload-service-staging-910753338248.europe-west1.run.app|g' \
+            apps/landing-page/components/FileUploadForm.tsx
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push landing page image
+        run: |
+          gcloud builds submit \
+            apps/landing-page \
+            --tag europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-staging:latest
+
+      - name: Deploy landing page to Cloud Run (staging)
+        run: |
+          gcloud run deploy entraycompara-landing-page-staging \
+            --project=${{ env.PROJECT_ID }} \
+            --region=${{ env.REGION_FRONTEND }} \
+            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-staging:latest \
+            --platform=managed \
+            --allow-unauthenticated \
+            --service-account=910753338248-compute@developer.gserviceaccount.com \
+            --memory=512Mi --cpu=1 --max-instances=3 --timeout=300 --port=3000
+
+  deploy-admin:
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Replace backend URL with staging
+        run: |
+          sed -i 's|backend-upload-service-910753338248.europe-west1.run.app|backend-upload-service-staging-910753338248.europe-west1.run.app|g' \
+            apps/admin-panel/services/api.ts
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push admin panel image
+        run: |
+          gcloud builds submit \
+            apps/admin-panel \
+            --tag europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel-staging:latest
+
+      - name: Deploy admin panel to Cloud Run (staging)
+        run: |
+          gcloud run deploy entraycompara-adminpanel-staging \
+            --project=${{ env.PROJECT_ID }} \
+            --region=${{ env.REGION_FRONTEND }} \
+            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel-staging:latest \
+            --platform=managed \
+            --allow-unauthenticated \
+            --service-account=910753338248-compute@developer.gserviceaccount.com \
+            --memory=512Mi --cpu=1 --max-instances=3 --timeout=300 --port=3000

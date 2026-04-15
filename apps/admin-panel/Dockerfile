@@ -10,12 +10,12 @@ RUN echo "GEMINI_API_KEY=PLACEHOLDER" >> ./.env
 
 # Install server dependencies
 WORKDIR /app/server
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Install dependencies and build the frontend
 WORKDIR /app
 RUN mkdir dist
-RUN bash -c 'if [ -f package.json ]; then npm install && npm run build; fi'
+RUN bash -c 'if [ -f package.json ]; then npm install --legacy-peer-deps && npm run build; fi'
 
 
 # Stage 2: Build the final server image

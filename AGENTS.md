@@ -14,11 +14,11 @@
 
 ### Архитектура деплоя
 
-| Сервис | Продакшен URL | Staging URL | Технология |
-|--------|---------------|-------------|------------|
-| Landing | `entraycompara-landing-page-prod` (us-west1) | `entraycompara-landing-page-staging` (europe-west1) | React + Express |
-| Admin | `entraycompara-adminpanel` (us-west1) | `entraycompara-adminpanel-staging` (europe-west1) | React + Express |
-| Backend | `backend-upload-service` (europe-west1) | `backend-upload-service-staging` (europe-west1) | Python/FastAPI |
+| Сервис | Продакшен URL | Staging URL | Домен | Технология |
+|--------|---------------|-------------|-------|------------|
+| Landing | `entraycompara-landing-page-prod` (us-west1) | `entraycompara-landing-page-staging` (europe-west1) | `https://entraycompara.com` | React + Express |
+| Admin | `entraycompara-adminpanel` (us-west1) | `entraycompara-adminpanel-staging` (europe-west1) | `https://crm.entraycompara.com` | React + Express |
+| Backend | `backend-upload-service` (europe-west1) | `backend-upload-service-staging` (europe-west1) | — | Python/FastAPI |
 
 **База данных**: Firestore Native (коллекция `applications`)
 **Хранилище файлов**: GCS bucket `entraycompara-invoices`
@@ -245,14 +245,14 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 
 ### Cloud Run сервисы
 
-| Сервис | Регион | Тип трафика | SA |
-|--------|--------|-------------|-----|
-| `backend-upload-service` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com |
-| `entraycompara-landing-page-prod` | us-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com |
-| `entraycompara-adminpanel` | us-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com |
-| `backend-upload-service-staging` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com |
-| `entraycompara-landing-page-staging` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com |
-| `entraycompara-adminpanel-staging` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com |
+| Сервис | Регион | Тип трафика | SA | Домен |
+|--------|--------|-------------|-----|-------|
+| `backend-upload-service` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | — |
+| `entraycompara-landing-page-prod` | us-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | — |
+| `entraycompara-adminpanel` | us-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | — |
+| `backend-upload-service-staging` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | — |
+| `entraycompara-landing-page-staging` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | `entraycompara.com` |
+| `entraycompara-adminpanel-staging` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | `crm.entraycompara.com` |
 
 ### Firestore
 

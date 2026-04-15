@@ -1,21 +1,73 @@
-# AI Studio Gemini App Proxy Server
+# Entraycompara Admin Panel (CRM)
 
-This nodejs proxy server lets you run your AI Studio Gemini application unmodified, without exposing your API key in the frontend code.
+Внутренняя CRM-система для операторов: просмотр заявок, Kanban-доска, таймлайн коммуникаций, управление статусами.
 
+## Стек
 
-## Instructions
+- React 19
+- TypeScript
+- Vite
+- `@hello-pangea/dnd` (drag-and-drop Kanban)
+- `i18next` (локализация)
+- Express (статический сервер в продакшене)
 
-**Prerequisites**:
-- [Google Cloud SDK / gcloud CLI](https://cloud.google.com/sdk/docs/install)
-- (Optional) Gemini API Key
+## Структура
 
-1. Download or copy the files of your AI Studio app into this directory at the root level.
-2. If your app calls the Gemini API, create a Secret for your API key:
-     ```
-     echo -n "${GEMINI_API_KEY}" | gcloud secrets create gemini_api_key --data-file=-
-     ```
+```
+admin-panel/
+├── compiled/           # ← Продакшен-ассеты (выгружены из GCS)
+├── components/         # React-компоненты
+├── services/           # API-клиент (api.ts)
+├── server/             # Express-сервер для продакшена
+├── App.tsx             # Корневой компонент
+├── types.ts            # TypeScript-типы
+├── Dockerfile          # Образ для Cloud Run
+└── README.md           # Этот файл
+```
 
-3.  Deploy to Cloud Run (optionally including API key):
-    ```
-    gcloud run deploy my-app --source=. --update-secrets=GEMINI_API_KEY=gemini_api_key:latest
-    ```
+## Локальная разработка
+
+```bash
+npm install --legacy-peer-deps
+npm run dev
+```
+
+Приложение запустится на `http://localhost:5173`.
+
+## Как внести изменения
+
+1. Отредактируй компоненты в `components/` или типы в `types.ts`
+2. Собери проект:
+   ```bash
+   npm run build
+   ```
+3. Скопируй результат сборки в `compiled/`:
+   ```bash
+   cp -r dist/* compiled/
+   ```
+4. Убедись, что `compiled/index.html` увеличился в размере (~125 KB)
+5. Commit и push
+6. Дождись автодеплоя в staging
+
+## Важный нюанс: `compiled/`
+
+Папка `compiled/` содержит **финальную сборку**, которая раздаётся в Cloud Run. Docker-образ берёт готовые файлы из `compiled/`, а не собирает проект заново.
+
+## API
+
+CRM обращается к бэкенду через `services/api.ts`:
+- `GET /api/applications` — список заявок
+- `GET /api/applications/{id}` — детали заявки
+- `PUT /api/applications/{id}/status` — изменение статуса
+- `GET /api/applications/{id}/timeline` — таймлайн событий
+- `POST /api/generate-signed-url` — подписанная ссылка на файл
+
+Авторизация операторов — через Bearer-токен (`OPERATOR_SECRET_KEY`).
+
+## Деплой
+
+- **Staging**: `https://entraycompara-adminpanel-staging-910753338248.europe-west1.run.app`
+- **Production**: `entraycompara-adminpanel` (us-west1)
+- **Домен**: `https://crm.entraycompara.com` (в данный момент указывает на staging)
+
+Автодеплой настроен через GitHub Actions (`.github/workflows/deploy-staging.yml`).

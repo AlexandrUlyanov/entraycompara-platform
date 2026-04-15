@@ -1,33 +1,16 @@
-# Stage 1: Build the frontend, and install server dependencies
-FROM node:22 AS builder
+FROM nginx:alpine
 
-WORKDIR /app
+# Copy compiled production assets (identical to GCS compiled/)
+COPY compiled/ /usr/share/nginx/html/
 
-# Copy all files from the current directory
-COPY . ./
-RUN echo "API_KEY=PLACEHOLDER" > ./.env
-RUN echo "GEMINI_API_KEY=PLACEHOLDER" >> ./.env
-
-# Install server dependencies
-WORKDIR /app/server
-RUN npm install
-
-# Install dependencies and build the frontend
-WORKDIR /app
-RUN mkdir dist
-RUN bash -c 'if [ -f package.json ]; then npm install && npm run build; fi'
-
-
-# Stage 2: Build the final server image
-FROM node:22
-
-WORKDIR /app
-
-#Copy server files
-COPY --from=builder /app/server .
-# Copy built frontend assets from the builder stage
-COPY --from=builder /app/dist ./dist
+# Copy nginx config if exists, otherwise use default
+COPY nginx.conf /etc/nginx/conf.d/default.conf 2>/dev/null || true
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+# Nginx default listens on 80, we remap to 3000 via nginx.conf or env
+# Since Cloud Run expects port 3000, we modify default.conf
+RUN sed -i 's/listen       80;/listen       3000;/g' /etc/nginx/conf.d/default.conf || \
+    echo 'server { listen 3000; location / { root /usr/share/nginx/html; index index.html; try_files $uri $uri/ /index.html; } }' > /etc/nginx/conf.d/default.conf
+
+CMD ["nginx", "-g", "daemon off;"]

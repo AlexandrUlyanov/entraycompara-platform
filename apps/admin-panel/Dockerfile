@@ -1,33 +1,11 @@
-# Stage 1: Build the frontend, and install server dependencies
-FROM node:22 AS builder
+FROM nginx:alpine
 
-WORKDIR /app
-
-# Copy all files from the current directory
-COPY . ./
-RUN echo "API_KEY=PLACEHOLDER" > ./.env
-RUN echo "GEMINI_API_KEY=PLACEHOLDER" >> ./.env
-
-# Install server dependencies
-WORKDIR /app/server
-RUN npm install --legacy-peer-deps
-
-# Install dependencies and build the frontend
-WORKDIR /app
-RUN mkdir dist
-RUN bash -c 'if [ -f package.json ]; then npm install --legacy-peer-deps && npm run build; fi'
-
-
-# Stage 2: Build the final server image
-FROM node:22
-
-WORKDIR /app
-
-#Copy server files
-COPY --from=builder /app/server .
-# Copy built frontend assets from the builder stage
-COPY --from=builder /app/dist ./dist
+# Copy compiled production assets (identical to GCS compiled/)
+COPY compiled/ /usr/share/nginx/html/
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+# Configure nginx to listen on port 3000 for Cloud Run
+RUN echo 'server { listen 3000; location / { root /usr/share/nginx/html; index index.html; try_files $uri $uri/ /index.html; } }' > /etc/nginx/conf.d/default.conf
+
+CMD ["nginx", "-g", "daemon off;"]

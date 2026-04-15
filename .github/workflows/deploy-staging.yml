@@ -8,7 +8,6 @@ env:
   PROJECT_ID: entraycompara
   REGION_BACKEND: europe-west1
   REGION_FRONTEND: us-west1
-  BACKEND_STAGING_URL: https://backend-upload-service-staging-910753338248.europe-west1.run.app
 
 jobs:
   deploy-backend:
@@ -55,11 +54,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Replace backend URL with staging
-        run: |
-          sed -i 's|backend-upload-service-910753338248.europe-west1.run.app|backend-upload-service-staging-910753338248.europe-west1.run.app|g' \
-            apps/landing-page/components/FileUploadForm.tsx
-
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -93,11 +87,6 @@ jobs:
     needs: deploy-backend
     steps:
       - uses: actions/checkout@v4
-
-      - name: Replace backend URL with staging
-        run: |
-          sed -i 's|backend-upload-service-910753338248.europe-west1.run.app|backend-upload-service-staging-910753338248.europe-west1.run.app|g' \
-            apps/admin-panel/services/api.ts
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2

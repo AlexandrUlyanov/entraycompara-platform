@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "types": [
+      // ИСПРАВЛЕНИЕ: Удалена строка "node".
+      // В Vite/React фронтенд-проектах типы Node.js часто не нужны 
+      // и вызывают ошибку при сборке в контейнере, если не установлены.
+      // Если вам нужны типы vite/client, их можно добавить сюда:
+      // "vite/client" 
+    ],
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  }
+}

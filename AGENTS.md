@@ -167,6 +167,7 @@ feature/*  →  dev  →  staging
 5. Сборка и пуш Docker-образа admin
 6. Деплой admin в `entraycompara-adminpanel-staging` (europe-west1) — на этом сервисе висят домены
 
+
 ### GitHub Secrets
 - `GCP_SA_KEY` — JSON-ключ сервисного аккаунта `github-actions@entraycompara.iam.gserviceaccount.com`
 - `BACKEND_OPERATOR_SECRET_KEY` — секретный ключ для авторизации операторов в API

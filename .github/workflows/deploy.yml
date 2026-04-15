@@ -1,14 +1,12 @@
-name: Deploy to Production
+name: Deploy
 
 on:
   push:
-    branches: [prod]
-  workflow_dispatch:
+    branches: [staging]
 
 env:
   PROJECT_ID: entraycompara
-  REGION_BACKEND: europe-west1
-  REGION_FRONTEND: us-west1
+  REGION: europe-west1
 
 jobs:
   deploy-backend:
@@ -31,21 +29,24 @@ jobs:
 
       - name: Build and push backend image
         run: |
-          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service:latest
+          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service-staging:latest
           docker build -t $IMAGE apps/backend-upload-service
           docker push $IMAGE
 
-      - name: Deploy backend to Cloud Run (production)
+      - name: Deploy backend to Cloud Run (staging)
         run: |
-          gcloud run deploy backend-upload-service \
+          gcloud run deploy backend-upload-service-staging \
             --project=${{ env.PROJECT_ID }} \
-            --region=${{ env.REGION_BACKEND }} \
-            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service:latest \
+            --region=${{ env.REGION }} \
+            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service-staging:latest \
             --platform=managed \
             --allow-unauthenticated \
             --set-env-vars=GCP_BUCKET_NAME=entraycompara-invoices \
             --set-secrets="GMAIL_USER=GMAIL_USER:latest,GMAIL_APP_PASSWORD=GMAIL_APP_PASSWORD:latest" \
             --set-env-vars=OPERATOR_SECRET_KEY=${{ secrets.BACKEND_OPERATOR_SECRET_KEY }} \
+            --set-env-vars=WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }} \
+            --set-env-vars=WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }} \
+            --set-env-vars=WHATSAPP_VERIFY_TOKEN=${{ secrets.WHATSAPP_VERIFY_TOKEN }} \
             --service-account=910753338248-compute@developer.gserviceaccount.com \
             --memory=512Mi --cpu=1 --max-instances=3 --timeout=300
 
@@ -68,16 +69,16 @@ jobs:
 
       - name: Build and push landing page image
         run: |
-          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-prod:latest
+          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-staging:latest
           docker build -t $IMAGE apps/landing-page
           docker push $IMAGE
 
-      - name: Deploy landing page to Cloud Run (production)
+      - name: Deploy landing page to Cloud Run (staging)
         run: |
-          gcloud run deploy entraycompara-landing-page-prod \
+          gcloud run deploy entraycompara-landing-page-staging \
             --project=${{ env.PROJECT_ID }} \
-            --region=${{ env.REGION_FRONTEND }} \
-            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-prod:latest \
+            --region=${{ env.REGION }} \
+            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-staging:latest \
             --platform=managed \
             --allow-unauthenticated \
             --service-account=910753338248-compute@developer.gserviceaccount.com \
@@ -102,16 +103,16 @@ jobs:
 
       - name: Build and push admin panel image
         run: |
-          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel:latest
+          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel-staging:latest
           docker build -t $IMAGE apps/admin-panel
           docker push $IMAGE
 
-      - name: Deploy admin panel to Cloud Run (production)
+      - name: Deploy admin panel to Cloud Run (staging)
         run: |
-          gcloud run deploy entraycompara-adminpanel \
+          gcloud run deploy entraycompara-adminpanel-staging \
             --project=${{ env.PROJECT_ID }} \
-            --region=${{ env.REGION_FRONTEND }} \
-            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel:latest \
+            --region=${{ env.REGION }} \
+            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel-staging:latest \
             --platform=managed \
             --allow-unauthenticated \
             --service-account=910753338248-compute@developer.gserviceaccount.com \

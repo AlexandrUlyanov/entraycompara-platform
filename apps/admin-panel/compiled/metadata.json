@@ -1,5 +1,0 @@
-{
-  "name": "Entraycompara AdminPanel",
-  "description": "An internal admin panel for operators to view, filter, search, and manage customer applications from a Firestore database via a backend API.",
-  "requestFramePermissions": []
-}

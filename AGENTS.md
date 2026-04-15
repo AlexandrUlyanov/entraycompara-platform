@@ -14,11 +14,11 @@
 
 ### Архитектура деплоя
 
-| Сервис | Продакшен URL | Staging URL | Домен | Технология |
-|--------|---------------|-------------|-------|------------|
-| Landing | `entraycompara-landing-page-prod` (us-west1) | `entraycompara-landing-page-staging` (europe-west1) | `https://entraycompara.com` | React + Express |
-| Admin | `entraycompara-adminpanel` (us-west1) | `entraycompara-adminpanel-staging` (europe-west1) | `https://crm.entraycompara.com` | React + Express |
-| Backend | `backend-upload-service` (europe-west1) | `backend-upload-service-staging` (europe-west1) | — | Python/FastAPI |
+| Сервис | URL | Домен | Технология |
+|--------|-----|-------|------------|
+| Landing | `entraycompara-landing-page-staging` (europe-west1) | `https://entraycompara.com` | React + Express |
+| Admin | `entraycompara-adminpanel-staging` (europe-west1) | `https://crm.entraycompara.com` | React + Express |
+| Backend | `backend-upload-service-staging` (europe-west1) | — | Python/FastAPI |
 
 **База данных**: Firestore Native (коллекция `applications`)
 **Хранилище файлов**: GCS bucket `entraycompara-invoices`
@@ -53,8 +53,7 @@ entraycompara-platform/
 │   ├── cloud-run-configs/         # JSON-дампы конфигураций Cloud Run
 │   └── cloud-build-triggers.json  # Старые триггеры
 ├── .github/workflows/
-│   ├── deploy-staging.yml         # Автодеплой в staging
-│   └── deploy-production.yml      # Ручной деплой в продакшен
+│   └── deploy.yml                 # Автодеплой в единственное окружение
 └── README.md
 ```
 
@@ -147,19 +146,18 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 
 ## 4. CI/CD процесс & Git Flow
 
-Мы работаем по **Git Flow** с тремя основными ветками:
+Мы работаем по упрощённому **Git Flow** с двумя основными ветками:
 
 ```
-feature/*  →  dev  →  staging  →  prod
+feature/*  →  dev  →  staging
 ```
 
 | Ветка | Назначение | Деплой |
 |-------|------------|--------|
 | `dev` | Разработка. Отсюда создаются `feature/*` ветки. | Нет |
-| `staging` | Pre-production / QA. На эту ветку автодеплоится staging. | Auto → `*-staging` (europe-west1) |
-| `prod` | Production. Стабильный код. | Auto на push + Manual (`workflow_dispatch`) → `*` / `*-prod` |
+| `staging` | Основное окружение. На неё автодеплоится код, к ней привязаны домены. | Auto → `*-staging` (europe-west1) |
 
-### Staging деплой (`deploy-staging.yml`)
+### Деплой (`deploy.yml`)
 **Триггер**: push в `staging`
 **Что происходит**:
 1. Сборка и пуш Docker-образа backend
@@ -169,17 +167,13 @@ feature/*  →  dev  →  staging  →  prod
 5. Сборка и пуш Docker-образа admin
 6. Деплой admin в `entraycompara-adminpanel-staging` (europe-west1) — на этом сервисе висят домены
 
-### Production деплой (`deploy-production.yml`)
-**Триггер**: push в `prod` или ручной запуск (`workflow_dispatch`)
-**Что происходит**:
-- Те же шаги, но в продакшен-сервисы:
-  - `backend-upload-service`
-  - `entraycompara-landing-page-prod`
-  - `entraycompara-adminpanel`
 
 ### GitHub Secrets
 - `GCP_SA_KEY` — JSON-ключ сервисного аккаунта `github-actions@entraycompara.iam.gserviceaccount.com`
 - `BACKEND_OPERATOR_SECRET_KEY` — секретный ключ для авторизации операторов в API
+- `WHATSAPP_PHONE_NUMBER_ID` — ID номера телефона в WhatsApp Business API
+- `WHATSAPP_ACCESS_TOKEN` — Access Token для Meta Graph API
+- `WHATSAPP_VERIFY_TOKEN` — Verify Token для верификации webhook'ов Meta
 
 ---
 
@@ -192,12 +186,10 @@ feature/*  →  dev  →  staging  →  prod
 3. **Внеси изменения локально**
 4. **Для фронтендов**: обязательно обнови `compiled/`
 5. **Замерджи в `dev`, затем в `staging`**
-6. **Проверь staging** (автодеплой запустится после push в `staging`)
-7. **Убедись, что всё работает на staging URL'ах**
-8. **Только потом** создавай PR / мердж `staging → prod` (или запускай `Deploy to Production` вручную)
+6. **Проверь** (автодеплой запустится после push в `staging`)
+7. **Убедись, что всё работает на доменах** `entraycompara.com` / `crm.entraycompara.com`
 
 ### Что НЕЛЬЗЯ делать без разрешения пользователя:
-- Запускать production-деплой
 - Менять IAM-политики в GCP
 - Удалять Cloud Run сервисы
 - Менять структуру Firestore (имена коллекций, формат документов)
@@ -219,11 +211,22 @@ feature/*  →  dev  →  staging  →  prod
 - `PUT /api/applications/{id}/status` — смена статуса
 - `GET /api/applications/{id}/timeline` — таймлайн событий
 - `POST /api/generate-signed-url` — подписанная ссылка на файл из GCS
+- `POST /api/whatsapp/send` — отправка сообщения клиенту через WhatsApp
+- `GET /api/whatsapp/webhook` — верификация webhook от Meta
+- `POST /api/whatsapp/webhook` — получение входящих сообщений от Meta
 - `GET /docs` — Swagger UI
 
 **Авторизация операторов**: Bearer-токен, сверяется с `OPERATOR_SECRET_KEY`
 
 **Email-уведомления**: Отправка через Gmail SMTP (`ulyanov.ht@gmail.com`) при создании заявки
+
+**WhatsApp Business API**:
+- Исходящие сообщения отправляются через `POST /api/whatsapp/send`
+- Входящие сообщения принимаются на `POST /api/whatsapp/webhook`
+- Webhook URL для настройки в Meta: `https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api/whatsapp/webhook`
+- Сообщения автоматически привязываются к заявке по номеру телефона клиента
+- В Timeline сохраняется `direction: incoming/outgoing` и `created_by: Client/Operator`
+- Для поиска заявки используется нормализация номера (только цифры)
 
 **CORS**: Разрешены `*`, `http://localhost:3000`, `https://entraycompara.com`, `https://www.entraycompara.com`
 
@@ -238,6 +241,11 @@ feature/*  →  dev  →  staging  →  prod
 - `Timeline.tsx` — таймлайн коммуникаций
 - `Auth.tsx` — простая авторизация по секретному ключу
 - `services/api.ts` — HTTP-клиент к бэкенду
+
+**WhatsApp в CRM**:
+- В `Timeline.tsx` сообщения WhatsApp отображаются в виде chat bubbles (входящие слева, исходящие справа)
+- Оператор может отправить сообщение, выбрав тип **WhatsApp** в форме Timeline
+- Добавлена кнопка **Email** для создания email-заметок
 
 **Важно**: В `compiled/index.html` нет разделения на страницы — это SPA с хэш-роутингом (`#/`).
 

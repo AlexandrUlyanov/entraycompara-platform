@@ -1,0 +1,292 @@
+
+{
+  "app": {
+    "loading": "Cargando..."
+  },
+  "header": {
+    "nav_home": "Inicio",
+    "nav_analysis": "Análisis",
+    "nav_faq": "Preguntas",
+    "nav_guide": "Guía",
+    "nav_activity": "Actividad",
+    "logo_and": "y",
+    "aria_go_home": "Entraycompara — Ir al inicio",
+    "aria_close_menu": "Cerrar menú",
+    "aria_open_menu": "Abrir menú"
+  },
+  "languageSelector": {
+    "es": "Español",
+    "ru": "Ruso",
+    "uk": "Ucraniano",
+    "eu": "Euskera"
+  },
+  "hero": {
+    "title_part1": "Sube tu factura — analizamos todo y buscamos",
+    "title_part2": "el mejor precio para ti.",
+    "badge_text": "Descubre tu ahorro real en minutos",
+    "benefit1": "Análisis personalizado — 100% gratuito.",
+    "benefit2": "Foto o PDF. Nosotros nos encargamos del resto.",
+    "benefit3": "Muchos usuarios reducen costes hasta un 50%*.",
+    "form_button_text": "Solicitar análisis gratuito",
+    "form_title": "Sube tu factura"
+  },
+  "problemSolution": {
+    "title": "¿Por qué pagas más de lo necesario?",
+    "problem_title": "El problema",
+    "problem_desc": "Las tarifas esconden condiciones, cambios de precio o estructuras difíciles de entender sin experiencia.",
+    "solution_title": "La solución",
+    "solution_desc": "En Entraycompara analizamos tu factura, explicamos cada concepto y buscamos una tarifa más eficiente — solo si encaja con tu perfil."
+  },
+  "howItWorks": {
+    "title": "Cómo funciona Entraycompara",
+    "subtitle": "Transparente. Rápido. Sencillo.",
+    "step1_title": "1. Sube tu factura",
+    "step1_desc": "Foto o PDF. Tus datos se cifran de forma segura.",
+    "step2_title": "2. Revisamos tu consumo",
+    "step2_desc": "Comparamos tu tarifa actual con ofertas de más de 40 compañías en España.",
+    "step3_title": "3. Recibes tu informe",
+    "step3_desc": "Te enviamos tu estimación de ahorro. Si quieres cambiar, gestionamos todo sin coste."
+  },
+  "benefits": {
+    "title": "Por qué millones de usuarios eligen comparar",
+    "b1_title": "Ahorro calculado para tu perfil real",
+    "b1_desc": "Nuestros usuarios ahorran de media hasta 300 €/año al optimizar su tarifa.*",
+    "b2_title": "Protección ante subidas inesperadas",
+    "b2_desc": "Si tu tarifa deja de ser competitiva, te avisamos antes de que pagues de más.",
+    "b3_title": "Sin obras ni visitas técnicas",
+    "b3_desc": "No se cambia el contador, no se corta la luz. Solo un trámite administrativo.",
+    "b4_title": "Servicio gratuito",
+    "b4_desc": "El análisis es gratis. Si eliges un nuevo plan, la comercializadora puede pagar una comisión sin aumentar tu precio."
+  },
+  "whyUs": {
+    "title": "Transparencia & confianza",
+    "reason1_title": "Siempre gratuito",
+    "reason1_desc": "Sin cargos ocultos ni compromisos.",
+    "reason2_title": "Análisis personalizado",
+    "reason2_desc": "Nos basamos en tus datos reales, no en medias generales.",
+    "reason3_title": "Acompañamiento completo",
+    "reason3_desc": "Gestionamos documentación, trámites y el cambio de tarifa.",
+    "reason4_title": "Protección GDPR",
+    "reason4_desc": "Cumplimos el RGPD. Tus datos no se venden ni se comparten sin tu consentimiento.",
+    "cta": "Analizar mi factura"
+  },
+  "targetAudience": {
+    "title": "Ideal para",
+    "t1_title": "Familias",
+    "t1_desc": "Reduce tus gastos mensuales sin esfuerzo.",
+    "t2_title": "Empresas y autónomos",
+    "t2_desc": "Optimiza costes y mejora la rentabilidad.",
+    "t3_title": "Personas mayores",
+    "t3_desc": "Informe claro, sin tecnicismos ni letra pequeña."
+  },
+  "fileUploadForm": {
+    "main_title": "Sube tu factura",
+    "dropzone_title": "Arrastra aquí o haz clic",
+    "dropzone_files_selected": "Archivos: ({{count}}).",
+    "dropzone_select_files": "Seleccionar archivo",
+    "dropzone_supported_formats": "Formatos: PDF, JPG, PNG.",
+    "selected_files_title": "Archivos seleccionados:",
+    "remove_file_aria": "Eliminar {fileName}",
+    "name_label": "Nombre",
+    "name_placeholder": "Tu nombre",
+    "phone_label": "Teléfono",
+    "phone_placeholder": "600 123 123",
+    "phone_title": "Número español (9 dígitos)",
+    "whatsapp_checkbox_label": "Recibir el informe por WhatsApp",
+    "email_label": "Email (opcional)",
+    "submit_button_text": "SOLICITAR ANÁLISIS",
+    "submit_button_text_alt": "Elegir archivo",
+    "submit_button_text_ready": "Enviar",
+    "submit_button_processing": "Enviando...",
+    "whatsapp_cta_prefer": "¿Prefieres contacto directo?",
+    "whatsapp_cta_button": "Enviar factura por WhatsApp",
+    "whatsapp_cta_subtext": "Respuesta prioritaria",
+    "whatsapp_aria_label": "Escribir por WhatsApp",
+    "whatsapp_default_message": "Hola, quiero enviar mi factura para un análisis de ahorro gratuito.",
+    "error_no_file": "Adjunta al menos un archivo.",
+    "error_name_required": "Introduce tu nombre.",
+    "error_phone_required": "Necesitamos tu número.",
+    "error_invalid_phone": "El número no es válido.",
+    "error_no_email": "Introduce un email válido.",
+    "error_file_too_large": "El archivo \"{fileName}\" supera el límite (10MB).",
+    "error_network": "Error de red.",
+    "error_server": "Error del servidor: {status}.",
+    "error_timeout": "Tiempo de espera agotado.",
+    "error_generic": "Ha ocurrido un error.",
+    "status_processing": "Procesando tus datos de forma segura...",
+    "success_message": "¡Listo! Nuestro equipo ya está revisando tu caso.",
+    "success_message_phone": "Te contactaremos en breve.",
+    "manager_name": "María (Soporte)",
+    "manager_status": "En línea"
+  },
+  "services": {
+    "electricity": "Luz",
+    "gas": "Gas",
+    "phone": "Móvil",
+    "internet": "Internet"
+  },
+  "testimonials": [
+    { "text": "Ahora sí entiendo mi factura. Muchas gracias.", "author": "Ana, Sevilla" },
+    { "text": "Pensaba que tenía buen precio, pero encontraron algo mejor.", "author": "Juan P., Madrid" },
+    { "text": "Me ahorraron mucho tiempo y dinero. Gestión impecable.", "author": "María G., Barcelona" },
+    { "text": "Dudaba, pero el ahorro fue real.", "author": "Carlos R., Valencia" },
+    { "text": "Rápido, claro y gratuito. Muy recomendable.", "author": "Luis M., Zaragoza" }
+  ],
+  "testimonialSlider": {
+    "avatar_alt": "Foto de {name}"
+  },
+  "faq": {
+    "title": "Preguntas frecuentes",
+    "subtitle": "Lo esencial, explicado claro.",
+    "q1": "¿Por qué es gratuito?",
+    "a1": "Para ti es gratis. Si decides cambiar de tarifa, el proveedor puede pagarnos una comisión sin afectar tu precio final.",
+    "q2": "¿Mis datos están seguros?",
+    "a2": "Sí. Usamos cifrado de nivel bancario y almacenamos solo lo necesario para tu análisis.",
+    "q3": "¿Cortarán la luz al cambiar de compañía?",
+    "a3": "No. Es un trámite administrativo: sin cortes ni visitas técnicas.",
+    "q4": "¿Pasa algo si no acepto la propuesta?",
+    "a4": "Nada. El análisis es sin compromiso.",
+    "q5": "¿Trabajáis en toda España?",
+    "a5": "Sí, en toda la península e islas."
+  },
+  "finalCta": {
+    "button_mobile": "Solicitar análisis",
+    "button_desktop": "Solicitar análisis gratuito"
+  },
+  "footer": {
+    "company_name": "Sobre Entraycompara",
+    "company_description": "Servicio independiente de análisis y optimización de facturas. Te ayudamos a entender tu tarifa y pagar solo lo justo.",
+    "quick_links_title": "Menú",
+    "link_home": "Inicio",
+    "link_analysis": "Análisis",
+    "link_faq": "Preguntas",
+    "link_guide": "Guía PDF",
+    "contact_title": "Contacto",
+    "contact_email": "Email:",
+    "contact_phone": "Teléfono:",
+    "contact_phone_example": "(L–V 9:00–18:00)",
+    "aria_facebook": "Facebook",
+    "aria_instagram": "Instagram",
+    "aria_tiktok": "TikTok",
+    "copyright": "© {{year}} Entraycompara. Todos los derechos reservados.",
+    "privacy_policy": "Privacidad",
+    "terms_conditions": "Términos"
+  },
+  "liveRequests": {
+    "title": "Envíos en tiempo real",
+    "subtitle": "Usuarios desde toda España envían sus facturas ahora mismo.",
+    "monthly_requests": "Solicitudes este mes",
+    "last_request": "Último análisis",
+    "history_title": "Actividad reciente:",
+    "request_received": "Nueva solicitud",
+    "no_requests": "Aún no hay actividad...",
+    "not_available": "--",
+    "time": {
+      "now": "justo ahora"
+    }
+  },
+  "newsletterSection": {
+    "main_title_part1": "Guía de ahorro inteligente",
+    "subtitle": "Lo que las compañías no suelen contar.",
+    "guide_discover_title": "Descubre en 5 minutos:",
+    "benefit_electric_gas": "<strong>Costes ocultos:</strong> cómo detectarlos.",
+    "benefit_water": "<strong>Eficiencia en casa:</strong> ajustes simples.",
+    "benefit_internet_mobile": "<strong>Internet y móvil:</strong> cómo conseguir mejores condiciones.",
+    "benefit_social_bonus": "<strong>Bonos y ayudas:</strong> puede que tengas derecho.",
+    "benefit_smart_habits": "<strong>Mitos comunes:</strong> qué afecta realmente a la factura.",
+    "guide_info": "Lectura rápida. <strong class=\"font-semibold text-emerald-600\">100% gratis</strong>."
+  },
+  "newsletterForm": {
+    "form_title": "Descargar PDF",
+    "name_label": "Nombre",
+    "name_placeholder": "Tu nombre",
+    "name_error": "Introduce tu nombre",
+    "email_label": "Email",
+    "email_placeholder": "tu@email.com",
+    "email_error_required": "Introduce un email",
+    "email_error_invalid": "Email no válido",
+    "submit_button": "Descargar",
+    "submitting_button": "Enviando...",
+    "gdpr_text": "🔒 Solo información útil. Nada de spam.",
+    "success_title": "¡Enviado!",
+    "success_message": "Guía enviada. Revisa tu correo (y la carpeta de spam).",
+    "success_button": "Volver",
+    "error_message": "Error técnico. Inténtalo más tarde."
+  },
+  "cookieBanner": {
+    "text": "Usamos cookies necesarias para el funcionamiento del sitio.",
+    "privacy_policy_link": "Política",
+    "accept_button": "Aceptar",
+    "aria_label": "Aviso de cookies"
+  },
+  "seo": {
+    "title": "Entraycompara | Análisis gratuito de facturas de luz y gas",
+    "description": "Sube tu factura y descubre si puedes pagar menos. Análisis gratuito, sin compromiso."
+  },
+  "policyPages": {
+    "last_updated": "Última actualización: {date}",
+    "back_to_main": "Volver al inicio",
+    
+    "privacy_title": "Política de Privacidad",
+    "privacy_intro": "En Entraycompara, nos tomamos muy en serio la seguridad de tus datos. Esta política explica cómo tratamos tu información personal conforme al Reglamento (UE) 2016/679 (RGPD) y la Ley Orgánica 3/2018 (LOPDGDD).",
+    
+    "privacy_h_controller": "1. Responsable del Tratamiento",
+    "privacy_controller_text": "Entraycompara es el Responsable del Tratamiento de los datos personales del usuario. Para cualquier consulta sobre privacidad, puedes contactarnos en: info@entraycompara.com.",
+
+    "privacy_h_collected": "2. Qué datos recogemos",
+    "privacy_collected_text": "Recopilamos únicamente la información mínima necesaria para realizar el análisis energético:",
+    "privacy_list_contacts": "Datos de contacto: Nombre, teléfono y correo electrónico (opcional) para enviarte el informe.",
+    "privacy_list_docs": "Documentación: Facturas de suministros (luz, gas) que contienen datos de consumo, potencia contratada, CUPS y titularidad.",
+    "privacy_list_tech": "Datos técnicos: Cookies técnicas estrictamente necesarias para el funcionamiento de la web.",
+
+    "privacy_h_purpose": "3. Finalidad del tratamiento",
+    "privacy_purpose_text": "Usamos tus datos exclusivamente para:",
+    "privacy_list_purpose_1": "Realizar el estudio comparativo de tarifas y detectar ahorros.",
+    "privacy_list_purpose_2": "Enviarte el resultado del análisis por el medio que hayas elegido (WhatsApp o Email).",
+    "privacy_list_purpose_3": "Gestionar el cambio de comercializadora, pero SOLO si tú nos lo solicitas expresamente.",
+    "privacy_list_purpose_4": "Resolver dudas a través de nuestro soporte.",
+
+    "privacy_h_legitimation": "4. Legitimación",
+    "privacy_legitimation_text": "La base legal para el tratamiento de tus datos es el CONSENTIMIENTO que nos otorgas al enviar voluntariamente el formulario de solicitud, así como la ejecución de medidas precontractuales a tu petición (el análisis de la factura).",
+
+    "privacy_h_sharing": "5. Destinatarios de los datos",
+    "privacy_sharing_text": "No cedemos tus datos a terceros, salvo en los siguientes casos estrictamente necesarios:",
+    "privacy_list_share_1": "Comercializadoras de energía: Únicamente si decides contratar una nueva tarifa a través de nosotros.",
+    "privacy_list_share_2": "Obligación legal: A las Fuerzas y Cuerpos de Seguridad o Jueces si fuese requerido legalmente.",
+    "privacy_list_share_3": "Proveedores técnicos: Empresas que nos prestan servicios de hosting o email (Encargados de Tratamiento), ubicados en la UE o con garantías adecuadas.",
+    "privacy_sharing_note": "Entraycompara NUNCA vende tus datos personales a listas de publicidad o spam.",
+
+    "privacy_h_security": "6. Seguridad",
+    "privacy_security_text": "Aplicamos medidas de seguridad técnicas (cifrado SSL/TLS) y organizativas para proteger tus datos contra el acceso no autorizado, pérdida o alteración.",
+
+    "privacy_h_rights": "7. Tus Derechos",
+    "privacy_rights_text": "Como usuario, tienes derecho a:",
+    "privacy_list_right_1": "Acceder a tus datos.",
+    "privacy_list_right_2": "Rectificar datos inexactos.",
+    "privacy_list_right_3": "Solicitar su supresión (derecho al olvido).",
+    "privacy_list_right_4": "Oponerte al tratamiento o limitarlo.",
+    "privacy_list_right_5": "Portabilidad de los datos.",
+    "privacy_rights_contact": "Para ejercer estos derechos, envía un correo a info@entraycompara.com.",
+
+    "privacy_h_cookies": "8. Cookies",
+    "privacy_cookies_text": "Este sitio web utiliza únicamente cookies técnicas necesarias para que la web funcione correctamente. No utilizamos cookies de terceros para rastreo publicitario sin tu consentimiento.",
+
+    "terms_title": "Términos y Condiciones de Uso",
+    "terms_intro": "Al acceder y utilizar la web Entraycompara, aceptas los siguientes términos. Si no estás de acuerdo, por favor no utilices el servicio.",
+    
+    "terms_h_use": "1. Uso del Sitio Web",
+    "terms_use_text": "El usuario se compromete a hacer un uso adecuado y lícito del sitio web. Queda prohibido el uso para actividades ilegales, fraudulentas o que atenten contra los derechos de terceros.",
+
+    "terms_h_service": "2. Descripción del Servicio",
+    "terms_service_text": "Entraycompara ofrece un servicio gratuito de información y comparación de tarifas de energía. La información proporcionada es orientativa y busca el ahorro del usuario. La decisión final de contratación siempre corresponde al usuario.",
+
+    "terms_h_liability": "3. Limitación de Responsabilidad",
+    "terms_liability_text": "Aunque nos esforzamos por la máxima precisión, Entraycompara no garantiza la exactitud total de los precios de mercado, que pueden cambiar. No nos hacemos responsables de errores u omisiones en la información, ni de la falta de disponibilidad temporal del portal.",
+
+    "terms_h_ip": "4. Propiedad Intelectual",
+    "terms_ip_text": "Todos los contenidos (textos, diseño, logotipos, código) son propiedad de Entraycompara o de sus licenciantes y están protegidos por la ley.",
+
+    "terms_h_law": "5. Ley Aplicable y Jurisdicción",
+    "terms_law_text": "Estos términos se rigen por la legislación española. Para cualquier controversia que pudiera derivarse del acceso o uso del sitio, las partes se someten a los Juzgados y Tribunales de la ciudad de Madrid (España)."
+  }
+}

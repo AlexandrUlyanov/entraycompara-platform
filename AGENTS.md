@@ -190,8 +190,53 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 ### GitHub Secrets
 - `GCP_SA_KEY` — JSON-ключ сервисного аккаунта `github-actions@entraycompara.iam.gserviceaccount.com`
 - `BACKEND_OPERATOR_SECRET_KEY` — секретный ключ для авторизации операторов в API
+- `WHATSAPP_PHONE_NUMBER_ID` — ID номера телефона в WhatsApp Business API
+- `WHATSAPP_ACCESS_TOKEN` — Access Token для Meta Graph API
+- `WHATSAPP_VERIFY_TOKEN` — Verify Token для верификации webhook'ов Meta
 
-> **Примечание**: В `deploy-staging.yml` и `deploy-production.yml` **не передаются** WhatsApp-секреты через `--set-env-vars`. Если WhatsApp-интеграция нужна в Cloud Run, переменные (`WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`) должны быть установлены вручную через `gcloud run services update` или через Google Secret Manager с последующим пробросом в workflow.
+---
+
+## 4.5. Настройка WhatsApp Webhooks в Meta (Facebook Developers)
+
+Чтобы входящие сообщения от клиентов попадали в CRM, необходимо настроить webhook в [Meta for Developers](https://developers.facebook.com/):
+
+### 1. Получение необходимых данных
+- **Phone Number ID**: `https://business.facebook.com/wa/manage/phone-numbers/`
+- **Access Token**: `https://business.facebook.com/settings/system-users` → создай System User с правами Admin → сгенерируй Token с `whatsapp_business_messaging` и `whatsapp_business_management`
+- **Verify Token**: придумай любую случайную строку (например, `entraycompara_webhook_verify_2026`)
+
+### 2. Добавление Secrets в GitHub
+Добавь три secrets в настройках репозитория (`Settings → Secrets and variables → Actions`):
+- `WHATSAPP_PHONE_NUMBER_ID`
+- `WHATSAPP_ACCESS_TOKEN`
+- `WHATSAPP_VERIFY_TOKEN`
+
+### 3. Настройка Webhook URL в Meta
+1. Перейди в **Meta for Developers** → твоё приложение → **WhatsApp → Configuration**
+2. В разделе **Webhooks** нажми **Edit** → **Add callback URL**
+3. **Callback URL**: `https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api/whatsapp/webhook`
+   - Для продакшена используй URL продакшен-бэкенда: `https://backend-upload-service-910753338248.europe-west1.run.app/api/whatsapp/webhook`
+4. **Verify token**: тот же токен, что в `WHATSAPP_VERIFY_TOKEN`
+5. После успешной верификации нажми **Add Subscriptions** и подпишись на:
+   - `messages` (обязательно — входящие сообщения)
+   - `message_statuses` (опционально — статусы доставки)
+
+### 4. Проверка работы
+1. Задеплой бэкенд (push в `main` запустит staging-деплой автоматически)
+2. Убедись, что Cloud Run сервис получил env vars:
+   ```bash
+   gcloud run services describe backend-upload-service-staging --region=europe-west1 --format='value(spec.template.spec.containers[0].env)'
+   ```
+3. Отправь тестовое сообщение на номер WhatsApp Business
+4. Проверь, что оно появилось в Timeline заявки с соответствующим телефоном клиента
+
+### Важно
+- **Номер телефона клиента в заявке** должен совпадать с номером, с которого отправлено сообщение (с учётом нормализации — только цифры).
+- Если webhook не верифицируется, проверь:
+  - Доступен ли бэкенд по HTTPS (Cloud Run должен быть развёрнут)
+  - Совпадает ли `hub.verify_token` с `WHATSAPP_VERIFY_TOKEN`
+  - Возвращает ли `GET /api/whatsapp/webhook` именно `hub_challenge` (число), а не строку
+- **Staging и продакшен используют одинаковый Firestore**. Входящие сообщения из продакшена webhook'а будут отображаться в staging CRM и наоборот.
 
 ---
 

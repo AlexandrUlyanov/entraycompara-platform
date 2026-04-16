@@ -1,7 +1,7 @@
 
 import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType } from '../types';
 
-const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
+const API_BASE_URL = 'https://backend-upload-service-910753338248.europe-west1.run.app/api';
 
 const getAuthToken = (): string | null => {
   return localStorage.getItem('authToken');

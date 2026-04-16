@@ -149,6 +149,18 @@ export const deleteApplicationById = async (id: string): Promise<{ success: bool
   return handleApiError(response);
 };
 
+export const updateApplication = async (
+  id: string,
+  updates: Partial<Pick<Application, 'client_name' | 'client_phone' | 'client_email' | 'notes'>>
+): Promise<{ success: boolean; message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${id}`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(updates),
+  });
+  return handleApiError(response);
+};
+
 // --- Timeline / Notes API ---
 
 export const fetchApplicationTimeline = async (appId: string): Promise<ApplicationNote[]> => {

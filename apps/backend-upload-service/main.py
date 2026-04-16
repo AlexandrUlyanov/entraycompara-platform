@@ -106,6 +106,12 @@ class ApplicationUpdateStatus(BaseModel):
 class ApplicationUpdateServiceType(BaseModel): 
     service_type: ServiceType 
 
+class ApplicationUpdate(BaseModel):
+    client_name: str | None = None
+    client_phone: str | None = None
+    client_email: str | None = None
+    notes: str | None = None
+
 # 1.4. Модели для Ленты событий
 class TimelineCreate(BaseModel):
     content: str
@@ -580,6 +586,33 @@ async def update_application_service_type(application_id: str, update_data: Appl
         if "NOT_FOUND" in str(e):
              raise HTTPException(status_code=404, detail=f"Заявка с ID {application_id} не найдена.")
         raise HTTPException(status_code=500, detail="Ошибка при обновлении типа услуги заявки.")
+
+# --- 4.5. PUT /api/applications/{id} (Обновление заявки) ---
+@app.put("/api/applications/{application_id}", tags=["Management"], dependencies=[Depends(authenticate_operator)])
+async def update_application(application_id: str, update_data: ApplicationUpdate):
+    """Обновляет поля заявки (имя, телефон, email, заметки)."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail=f"Заявка с ID {application_id} не найдена.")
+        
+        update_dict = update_data.model_dump(exclude_unset=True)
+        if update_dict:
+            update_dict["updated_at"] = datetime.datetime.utcnow()
+            doc_ref.update(update_dict)
+        
+        return {
+            "success": True,
+            "message": f"Заявка {application_id} успешно обновлена."
+        }
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Firestore Update Error: {e}")
+        if "NOT_FOUND" in str(e):
+             raise HTTPException(status_code=404, detail=f"Заявка с ID {application_id} не найдена.")
+        raise HTTPException(status_code=500, detail="Ошибка при обновлении заявки.")
 
 # --- 5. DELETE /api/applications/{id} (Удаление заявки) ---
 @app.delete("/api/applications/{application_id}", tags=["Management"], dependencies=[Depends(authenticate_operator)], status_code=status.HTTP_204_NO_CONTENT)

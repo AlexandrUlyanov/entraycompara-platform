@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote } from '../services/api';
+import React, { useState, useEffect } from 'react';
+import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote, updateApplication } from '../services/api';
 import { Status, Application, ServiceType, NoteType } from '../types';
 import Spinner from './Spinner';
 import StatusBadge from './StatusBadge';
@@ -20,6 +20,12 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [editValues, setEditValues] = useState({
+    client_name: '',
+    client_phone: '',
+    client_email: '',
+    notes: '',
+  });
 
   const { data: application, isLoading, isError, error } = useQuery<Application | undefined, Error>({
     queryKey: ['application', appId],
@@ -32,16 +38,25 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     },
   });
 
+  useEffect(() => {
+    if (application) {
+      setEditValues({
+        client_name: application.client_name || '',
+        client_phone: application.client_phone || '',
+        client_email: application.client_email || '',
+        notes: application.notes || '',
+      });
+    }
+  }, [application]);
+
   const statusUpdateMutation = useMutation({
     mutationFn: ({ newStatus }: { newStatus: Status }) => updateApplicationStatus(appId, newStatus),
     onSuccess: (_, variables) => {
-      // Auto-create system note
       const systemMessage = `SYSTEM_STATUS_CHANGE:${variables.newStatus}`;
       createTimelineNote(appId, systemMessage, NoteType.System);
       
       queryClient.invalidateQueries({ queryKey: ['application', appId] });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
-      // We also invalidate timeline to show the new system note immediately
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ['timeline', appId] }), 500);
     },
   });
@@ -53,6 +68,14 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
         queryClient.invalidateQueries({ queryKey: ['application', appId] });
         queryClient.invalidateQueries({ queryKey: ['applications'] });
     }
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (updates: Partial<typeof editValues>) => updateApplication(appId, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['application', appId] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+    },
   });
 
   const deleteMutation = useMutation({
@@ -75,6 +98,21 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
         serviceTypeUpdateMutation.mutate({ newServiceType });
     }
   }
+
+  const handleFieldBlur = (field: keyof typeof editValues) => {
+    if (!application) return;
+    const newValue = editValues[field];
+    const oldValue = (application[field] as string) ?? '';
+    if (newValue !== oldValue) {
+      updateMutation.mutate({ [field]: newValue } as Partial<typeof editValues>);
+    }
+  };
+
+  const handleFieldKeyDown = (e: React.KeyboardEvent, field: keyof typeof editValues) => {
+    if (e.key === 'Enter' && field !== 'notes') {
+      (e.target as HTMLInputElement).blur();
+    }
+  };
 
   const handleDeleteConfirm = () => {
     deleteMutation.mutate();
@@ -115,7 +153,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
 
             {/* Header Card */}
             <div className="bg-white/80 backdrop-blur-xl p-8 rounded-[30px] shadow-apple border border-white/40 flex flex-col sm:flex-row justify-between sm:items-start gap-4">
-                <div>
+                <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-2">
                         <h2 className="text-3xl font-bold text-secondary">{application.client_name}</h2>
                         <span className="px-2.5 py-1 rounded-lg text-xs font-mono bg-slate-100 text-slate-500 tracking-wide">#{application.id.slice(0,6)}</span>
@@ -136,34 +174,61 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
 
             {/* Client Details Card */}
             <div className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">
-                <div className="px-8 py-5 border-b border-slate-100 bg-slate-50/30">
+                <div className="px-8 py-5 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between">
                     <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">{t('detail.clientInfo.title')}</h3>
+                    {updateMutation.isPending && <Spinner size="h-4 w-4" />}
                 </div>
                 <div className="p-8">
-                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-8">
+                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-6">
+                        <div className="sm:col-span-2">
+                            <dt className="text-xs font-semibold text-secondary-light uppercase tracking-wide mb-1.5">{t('detail.clientInfo.fullName')}</dt>
+                            <dd className="relative">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-3.5 top-3 text-primary-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                                <input
+                                    type="text"
+                                    value={editValues.client_name}
+                                    onChange={(e) => setEditValues(v => ({ ...v, client_name: e.target.value }))}
+                                    onBlur={() => handleFieldBlur('client_name')}
+                                    onKeyDown={(e) => handleFieldKeyDown(e, 'client_name')}
+                                    className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm font-medium"
+                                />
+                            </dd>
+                        </div>
                         <div>
                             <dt className="text-xs font-semibold text-secondary-light uppercase tracking-wide mb-1.5">{t('detail.clientInfo.email')}</dt>
-                            <dd className="text-sm font-medium text-secondary flex items-center">
-                                {application.client_email ? (
-                                    <>
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                        </svg>
-                                        <a href={`mailto:${application.client_email}`} className="hover:text-primary transition-colors hover:underline">{application.client_email}</a>
-                                    </>
-                                ) : <span className="text-slate-400 italic">{t('common.notAvailable')}</span>}
+                            <dd className="relative">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-3.5 top-3 text-primary-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                </svg>
+                                <input
+                                    type="email"
+                                    value={editValues.client_email}
+                                    onChange={(e) => setEditValues(v => ({ ...v, client_email: e.target.value }))}
+                                    onBlur={() => handleFieldBlur('client_email')}
+                                    onKeyDown={(e) => handleFieldKeyDown(e, 'client_email')}
+                                    className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm font-medium"
+                                />
                             </dd>
                         </div>
                         <div>
                             <dt className="text-xs font-semibold text-secondary-light uppercase tracking-wide mb-1.5">{t('detail.clientInfo.phone')}</dt>
-                            <dd className="text-sm font-medium text-secondary flex items-center">
-                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <dd className="relative">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 absolute left-3.5 top-3 text-primary-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                                 </svg>
-                                {application.client_phone}
+                                <input
+                                    type="tel"
+                                    value={editValues.client_phone}
+                                    onChange={(e) => setEditValues(v => ({ ...v, client_phone: e.target.value }))}
+                                    onBlur={() => handleFieldBlur('client_phone')}
+                                    onKeyDown={(e) => handleFieldKeyDown(e, 'client_phone')}
+                                    className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm font-medium"
+                                />
                             </dd>
                         </div>
-                         <div className="sm:col-span-2">
+                        <div className="sm:col-span-2">
                             <dt className="text-xs font-semibold text-secondary-light uppercase tracking-wide mb-1.5">{t('detail.clientInfo.serviceType')}</dt>
                             <dd className="text-sm text-secondary relative max-w-xs">
                                 <div className="relative">
@@ -183,7 +248,21 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                                 {serviceTypeUpdateMutation.isError && <p className="text-xs text-red-500 mt-1">{t('dashboard.error.generic', { message: (serviceTypeUpdateMutation.error as Error).message })}</p>}
                             </dd>
                         </div>
+                        <div className="sm:col-span-2">
+                            <dt className="text-xs font-semibold text-secondary-light uppercase tracking-wide mb-1.5">{t('detail.clientInfo.notes')}</dt>
+                            <dd className="relative">
+                                <textarea
+                                    rows={3}
+                                    value={editValues.notes}
+                                    onChange={(e) => setEditValues(v => ({ ...v, notes: e.target.value }))}
+                                    onBlur={() => handleFieldBlur('notes')}
+                                    className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-4 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm font-medium resize-y"
+                                    placeholder={t('detail.clientInfo.notesPlaceholder')}
+                                />
+                            </dd>
+                        </div>
                     </dl>
+                    {updateMutation.isError && <p className="text-xs text-red-500 mt-4">{t('detail.error.generic', { message: (updateMutation.error as Error).message })}</p>}
                 </div>
             </div>
             
@@ -200,7 +279,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
         </div>
 
         {/* Right Column: Actions & Documents */}
-        <div className="space-y-8 lg:pt-[88px]"> {/* Added padding top to align with content below button */}
+        <div className="space-y-8 lg:pt-[88px]">
             
             {/* Status Card */}
             <div className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">

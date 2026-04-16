@@ -5,6 +5,7 @@ import datetime
 import smtplib
 import re
 import requests
+import json
 from typing import List, Optional, Dict, Any 
 from enum import Enum 
 from email.mime.multipart import MIMEMultipart
@@ -795,6 +796,16 @@ async def api_send_whatsapp(data: WhatsAppSendRequest):
     except requests.exceptions.HTTPError as e:
         meta_error = e.response.text if hasattr(e, 'response') else str(e)
         print(f"WhatsApp Meta API Error: {meta_error}")
+        try:
+            error_json = json.loads(meta_error)
+            meta_code = error_json.get("error", {}).get("code")
+            if meta_code == 131030:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Номер телефона получателя не авторизован в Meta. Добавьте номер в список тестовых получателей WhatsApp API."
+                )
+        except json.JSONDecodeError:
+            pass
         raise HTTPException(status_code=502, detail=f"Meta API Error: {meta_error}")
     except Exception as e:
         print(f"WhatsApp Send Error: {e}")

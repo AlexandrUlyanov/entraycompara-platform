@@ -6,6 +6,7 @@ import StatusBadge from './StatusBadge';
 import ConfirmModal from './ConfirmModal';
 import Timeline from './Timeline';
 import FileLink from './FileLink';
+import WhatsAppChatPanel from './WhatsAppChatPanel';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 
@@ -189,6 +190,13 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
             {/* Timeline Component */}
             <Timeline appId={appId} />
 
+            {/* WhatsApp Chat Panel */}
+            <WhatsAppChatPanel
+              appId={appId}
+              clientName={application.client_name}
+              clientPhone={application.client_phone}
+            />
+
         </div>
 
         {/* Right Column: Actions & Documents */}
@@ -269,6 +277,8 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
         isLoading={deleteMutation.isPending}
         error={deleteMutation.isError ? (deleteMutation.error as Error).message : undefined}
       />
+
+
     </div>
   );
 };

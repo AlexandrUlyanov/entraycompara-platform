@@ -1,7 +1,7 @@
 
 import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType } from '../types';
 
-const API_BASE_URL = 'https://backend-upload-service-910753338248.europe-west1.run.app/api';
+const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
 const getAuthToken = (): string | null => {
   return localStorage.getItem('authToken');
@@ -185,6 +185,17 @@ export const generateSignedUrl = async (gcsPath: string): Promise<{ url: string 
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ gcs_path: gcsPath }),
+  });
+  return handleApiError(response);
+};
+
+// --- WhatsApp API ---
+
+export const sendWhatsAppMessage = async (applicationId: string, message: string): Promise<{ success: boolean; wa_message_id?: string }> => {
+  const response = await fetch(`${API_BASE_URL}/whatsapp/send`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ application_id: applicationId, message }),
   });
   return handleApiError(response);
 };

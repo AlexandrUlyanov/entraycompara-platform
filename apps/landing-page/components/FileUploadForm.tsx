@@ -34,7 +34,7 @@ const FileUploadForm: React.FC<FileUploadFormProps> = ({
   const emailInputId = `email-${idSuffix}`;
   const fileUploadInputId = `file-upload-${idSuffix}`;
 
-  const backendUrl = 'https://backend-upload-service-910753338248.europe-west1.run.app/api/submit_application';
+  const backendUrl = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api/submit_application';
 
   // Determine button text based on state
   const baseButtonText = buttonText || t('fileUploadForm.submit_button_text');

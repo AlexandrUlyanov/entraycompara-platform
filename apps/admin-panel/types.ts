@@ -30,6 +30,9 @@ export interface ApplicationNote {
   content: string;
   type: NoteType;
   created_at: string;
+  created_by?: string;
+  direction?: 'incoming' | 'outgoing';
+  wa_message_id?: string;
 }
 
 export interface Application {

@@ -197,6 +197,11 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
 
       {/* Input */}
       <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50">
+        {sendMutation.isError && (
+          <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            {(sendMutation.error as Error)?.message || 'Ошибка отправки'}
+          </div>
+        )}
         <form onSubmit={handleSend} className="flex items-end gap-2">
           <div className="flex-1 bg-white rounded-lg px-3 py-2 max-h-32 overflow-y-auto border border-slate-200">
             <textarea

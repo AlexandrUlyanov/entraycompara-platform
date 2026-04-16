@@ -970,6 +970,56 @@ async def api_send_whatsapp_media(
         print(f"WhatsApp Send Media Error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка отправки файла WhatsApp: {str(e)}")
 
+class WhatsAppDocumentRequest(BaseModel):
+    application_id: str
+    document_url: str
+    caption: str = ""
+
+@app.post("/api/whatsapp/send-document", tags=["WhatsApp"], dependencies=[Depends(authenticate_operator)])
+async def api_send_whatsapp_document(data: WhatsAppDocumentRequest):
+    """Отправляет уже загруженный документ клиенту через WhatsApp Business API."""
+    if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="WhatsApp credentials not configured on backend."
+        )
+    
+    try:
+        doc = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        phone = doc.to_dict().get("client_phone")
+        if not phone:
+            raise HTTPException(status_code=400, detail="У заявки отсутствует телефон клиента.")
+        
+        result = send_whatsapp_document(phone, data.document_url, data.caption)
+        wa_message_id = result.get("messages", [{}])[0].get("id")
+        
+        content = data.caption.strip() if data.caption.strip() else f"📎 Документ"
+        event_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).collection("timeline").document()
+        event_ref.set({
+            "application_id": data.application_id,
+            "content": content,
+            "type": EventType.WHATSAPP.value,
+            "created_by": "Operator",
+            "created_at": datetime.datetime.utcnow(),
+            "direction": "outgoing",
+            "wa_message_id": wa_message_id,
+        })
+        
+        return {"success": True, "wa_message_id": wa_message_id}
+        
+    except HTTPException:
+        raise
+    except requests.exceptions.HTTPError as e:
+        meta_error = e.response.text if hasattr(e, 'response') else str(e)
+        print(f"WhatsApp Meta API Error (document): {meta_error}")
+        raise HTTPException(status_code=502, detail=f"Meta API Error: {meta_error}")
+    except Exception as e:
+        print(f"WhatsApp Send Document Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка отправки документа WhatsApp: {str(e)}")
+
 
 @app.get("/api/whatsapp/webhook", tags=["WhatsApp"])
 async def whatsapp_webhook_verify(

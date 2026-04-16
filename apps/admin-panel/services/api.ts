@@ -250,3 +250,12 @@ export const sendWhatsAppMedia = async (applicationId: string, file: File, capti
   });
   return handleApiError(response);
 };
+
+export const sendWhatsAppDocument = async (applicationId: string, documentUrl: string, caption: string = ""): Promise<{ success: boolean; wa_message_id?: string }> => {
+  const response = await fetch(`${API_BASE_URL}/whatsapp/send-document`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ application_id: applicationId, document_url: documentUrl, caption }),
+  });
+  return handleApiError(response);
+};

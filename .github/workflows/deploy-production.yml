@@ -1,12 +1,12 @@
-name: Deploy
+name: Deploy to Production
 
 on:
-  push:
-    branches: [staging]
+  workflow_dispatch:
 
 env:
   PROJECT_ID: entraycompara
-  REGION: europe-west1
+  REGION_BACKEND: europe-west1
+  REGION_FRONTEND: us-west1
 
 jobs:
   deploy-backend:
@@ -29,16 +29,16 @@ jobs:
 
       - name: Build and push backend image
         run: |
-          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service-staging:latest
+          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service:latest
           docker build -t $IMAGE apps/backend-upload-service
           docker push $IMAGE
 
-      - name: Deploy backend to Cloud Run (staging)
+      - name: Deploy backend to Cloud Run (production)
         run: |
-          gcloud run deploy backend-upload-service-staging \
+          gcloud run deploy backend-upload-service \
             --project=${{ env.PROJECT_ID }} \
-            --region=${{ env.REGION }} \
-            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service-staging:latest \
+            --region=${{ env.REGION_BACKEND }} \
+            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/backend-upload-service:latest \
             --platform=managed \
             --allow-unauthenticated \
             --set-env-vars=GCP_BUCKET_NAME=entraycompara-invoices \
@@ -69,16 +69,16 @@ jobs:
 
       - name: Build and push landing page image
         run: |
-          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-staging:latest
+          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-prod:latest
           docker build -t $IMAGE apps/landing-page
           docker push $IMAGE
 
-      - name: Deploy landing page to Cloud Run (staging)
+      - name: Deploy landing page to Cloud Run (production)
         run: |
-          gcloud run deploy entraycompara-landing-page-staging \
+          gcloud run deploy entraycompara-landing-page-prod \
             --project=${{ env.PROJECT_ID }} \
-            --region=${{ env.REGION }} \
-            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-staging:latest \
+            --region=${{ env.REGION_FRONTEND }} \
+            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-landing-page-prod:latest \
             --platform=managed \
             --allow-unauthenticated \
             --service-account=910753338248-compute@developer.gserviceaccount.com \
@@ -103,16 +103,16 @@ jobs:
 
       - name: Build and push admin panel image
         run: |
-          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel-staging:latest
+          IMAGE=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel:latest
           docker build -t $IMAGE apps/admin-panel
           docker push $IMAGE
 
-      - name: Deploy admin panel to Cloud Run (staging)
+      - name: Deploy admin panel to Cloud Run (production)
         run: |
-          gcloud run deploy entraycompara-adminpanel-staging \
+          gcloud run deploy entraycompara-adminpanel \
             --project=${{ env.PROJECT_ID }} \
-            --region=${{ env.REGION }} \
-            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel-staging:latest \
+            --region=${{ env.REGION_FRONTEND }} \
+            --image=europe-west1-docker.pkg.dev/${{ env.PROJECT_ID }}/cloud-run-source-deploy/entraycompara-adminpanel:latest \
             --platform=managed \
             --allow-unauthenticated \
             --service-account=910753338248-compute@developer.gserviceaccount.com \

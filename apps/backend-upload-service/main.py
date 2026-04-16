@@ -210,15 +210,26 @@ def send_whatsapp_message(to_phone: str, message: str) -> dict:
         "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
+    normalized = normalize_phone(to_phone)
     payload = {
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
-        "to": normalize_phone(to_phone),
+        "to": normalized,
         "type": "text",
         "text": {"body": message}
     }
     
     resp = requests.post(url, headers=headers, json=payload)
+    # Fallback for Meta test-number quirk: if 79... is rejected with 131030, try 78...
+    if resp.status_code == 400 and normalized.startswith("79"):
+        try:
+            err = resp.json()
+            if err.get("error", {}).get("code") == 131030:
+                fallback = "78" + normalized[2:]
+                payload["to"] = fallback
+                resp = requests.post(url, headers=headers, json=payload)
+        except Exception:
+            pass
     resp.raise_for_status()
     return resp.json()
 

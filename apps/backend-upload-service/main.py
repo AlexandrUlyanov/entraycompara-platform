@@ -660,6 +660,57 @@ async def update_application(application_id: str, update_data: ApplicationUpdate
              raise HTTPException(status_code=404, detail=f"Заявка с ID {application_id} не найдена.")
         raise HTTPException(status_code=500, detail="Ошибка при обновлении заявки.")
 
+# --- 4.75. POST /api/applications/{id}/upload-files (Загрузка файлов оператором) ---
+@app.post("/api/applications/{application_id}/upload-files", tags=["Management"], dependencies=[Depends(authenticate_operator)])
+async def upload_application_files(application_id: str, files: list[UploadFile] = File(...)):
+    """Загружает файлы в GCS и добавляет их к существующей заявке."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail=f"Заявка с ID {application_id} не найдена.")
+        
+        if not files or len(files) == 0:
+            raise HTTPException(status_code=400, detail="Не передан ни один файл.")
+        
+        uploaded_paths = []
+        today = datetime.datetime.utcnow()
+        prefix = f"operator_uploads/{today.year}/{today.month:02}/{today.day:02}"
+        
+        for f in files:
+            if f.content_type not in ALLOWED_MIME_TYPES:
+                raise HTTPException(status_code=400, detail=f"Недопустимый тип файла: {f.content_type}")
+            f.file.seek(0, os.SEEK_END)
+            size_mb = f.file.tell() / (1024 * 1024)
+            f.file.seek(0)
+            if size_mb > MAX_FILE_SIZE_MB:
+                raise HTTPException(status_code=400, detail=f"Файл {f.filename} превышает {MAX_FILE_SIZE_MB} МБ")
+            ext = os.path.splitext(f.filename)[1].lower()
+            unique_name = f"{uuid.uuid4()}{ext}"
+            destination = f"{prefix}/{unique_name}"
+            try:
+                path = upload_to_gcs(f, destination)
+                uploaded_paths.append(path)
+            except Exception as e:
+                print(f"GCS Upload Error: {e}")
+                raise HTTPException(status_code=500, detail=f"Ошибка при загрузке файла {f.filename} в GCS.")
+        
+        existing_files = doc.to_dict().get("uploaded_files", [])
+        updated_files = existing_files + uploaded_paths
+        doc_ref.update({"uploaded_files": updated_files, "updated_at": today})
+        
+        return {
+            "success": True,
+            "message": f"Загружено файлов: {len(uploaded_paths)}",
+            "uploaded_files": uploaded_paths,
+            "total_files": updated_files
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Upload files error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при загрузке файлов.")
+
 # --- 5. DELETE /api/applications/{id} (Удаление заявки) ---
 @app.delete("/api/applications/{application_id}", tags=["Management"], dependencies=[Depends(authenticate_operator)], status_code=status.HTTP_204_NO_CONTENT)
 async def delete_application(application_id: str):

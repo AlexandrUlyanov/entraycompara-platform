@@ -161,6 +161,24 @@ export const updateApplication = async (
   return handleApiError(response);
 };
 
+export const uploadApplicationFiles = async (id: string, files: FileList): Promise<{ success: boolean; uploaded_files: string[] }> => {
+  const formData = new FormData();
+  for (let i = 0; i < files.length; i++) {
+    formData.append('files', files[i]);
+  }
+  const token = getAuthToken();
+  const headers: HeadersInit = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const response = await fetch(`${API_BASE_URL}/applications/${id}/upload-files`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  return handleApiError(response);
+};
+
 // --- Timeline / Notes API ---
 
 export const fetchApplicationTimeline = async (appId: string): Promise<ApplicationNote[]> => {

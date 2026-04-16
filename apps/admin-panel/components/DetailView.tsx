@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote, updateApplication } from '../services/api';
+import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote, updateApplication, uploadApplicationFiles } from '../services/api';
 import { Status, Application, ServiceType, NoteType } from '../types';
 import Spinner from './Spinner';
 import StatusBadge from './StatusBadge';
@@ -20,6 +20,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [editValues, setEditValues] = useState({
     client_name: '',
     client_phone: '',
@@ -72,6 +73,14 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
 
   const updateMutation = useMutation({
     mutationFn: (updates: Partial<typeof editValues>) => updateApplication(appId, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['application', appId] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+    },
+  });
+
+  const uploadFilesMutation = useMutation({
+    mutationFn: (files: FileList) => uploadApplicationFiles(appId, files),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['application', appId] });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
@@ -312,10 +321,42 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
 
             {/* Documents Card */}
              <div className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">
-                <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/30">
+                <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between">
                     <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">{t('detail.documents.title')}</h3>
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={(e) => {
+                            if (e.target.files && e.target.files.length > 0) {
+                                uploadFilesMutation.mutate(e.target.files);
+                                e.target.value = '';
+                            }
+                        }}
+                        className="hidden"
+                        multiple
+                    />
+                    <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadFilesMutation.isPending}
+                        className="text-xs font-medium text-primary hover:text-primary-700 flex items-center gap-1 disabled:opacity-50"
+                    >
+                        {uploadFilesMutation.isPending ? (
+                            <Spinner size="h-3 w-3" />
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                            </svg>
+                        )}
+                        {uploadFilesMutation.isPending ? 'Загрузка...' : 'Загрузить'}
+                    </button>
                 </div>
                 <div className="p-6">
+                    {uploadFilesMutation.isError && (
+                        <p className="text-xs text-red-500 mb-3">
+                            {t('detail.error.generic', { message: (uploadFilesMutation.error as Error).message })}
+                        </p>
+                    )}
                     <ul className="space-y-3">
                         {application.uploaded_files && application.uploaded_files.length > 0 ? (
                         application.uploaded_files.map((fileUri, index) => (

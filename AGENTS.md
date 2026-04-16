@@ -10,15 +10,15 @@
 
 1. **Landing Page** (`apps/landing-page/`) — публичный лендинг для сбора заявок от клиентов (сравнение коммунальных счетов в Испании)
 2. **Admin Panel** (`apps/admin-panel/`) — внутренняя CRM-система для операторов (Kanban, таймлайн, управление заявками)
-3. **Backend Upload Service** (`apps/backend-upload-service/`) — Python/FastAPI API для загрузки файлов, email-уведомлений и управления заявками в Firestore
+3. **Backend Upload Service** (`apps/backend-upload-service/`) — Python/FastAPI API для загрузки файлов, email-уведомлений, WhatsApp и управления заявками в Firestore
 
 ### Архитектура деплоя
 
-| Сервис | Продакшен URL | Staging URL | Домен | Технология |
-|--------|---------------|-------------|-------|------------|
-| Landing | `entraycompara-landing-page-prod` (us-west1) | `entraycompara-landing-page-staging` (europe-west1) | `https://entraycompara.com` | React + Express |
-| Admin | `entraycompara-adminpanel` (us-west1) | `entraycompara-adminpanel-staging` (europe-west1) | `https://crm.entraycompara.com` | React + Express |
-| Backend | `backend-upload-service` (europe-west1) | `backend-upload-service-staging` (europe-west1) | — | Python/FastAPI |
+| Сервис | Продакшен | Staging | Домен | Технология |
+|--------|-----------|---------|-------|------------|
+| Landing | `entraycompara-landing-page-prod` (`us-west1`) | `entraycompara-landing-page-staging` (`europe-west1`) | `https://entraycompara.com` | React + Express |
+| Admin | `entraycompara-adminpanel` (`us-west1`) | `entraycompara-adminpanel-staging` (`europe-west1`) | `https://crm.entraycompara.com` | React + Express |
+| Backend | `backend-upload-service` (`europe-west1`) | `backend-upload-service-staging` (`europe-west1`) | — | Python/FastAPI |
 
 **База данных**: Firestore Native (коллекция `applications`)
 **Хранилище файлов**: GCS bucket `entraycompara-invoices`
@@ -36,7 +36,8 @@ entraycompara-platform/
 │   │   ├── components/            # React-компоненты (исходники)
 │   │   ├── context/               # LanguageContext
 │   │   ├── server/                # Express-сервер (server.js)
-│   │   ├── Dockerfile             # Сборка через node:22-alpine
+│   │   ├── public/                # Статика (image/, locales/)
+│   │   ├── Dockerfile
 │   │   └── ...
 │   ├── admin-panel/               # CRM
 │   │   ├── compiled/              # ← КРИТИЧНО: продакшен-ассеты из GCS
@@ -53,8 +54,9 @@ entraycompara-platform/
 │   ├── cloud-run-configs/         # JSON-дампы конфигураций Cloud Run
 │   └── cloud-build-triggers.json  # Старые триггеры
 ├── .github/workflows/
-│   ├── deploy-staging.yml         # Автодеплой в staging
+│   ├── deploy-staging.yml         # Автодеплой в staging (push в main)
 │   └── deploy-production.yml      # Ручной деплой в продакшен
+├── AGENTS.md
 └── README.md
 ```
 
@@ -64,12 +66,18 @@ entraycompara-platform/
 
 ### 3.1. `compiled/` — святая святых
 
-Папки `apps/landing-page/compiled/` и `apps/admin-panel/compiled/` содержат **точные копии** того, что сейчас работает в продакшене. Эти файлы были выгружены из Google Cloud Storage (`gs://ai-studio-bucket-.../compiled/`).
+Папки `apps/landing-page/compiled/` и `apps/admin-panel/compiled/` содержат **точные копии** продакшен-артефактов, выгруженных из Google Cloud Storage (`gs://ai-studio-bucket-.../compiled/`).
 
-**ПРАВИЛО**: 
+**Фактический формат `compiled/`:**
+- `compiled/index.html` — это **HTML-файл размером ~6–7 KB**, который загружает React и зависимости через **внешние CDN** (`aistudiocdn.com`, `esm.sh`, `cdn.tailwindcss.com`) с помощью `<script type="importmap">`.
+- Бизнес-логика находится в отдельных JS-чанках в `compiled/assets/`:
+  - Landing: `assets/index-*.js` — ~224 KB
+  - Admin: `assets/index-*.js` — ~403 KB
+- Также могут присутствовать дополнительные lazy-loaded чанки (например, `PrivacyPolicyPage-*.js`).
+
+**ПРАВИЛО**:
 - Если ты меняешь логику фронтенда (landing или admin), нужно обновлять **и** исходники (`components/`, `App.tsx`) **и** `compiled/`.
-- `compiled/index.html` — это **полностью собранное** SPA-приложение (весь JS/CSS заинлайнен в один HTML-файл размером ~190 KB для landing и ~125 KB для admin).
-- Docker-образы для landing и admin **не собирают** проект через Vite. Они копируют `compiled/` и раздают его через Express `server.js`.
+- Docker-образы для landing и admin **не собирают** проект через Vite внутри Docker. Они копируют `compiled/` и раздают его через Express `server.js`.
 
 **Как обновлять `compiled/`:**
 1. Внеси изменения в исходники (`components/`, `App.tsx`)
@@ -77,28 +85,26 @@ entraycompara-platform/
 3. Скопируй содержимое `dist/` в `compiled/`:
    ```bash
    cp -r apps/landing-page/dist/* apps/landing-page/compiled/
+   # или для admin:
+   cp -r apps/admin-panel/dist/* apps/admin-panel/compiled/
    ```
-4. Убедись, что `compiled/index.html` увеличился в размере и содержит изменения
+4. Убедись, что `compiled/assets/index-*.js` обновился и содержит изменения
 5. Только тогда коммить
 
-### 3.2. Backend URL жёстко зашит в `source.zip`, но НЕ в `compiled/`
+### 3.2. Backend URL жёстко зашит в исходниках
 
-В исходниках (`source.zip`) landing и admin были задеплоены через Google AI Studio. AI Studio при деплое создавала **два артефакта**:
-- `source.zip` — исходный код
-- `compiled/` — финальная сборка
+В `apps/admin-panel/services/api.ts` зашит прямой URL staging-бэкенда:
+```ts
+const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
+```
 
-В `compiled/index.html` **нет** прямых ссылок на бэкенд. Вместо этого используется прокси через `/api-proxy` на Express-сервере (`server.js`), который добавляется AI Studio.
+Аналогично, в `apps/landing-page/components/FileUploadForm.tsx` (который не используется в продакшенной сборке) может быть хардкожен URL.
 
-**НО**: в нашем репозитории мы используем `server.js` из `source.zip`, который добавляет прокси для Gemini API. Для бэкенда `api.ts` (admin) и `FileUploadForm.tsx` (landing) в **исходниках** есть прямые URL на `backend-upload-service-...run.app`.
-
-**Для staging** (europe-west1) фронтенды и бэкенд находятся в одном регионе, но URL разные. Сейчас в workflow **не делается** автозамена URL, потому что:
-- Landing `compiled/index.html` не обращается напрямую к бэкенду (нет формы загрузки в продакшенной сборке)
-- Admin `compiled/index.html` тоже не содержит прямых URL
-- Backend URL используется только в **исходниках** (`api.ts`, `FileUploadForm.tsx`)
-
-**Если нужно, чтобы staging-версия фронтенда работала с staging-бэкендом**, придётся либо:
-- Обновлять `compiled/` вручную с правильным URL
-- Либо настраивать переменную окружения в `server.js`
+**Важно:**
+- `server.js` **НЕ содержит** прокси для backend API. Он проксирует только Gemini API (`/api-proxy`).
+- Admin Panel обращается к бэкенду **напрямую** с клиента.
+- В workflow **не делается** автозамена URL при деплое.
+- Landing `compiled/index.html` не обращается напрямую к бэкенду (форма загрузки вырезана tree-shaking'ом).
 
 ### 3.3. Бэкенд работает с продакшен-данными даже в staging
 
@@ -113,21 +119,37 @@ entraycompara-platform/
 
 ### 3.4. Dockerfile landing и admin — особые
 
-Они НЕ используют `npm run build` внутри Docker. Вместо этого:
+Они **НЕ используют** `npm run build` внутри Docker. Вместо этого:
 
+**Landing Dockerfile** (в отличие от admin) дополнительно копирует статические ассеты:
 ```dockerfile
 FROM node:22-alpine
 WORKDIR /app
-COPY compiled/ ./dist/          # ← готовые ассеты
+COPY compiled/ ./dist/
+COPY public/image/ ./dist/image/       # ← только в landing
+COPY public/locales/ ./dist/locales/   # ← только в landing
 COPY server/package.json ./
 COPY server/server.js ./
 COPY server/public/ ./public/
-RUN npm install                 # ← только зависимости сервера
+RUN npm install
 ENV PORT=3000
 CMD ["node", "server.js"]
 ```
 
-**НЕ меняй** эту структуру, если не хочешь сломать идентичность с продакшеном.
+**Admin Dockerfile** (нет `public/` копирования):
+```dockerfile
+FROM node:22-alpine
+WORKDIR /app
+COPY compiled/ ./dist/
+COPY server/package.json ./
+COPY server/server.js ./
+COPY server/public/ ./public/
+RUN npm install
+ENV PORT=3000
+CMD ["node", "server.js"]
+```
+
+**НЕ меняй** эту структуру без крайней необходимости.
 
 ### 3.5. Backend Dockerfile
 
@@ -135,39 +157,41 @@ CMD ["node", "server.js"]
 FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 ENV PORT=8080
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
-
-Стандартный, без нюансов.
 
 ---
 
 ## 4. CI/CD процесс
 
 ### Staging деплой (`deploy-staging.yml`)
-**Триггер**: push в `main`
+**Триггер**: `push` в ветку `main`
+
 **Что происходит**:
 1. Сборка и пуш Docker-образа backend
-2. Деплой backend в `backend-upload-service-staging` (europe-west1)
+2. Деплой backend в `backend-upload-service-staging` (`europe-west1`)
 3. Сборка и пуш Docker-образа landing
-4. Деплой landing в `entraycompara-landing-page-staging` (europe-west1)
+4. Деплой landing в `entraycompara-landing-page-staging` (`europe-west1`) — на этом сервисе висят домены
 5. Сборка и пуш Docker-образа admin
-6. Деплой admin в `entraycompara-adminpanel-staging` (europe-west1)
+6. Деплой admin в `entraycompara-adminpanel-staging` (`europe-west1`) — на этом сервисе висят домены
 
 ### Production деплой (`deploy-production.yml`)
-**Триггер**: только ручной запуск (`workflow_dispatch`)
+**Триггер**: только ручной запуск (`workflow_dispatch`) через вкладку Actions
+
 **Что происходит**:
-- Те же шаги, но в продакшен-сервисы:
-  - `backend-upload-service`
-  - `entraycompara-landing-page-prod`
-  - `entraycompara-adminpanel`
+- Те же шаги сборки Docker, но деплой в продакшен-сервисы:
+  - `backend-upload-service` (`europe-west1`)
+  - `entraycompara-landing-page-prod` (`us-west1`)
+  - `entraycompara-adminpanel` (`us-west1`)
 
 ### GitHub Secrets
 - `GCP_SA_KEY` — JSON-ключ сервисного аккаунта `github-actions@entraycompara.iam.gserviceaccount.com`
 - `BACKEND_OPERATOR_SECRET_KEY` — секретный ключ для авторизации операторов в API
+
+> **Примечание**: В `deploy-staging.yml` и `deploy-production.yml` **не передаются** WhatsApp-секреты через `--set-env-vars`. Если WhatsApp-интеграция нужна в Cloud Run, переменные (`WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`) должны быть установлены вручную через `gcloud run services update` или через Google Secret Manager с последующим пробросом в workflow.
 
 ---
 
@@ -176,11 +200,13 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 ### Алгоритм для любого изменения:
 
 1. **Пойми, какой сервис(ы) трогаешь**
-2. **Внеси изменения локально**
-3. **Для фронтендов**: обязательно обнови `compiled/`
-4. **Проверь staging** (автодеплой запустится после push в `main`)
-5. **Убедись, что всё работает на staging URL'ах**
-6. **Только потом** запускай `Deploy to Production` вручную через GitHub Actions
+2. **Создай feature-ветку от `main`** (или работай напрямую в `main` для мелких фиксов)
+3. **Внеси изменения локально**
+4. **Для фронтендов**: обязательно обнови `compiled/` (скопируй `dist/` в `compiled/` после `npm run build`)
+5. **Замерджи в `main`**
+6. **Проверь staging** (автодеплой запустится после push в `main`)
+7. **Убедись, что всё работает на доменах** `entraycompara.com` / `crm.entraycompara.com`
+8. **Только потом** запускай production workflow вручную через GitHub Actions
 
 ### Что НЕЛЬЗЯ делать без разрешения пользователя:
 - Запускать production-деплой
@@ -196,48 +222,68 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 
 ### 6.1. Backend Upload Service (`apps/backend-upload-service/`)
 
-**Стек**: Python 3.12, FastAPI, Uvicorn, google-cloud-storage, google-cloud-firestore
+**Стек**: Python 3.12, FastAPI, Uvicorn, google-cloud-storage, google-cloud-firestore, requests
 
 **Ключевые эндпоинты**:
-- `POST /api/submit_application` — публичная отправка заявки с файлами
-- `GET /api/applications` — список заявок для CRM (с пагинацией, фильтрами)
+- `POST /api/submit_application` — публичная отправка заявки с файлами (создаёт заявку в Firestore, загружает файлы в GCS с публичным ACL, отправляет email оператору, создаёт первую запись в Timeline)
+- `GET /api/applications` — список заявок для CRM (курсорная пагинация, фильтры по `status` и `service_type`, поиск по `client_name`/`client_phone`/`client_email`)
 - `GET /api/applications/{id}` — детали заявки
 - `PUT /api/applications/{id}/status` — смена статуса
+- `PUT /api/applications/{id}/service_type` — смена типа услуги
 - `GET /api/applications/{id}/timeline` — таймлайн событий
+- `POST /api/applications/{id}/timeline` — добавление события в таймлайн
+- `DELETE /api/applications/{id}/timeline/{note_id}` — удаление события
 - `POST /api/generate-signed-url` — подписанная ссылка на файл из GCS
+- `POST /api/whatsapp/send` — отправка сообщения клиенту через WhatsApp Business API
+- `GET /api/whatsapp/webhook` — верификация webhook от Meta
+- `POST /api/whatsapp/webhook` — получение входящих сообщений от Meta
 - `GET /docs` — Swagger UI
 
-**Авторизация операторов**: Bearer-токен, сверяется с `OPERATOR_SECRET_KEY`
+**Авторизация операторов**: Bearer-токен, сверяется с `OPERATOR_SECRET_KEY`.
 
-**Email-уведомления**: Отправка через Gmail SMTP (`ulyanov.ht@gmail.com`) при создании заявки
+**Email-уведомления**: Отправка через Gmail SMTP (`ulyanov.ht@gmail.com` → `ulyanov.ht@gmail.com`) при создании заявки. HTML-письмо содержит ссылки на загруженные файлы.
+
+**WhatsApp Business API**:
+- Исходящие сообщения отправляются через `POST /api/whatsapp/send`
+- Входящие сообщения принимаются на `POST /api/whatsapp/webhook`
+- Webhook URL: `https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api/whatsapp/webhook`
+- Сообщения автоматически привязываются к заявке по номеру телефона клиента (нормализация: `re.sub(r'\D', '', phone)`)
+- В Timeline сохраняется `direction: incoming/outgoing` и `created_by: Client/Operator`
 
 **CORS**: Разрешены `*`, `http://localhost:3000`, `https://entraycompara.com`, `https://www.entraycompara.com`
 
 ### 6.2. Admin Panel (`apps/admin-panel/`)
 
-**Стек**: React 19, TypeScript, Vite, `@hello-pangea/dnd` (Kanban), `i18next` (локализация)
+**Стек**: React 19, TypeScript, Vite, `@hello-pangea/dnd` (Kanban), `i18next` (локализация), `@tanstack/react-query`
 
 **Ключевые компоненты**:
-- `Dashboard.tsx` — основная панель со списком заявок
-- `KanbanBoard.tsx` — Kanban-доска по статусам
-- `DetailView.tsx` — детальный просмотр заявки
-- `Timeline.tsx` — таймлайн коммуникаций
-- `Auth.tsx` — простая авторизация по секретному ключу
-- `services/api.ts` — HTTP-клиент к бэкенду
+- `Dashboard.tsx` — основная панель со списком заявок (таблица / Kanban)
+- `KanbanBoard.tsx` — Kanban-доска по статусам с drag-and-drop
+- `DetailView.tsx` — детальный просмотр заявки, смена статуса/типа услуги, удаление
+- `Timeline.tsx` — таймлайн коммуникаций (NOTE, WHATSAPP, CALL, EMAIL)
+- `WhatsAppChatPanel.tsx` — панель для отправки/получения WhatsApp сообщений
+- `Auth.tsx` — простая авторизация по секретному ключу (сохраняется в `localStorage` как `authToken`)
+- `services/api.ts` — HTTP-клиент к бэкенду (хардкожен `API_BASE_URL`)
 
-**Важно**: В `compiled/index.html` нет разделения на страницы — это SPA с хэш-роутингом (`#/`).
+**WhatsApp в CRM**:
+- В `Timeline.tsx` сообщения WhatsApp отображаются в виде chat bubbles (входящие слева, исходящие справа)
+- Оператор может отправить сообщение, выбрав тип **WhatsApp** в форме Timeline
+- Добавлена кнопка **Email** для создания email-заметок
+
+**Важно**: `compiled/index.html` — это SPA с хэш-роутингом (`#/`).
 
 ### 6.3. Landing Page (`apps/landing-page/`)
 
-**Стек**: React 19, TypeScript, Vite, Tailwind CSS
+**Стек**: React 19 (в `compiled/` через CDN), TypeScript, Vite, Tailwind CSS
 
 **Ключевые компоненты**:
 - `HeroSection.tsx` — главный экран
-- `FileUploadForm.tsx` — форма загрузки файлов (НЕ используется в `compiled/`!)
-- `LanguageContext.tsx` — мультиязычность (es, eu, ru, uk)
+- `FileUploadForm.tsx` — форма загрузки файлов (существует в исходниках, но **НЕ импортирована в `App.tsx`**, поэтому Vite вырезает её при сборке — tree shaking)
+- `LanguageContext.tsx` — мультиязычность (`es`, `eu`, `ru`, `uk`)
 - `SEOMetadata.tsx` — SEO-теги
+- `LiveRequestsBlock.tsx` — блок "живых" заявок
 
-**ВАЖНО**: Форма `FileUploadForm.tsx` есть в исходниках, но она **не импортирована в `App.tsx`**, поэтому Vite вырезает её при сборке (tree shaking). В `compiled/index.html` её нет.
+**ВАЖНО**: Форма `FileUploadForm.tsx` есть в исходниках, но отсутствует в `compiled/`. Если ты добавляешь её в `App.tsx`, не забудь пересобрать и обновить `compiled/`.
 
 ---
 
@@ -245,14 +291,14 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 
 ### Cloud Run сервисы
 
-| Сервис | Регион | Тип трафика | SA | Домен |
-|--------|--------|-------------|-----|-------|
-| `backend-upload-service` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | — |
-| `entraycompara-landing-page-prod` | us-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | — |
-| `entraycompara-adminpanel` | us-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | — |
-| `backend-upload-service-staging` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | — |
-| `entraycompara-landing-page-staging` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | `entraycompara.com` |
-| `entraycompara-adminpanel-staging` | europe-west1 | All (public) | 910753338248-compute@developer.gserviceaccount.com | `crm.entraycompara.com` |
+| Сервис | Регион | Тип трафика | Service Account | Домен |
+|--------|--------|-------------|-----------------|-------|
+| `backend-upload-service` | `europe-west1` | All (public) | `910753338248-compute@developer.gserviceaccount.com` | — |
+| `entraycompara-landing-page-prod` | `us-west1` | All (public) | `910753338248-compute@developer.gserviceaccount.com` | — |
+| `entraycompara-adminpanel` | `us-west1` | All (public) | `910753338248-compute@developer.gserviceaccount.com` | — |
+| `backend-upload-service-staging` | `europe-west1` | All (public) | `910753338248-compute@developer.gserviceaccount.com` | — |
+| `entraycompara-landing-page-staging` | `europe-west1` | All (public) | `910753338248-compute@developer.gserviceaccount.com` | `entraycompara.com` |
+| `entraycompara-adminpanel-staging` | `europe-west1` | All (public) | `910753338248-compute@developer.gserviceaccount.com` | `crm.entraycompara.com` |
 
 ### Firestore
 
@@ -291,11 +337,11 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
    ```bash
    cp -r dist/* compiled/
    ```
-4. Проверь размер `compiled/index.html` (~190 KB)
-5. Commit, push
+4. Проверь, что `compiled/assets/index-*.js` обновился
+5. Commit, push в `main`
 6. Дождись staging-деплоя
-7. Проверь https://entraycompara-landing-page-staging-910753338248.europe-west1.run.app/
-8. Запусти production workflow вручную
+7. Проверь `https://entraycompara.com`
+8. При необходимости запусти production workflow вручную
 
 ### 8.2. Добавить поле в CRM
 
@@ -308,15 +354,15 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
    npm run build
    ```
 4. Скопируй `dist/` в `compiled/`
-5. Commit, push, проверь staging
+5. Commit, push в `main`, проверь staging
 
 ### 8.3. Изменить API бэкенда
 
 1. Отредактируй `apps/backend-upload-service/main.py`
 2. **НЕ меняй** структуру Firestore без согласования
-3. Commit, push
-4. Проверь staging: https://backend-upload-service-staging-910753338248.europe-west1.run.app/docs
-5. Запусти production workflow
+3. Commit, push в `main`
+4. Проверь staging: `https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/docs`
+5. При необходимости запусти production workflow
 
 ### 8.4. Обновить зависимости
 
@@ -339,7 +385,7 @@ npm install <package>
 
 - [ ] Staging-сервисы отвечают HTTP 200
 - [ ] Для фронтендов: `compiled/` обновлён и содержит изменения
-- [ ] Для бэкенда: новые эндпоинты проверены через Swagger (/docs)
+- [ ] Для бэкенда: новые эндпоинты проверены через Swagger (`/docs`)
 - [ ] Нет изменений в IAM, секретах, bucket-политиках
 - [ ] Пользователь явно попросил задеплоить в продакшен
 
@@ -358,7 +404,7 @@ npm install <package>
 
 Этот проект был создан из двух отдельных репозиториев (`EntraycomparaPROD` и `crm.entraycompara`) плюс бэкенд, который существовал только в Cloud Run без связанного GitHub-репозитория. Все исходники были выгружены из ZIP-архивов Google Cloud Storage, чтобы гарантировать идентичность с продакшеном.
 
-**Почему `compiled/` важен**: Продакшен landing и admin задеплоены через Google AI Studio, которая использует особый формат сборки (всё в один HTML). Чтобы staging был идентичен продакшену, мы используем эти же `compiled/` ассеты.
+**Почему `compiled/` важен**: Продакшен landing и admin были задеплоены через Google AI Studio, которая создаёт сборку с внешними CDN-зависимостями. Чтобы staging был идентичен продакшену, мы используем эти же `compiled/` ассеты.
 
 ---
 

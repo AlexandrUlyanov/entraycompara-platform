@@ -852,6 +852,9 @@ async def whatsapp_webhook_receive(payload: dict = Body(...)):
                         wa_message_id = msg.get("id", "")
                         
                         from_phone = normalize_phone(from_phone_raw)
+                        fallback_phone = None
+                        if from_phone.startswith("79"):
+                            fallback_phone = "78" + from_phone[2:]
                         
                         # Ищем заявку по телефону среди последних 100
                         apps_query = firestore_client.collection(FIRESTORE_COLLECTION) \
@@ -862,7 +865,8 @@ async def whatsapp_webhook_receive(payload: dict = Body(...)):
                         matched_app_id = None
                         for app_doc in apps_query:
                             app_data = app_doc.to_dict()
-                            if app_data and normalize_phone(app_data.get("client_phone", "")) == from_phone:
+                            app_phone = normalize_phone(app_data.get("client_phone", ""))
+                            if app_phone == from_phone or (fallback_phone and app_phone == fallback_phone):
                                 matched_app_id = app_doc.id
                                 break
                         

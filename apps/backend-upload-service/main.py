@@ -233,6 +233,40 @@ def send_whatsapp_message(to_phone: str, message: str) -> dict:
     resp.raise_for_status()
     return resp.json()
 
+def send_whatsapp_document(to_phone: str, document_url: str, caption: str = "") -> dict:
+    if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
+        raise ValueError("WhatsApp credentials not configured")
+    
+    url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    normalized = normalize_phone(to_phone)
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": normalized,
+        "type": "document",
+        "document": {
+            "link": document_url,
+            "caption": caption
+        }
+    }
+    
+    resp = requests.post(url, headers=headers, json=payload)
+    if resp.status_code == 400 and normalized.startswith("79"):
+        try:
+            err = resp.json()
+            if err.get("error", {}).get("code") == 131030:
+                fallback = "78" + normalized[2:]
+                payload["to"] = fallback
+                resp = requests.post(url, headers=headers, json=payload)
+        except Exception:
+            pass
+    resp.raise_for_status()
+    return resp.json()
+
 
 def send_notification_email(application_data: dict, application_id: str, uploaded_paths: list):
     """Отправляет уведомление оператору о новой заявке через Gmail SMTP."""
@@ -821,6 +855,69 @@ async def api_send_whatsapp(data: WhatsAppSendRequest):
     except Exception as e:
         print(f"WhatsApp Send Error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка отправки WhatsApp: {str(e)}")
+
+@app.post("/api/whatsapp/send-media", tags=["WhatsApp"], dependencies=[Depends(authenticate_operator)])
+async def api_send_whatsapp_media(
+    application_id: str = Form(...),
+    caption: str = Form(""),
+    file: UploadFile = File(...)
+):
+    """Отправляет документ (файл) клиенту через WhatsApp Business API и сохраняет его в Timeline."""
+    if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="WhatsApp credentials not configured on backend."
+        )
+    
+    try:
+        doc = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id).get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        phone = doc.to_dict().get("client_phone")
+        if not phone:
+            raise HTTPException(status_code=400, detail="У заявки отсутствует телефон клиента.")
+        
+        # Validate mime type
+        if file.content_type not in ALLOWED_MIME_TYPES:
+            raise HTTPException(status_code=400, detail=f"Неподдерживаемый тип файла: {file.content_type}")
+        
+        # Check file size
+        file.file.seek(0, os.SEEK_END)
+        file_size_mb = file.file.tell() / (1024 * 1024)
+        file.file.seek(0)
+        if file_size_mb > MAX_FILE_SIZE_MB:
+            raise HTTPException(status_code=400, detail=f"Файл слишком большой. Максимум {MAX_FILE_SIZE_MB} MB.")
+        
+        destination = f"whatsapp/{datetime.datetime.utcnow().strftime('%Y/%m/%d')}/{uuid.uuid4()}_{file.filename}"
+        public_url = upload_to_gcs(file, destination)
+        
+        result = send_whatsapp_document(phone, public_url, caption)
+        wa_message_id = result.get("messages", [{}])[0].get("id")
+        
+        content = caption.strip() if caption.strip() else f"📎 {file.filename}"
+        event_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id).collection("timeline").document()
+        event_ref.set({
+            "application_id": application_id,
+            "content": content,
+            "type": EventType.WHATSAPP.value,
+            "created_by": "Operator",
+            "created_at": datetime.datetime.utcnow(),
+            "direction": "outgoing",
+            "wa_message_id": wa_message_id,
+        })
+        
+        return {"success": True, "wa_message_id": wa_message_id, "file_url": public_url}
+        
+    except HTTPException:
+        raise
+    except requests.exceptions.HTTPError as e:
+        meta_error = e.response.text if hasattr(e, 'response') else str(e)
+        print(f"WhatsApp Meta API Error (media): {meta_error}")
+        raise HTTPException(status_code=502, detail=f"Meta API Error: {meta_error}")
+    except Exception as e:
+        print(f"WhatsApp Send Media Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка отправки файла WhatsApp: {str(e)}")
 
 
 @app.get("/api/whatsapp/webhook", tags=["WhatsApp"])

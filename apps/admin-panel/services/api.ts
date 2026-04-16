@@ -211,3 +211,24 @@ export const sendWhatsAppMessage = async (applicationId: string, message: string
   });
   return handleApiError(response);
 };
+
+export const sendWhatsAppMedia = async (applicationId: string, file: File, caption: string = ""): Promise<{ success: boolean; wa_message_id?: string; file_url?: string }> => {
+  const formData = new FormData();
+  formData.append('application_id', applicationId);
+  formData.append('caption', caption);
+  formData.append('file', file);
+
+  const token = getAuthToken();
+  const headers: HeadersInit = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  // Do NOT set Content-Type — browser will set the multipart boundary automatically
+
+  const response = await fetch(`${API_BASE_URL}/whatsapp/send-media`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  return handleApiError(response);
+};

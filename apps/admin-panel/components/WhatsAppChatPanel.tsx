@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchApplicationTimeline, sendWhatsAppMessage, deleteTimelineNote } from '../services/api';
+import { fetchApplicationTimeline, sendWhatsAppMessage, sendWhatsAppMedia, deleteTimelineNote } from '../services/api';
 import { ApplicationNote, NoteType } from '../types';
 import { useTranslation } from '../i18n';
 import Spinner from './Spinner';
@@ -19,7 +19,9 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [newMessage, setNewMessage] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: allNotes, isLoading, isError } = useQuery({
     queryKey: ['timeline', appId],
@@ -35,9 +37,15 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
   }, [allNotes]);
 
   const sendMutation = useMutation({
-    mutationFn: (message: string) => sendWhatsAppMessage(appId, message),
+    mutationFn: ({ message, file }: { message: string; file?: File | null }) => {
+      if (file) {
+        return sendWhatsAppMedia(appId, file, message);
+      }
+      return sendWhatsAppMessage(appId, message);
+    },
     onSuccess: () => {
       setNewMessage('');
+      setSelectedFile(null);
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -57,8 +65,8 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim()) return;
-    sendMutation.mutate(newMessage.trim());
+    if (!newMessage.trim() && !selectedFile) return;
+    sendMutation.mutate({ message: newMessage.trim(), file: selectedFile });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -203,7 +211,36 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
           </div>
         )}
         <form onSubmit={handleSend} className="flex items-end gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sendMutation.isPending}
+            className="p-2.5 bg-white text-slate-500 rounded-full hover:bg-slate-100 disabled:opacity-50 transition-colors border border-slate-200"
+            title="Прикрепить файл"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
           <div className="flex-1 bg-white rounded-lg px-3 py-2 max-h-32 overflow-y-auto border border-slate-200">
+            {selectedFile && (
+              <div className="flex items-center gap-2 mb-1 text-xs text-slate-600">
+                <span className="bg-slate-100 px-2 py-0.5 rounded truncate max-w-[150px]">{selectedFile.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedFile(null)}
+                  className="text-slate-400 hover:text-red-500"
+                >
+                  ×
+                </button>
+              </div>
+            )}
             <textarea
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
@@ -222,7 +259,7 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
           </div>
           <button
             type="submit"
-            disabled={!newMessage.trim() || sendMutation.isPending}
+            disabled={(!newMessage.trim() && !selectedFile) || sendMutation.isPending}
             className="p-2.5 bg-green-500 text-white rounded-full hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
           >
             {sendMutation.isPending ? (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote, updateApplication, uploadApplicationFiles } from '../services/api';
 import { Status, Application, ServiceType, NoteType } from '../types';
 import Spinner from './Spinner';

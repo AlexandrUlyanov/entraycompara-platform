@@ -724,6 +724,13 @@ async def delete_timeline_event(application_id: str, event_id: str):
 @app.post("/api/whatsapp/send", tags=["WhatsApp"], dependencies=[Depends(authenticate_operator)])
 async def api_send_whatsapp(data: WhatsAppSendRequest):
     """Отправляет текстовое сообщение клиенту через WhatsApp Business API и сохраняет его в Timeline."""
+    # Проверяем credentials до любых других действий
+    if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="WhatsApp credentials not configured on backend. Please set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN environment variables."
+        )
+    
     try:
         doc = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).get()
         if not doc.exists:
@@ -752,6 +759,10 @@ async def api_send_whatsapp(data: WhatsAppSendRequest):
         
     except HTTPException:
         raise
+    except requests.exceptions.HTTPError as e:
+        meta_error = e.response.text if hasattr(e, 'response') else str(e)
+        print(f"WhatsApp Meta API Error: {meta_error}")
+        raise HTTPException(status_code=502, detail=f"Meta API Error: {meta_error}")
     except Exception as e:
         print(f"WhatsApp Send Error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка отправки WhatsApp: {str(e)}")

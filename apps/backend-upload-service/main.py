@@ -14,6 +14,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Que
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage, firestore 
 from pydantic import BaseModel
+import google.generativeai as genai
 
 
 app = FastAPI()
@@ -52,6 +53,13 @@ WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_VERIFY_TOKEN = os.environ.get("WHATSAPP_VERIFY_TOKEN")
 WHATSAPP_API_VERSION = "v25.0"
+# -------------------------
+
+# --- Настройки Gemini AI ---
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_MODEL = "gemini-2.0-flash"
 # -------------------------
 
 # --- Настройки Email (Gmail SMTP) ---
@@ -136,7 +144,47 @@ class SignedUrlResponse(BaseModel):
 class WhatsAppSendRequest(BaseModel):
     application_id: str
     message: str
-    
+
+class AIGenerateRequest(BaseModel):
+    application_id: str
+
+# --- База знаний компании ---
+KNOWLEDGE_BASE = """
+EntrayCompara — сервис помощи клиентам в Испании по снижению расходов на коммунальные услуги.
+
+Что мы делаем:
+• Анализируем счета клиентов (электричество, газ, мобильная связь, интернет)
+• Подбираем лучшие тарифы на рынке Испании
+• Помогаем с переходом к новому оператору
+• Сопровождаем клиента на всех этапах
+
+Преимущества для клиента:
+• Услуга полностью бесплатна для клиента (мы получаем комиссию от операторов)
+• Средняя экономия: 20–40% на ежемесячных счетах
+• Экономия времени: не нужно самому изучать десятки тарифов
+• Работаем по всей территории Испании
+• Поддержка на нескольких языках: испанский, русский, украинский, баскский
+
+Процесс работы:
+1. Клиент оставляет заявку и загружает свои счета
+2. Мы проводим бесплатный анализ
+3. Предлагаем лучшие варианты с расчётом экономии
+4. По согласию клиента оформляем переход к новому оператору
+5. Поддерживаем связь после перехода
+
+Контактная информация:
+• Email: ulyanov.ht@gmail.com
+• WhatsApp: через официальный номер компании
+• Сайт: https://entraycompara.com
+
+Важные правила общения:
+• Всегда отвечай на языке клиента
+• Будь дружелюбным, но профессиональным
+• Не обещай конкретную сумму экономии без анализа счетов
+• Не используй технический жаргон без объяснений
+• Мягко подталкивай клиента к следующему шагу (загрузка счетов, звонок, согласование)
+"""
+
 # --- Вспомогательные функции ---
 
 def create_timeline_event_internal(application_id: str, content: str, event_type: EventType, created_by: str):
@@ -974,6 +1022,82 @@ class WhatsAppDocumentRequest(BaseModel):
     application_id: str
     document_url: str
     caption: str = ""
+
+@app.post("/api/ai/generate-response", tags=["AI"], dependencies=[Depends(authenticate_operator)])
+async def api_generate_ai_response(data: AIGenerateRequest):
+    """Генерирует ответ менеджера с помощью Gemini AI на основе истории переписки и данных заявки."""
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=503, detail="Gemini API Key не настроен на бэкенде.")
+    
+    try:
+        # 1. Получаем заявку
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        app_data = doc.to_dict()
+        
+        # 2. Получаем историю WhatsApp-переписки
+        timeline_docs = doc_ref.collection("timeline") \
+            .order_by("created_at", direction=firestore.Query.ASCENDING) \
+            .stream()
+        
+        chat_lines = []
+        for tdoc in timeline_docs:
+            tdata = tdoc.to_dict()
+            if tdata.get("type") == EventType.WHATSAPP.value:
+                sender = "Клиент" if tdata.get("direction") == "incoming" or tdata.get("created_by") == "Client" else "Менеджер"
+                chat_lines.append(f"{sender}: {tdata.get('content', '')}")
+        
+        chat_history = "\n".join(chat_lines) if chat_lines else "Переписка только началась."
+        
+        # 3. Формируем промпт
+        files = ", ".join([url.split('/')[-1] for url in app_data.get("uploaded_files", [])]) or "Нет загруженных файлов"
+        
+        prompt = f"""Ты — профессиональный менеджер по продажам компании EntrayCompara. Компания помогает клиентам в Испании сэкономить на коммунальных услугах (электричество, газ, мобильная связь, интернет).
+
+[БАЗА ЗНАНИЙ КОМПАНИИ]
+{KNOWLEDGE_BASE}
+
+[ДАННЫЕ ТЕКУЩЕЙ ЗАЯВКИ]
+Имя клиента: {app_data.get('client_name', 'Не указано')}
+Телефон: {app_data.get('client_phone', 'Не указан')}
+Email: {app_data.get('client_email', 'Не указан')}
+Тип услуги: {app_data.get('service_type', 'Не указан')}
+Статус заявки: {app_data.get('status', 'New Lead')}
+Заметки: {app_data.get('notes', 'Нет заметок')}
+Загруженные файлы: {files}
+
+[ИСТОРИЯ ПЕРЕПИСКИ В WHATSAPP]
+{chat_history}
+
+Твоя задача — написать следующее сообщение клиенту.
+Правила:
+1. Отвечай строго на том же языке, на котором пишет клиент (если клиент писал на русском — отвечай на русском, на испанском — на испанском, и т.д.)
+2. Будь дружелюбным, профессиональным и лаконичным
+3. Стремись к конверсии: мягко подталкивай клиента к следующему шагу (загрузка счетов, звонок, подписание договора)
+4. Если клиент задает вопрос — отвечай четко и по существу
+5. Не используй markdown, только plain text
+6. Максимум 2-3 предложения, если вопрос не требует развернутого ответа
+7. Не подписывайся именем — просто текст сообщения
+
+Следующее сообщение:"""
+        
+        # 4. Вызываем Gemini
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        response = model.generate_content(prompt)
+        
+        if not response.text:
+            raise HTTPException(status_code=500, detail="Gemini вернул пустой ответ.")
+        
+        return {"success": True, "response": response.text.strip()}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"AI Generation Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка генерации ответа ИИ: {str(e)}")
 
 @app.post("/api/whatsapp/send-document", tags=["WhatsApp"], dependencies=[Depends(authenticate_operator)])
 async def api_send_whatsapp_document(data: WhatsAppDocumentRequest):

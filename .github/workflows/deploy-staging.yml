@@ -47,6 +47,7 @@ jobs:
             --set-env-vars=WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }} \
             --set-env-vars=WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }} \
             --set-env-vars=WHATSAPP_VERIFY_TOKEN=${{ secrets.WHATSAPP_VERIFY_TOKEN }} \
+            --set-env-vars=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} \
             --service-account=910753338248-compute@developer.gserviceaccount.com \
             --memory=512Mi --cpu=1 --max-instances=3 --timeout=300
 

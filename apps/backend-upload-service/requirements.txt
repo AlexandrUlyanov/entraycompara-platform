@@ -5,3 +5,4 @@ python-multipart
 google-cloud-firestore
 pydantic
 requests
+google-generativeai

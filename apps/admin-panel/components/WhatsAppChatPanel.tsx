@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchApplicationTimeline, sendWhatsAppMessage, sendWhatsAppMedia, deleteTimelineNote } from '../services/api';
+import { fetchApplicationTimeline, sendWhatsAppMessage, sendWhatsAppMedia, deleteTimelineNote, generateAIResponse } from '../services/api';
 import { ApplicationNote, NoteType } from '../types';
 import { useTranslation } from '../i18n';
 import Spinner from './Spinner';
@@ -20,6 +20,7 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
   const queryClient = useQueryClient();
   const [newMessage, setNewMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -54,6 +55,17 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
     mutationFn: (noteId: string) => deleteTimelineNote(appId, noteId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+
+  const aiMutation = useMutation({
+    mutationFn: () => generateAIResponse(appId),
+    onSuccess: (data) => {
+      setAiError(null);
+      setNewMessage(data.response);
+    },
+    onError: (error: Error) => {
+      setAiError(error.message || 'Ошибка генерации ответа');
     },
   });
 
@@ -109,6 +121,22 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
             <p className="text-xs text-slate-500">{clientPhone}</p>
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => aiMutation.mutate()}
+          disabled={aiMutation.isPending}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-primary-50 hover:bg-primary-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-primary-100"
+          title="Сгенерировать ответ ИИ"
+        >
+          {aiMutation.isPending ? (
+            <Spinner size="h-3.5 w-3.5" />
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          )}
+          {aiMutation.isPending ? 'Думаю...' : 'ИИ ответ'}
+        </button>
       </div>
 
       {/* Messages */}
@@ -205,9 +233,9 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
 
       {/* Input */}
       <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50">
-        {sendMutation.isError && (
+        {(sendMutation.isError || aiError) && (
           <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-            {(sendMutation.error as Error)?.message || 'Ошибка отправки'}
+            {(sendMutation.error as Error)?.message || aiError || 'Ошибка'}
           </div>
         )}
         <form onSubmit={handleSend} className="flex items-end gap-2">

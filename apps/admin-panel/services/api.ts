@@ -259,3 +259,14 @@ export const sendWhatsAppDocument = async (applicationId: string, documentUrl: s
   });
   return handleApiError(response);
 };
+
+// --- AI Assistant API ---
+
+export const generateAIResponse = async (applicationId: string): Promise<{ success: boolean; response: string }> => {
+  const response = await fetch(`${API_BASE_URL}/ai/generate-response`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ application_id: applicationId }),
+  });
+  return handleApiError(response);
+};

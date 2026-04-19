@@ -193,6 +193,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - `WHATSAPP_PHONE_NUMBER_ID` — ID номера телефона в WhatsApp Business API
 - `WHATSAPP_ACCESS_TOKEN` — Access Token для Meta Graph API
 - `WHATSAPP_VERIFY_TOKEN` — Verify Token для верификации webhook'ов Meta
+- `GEMINI_API_KEY` — API-ключ Google Gemini для генерации ответов ИИ-ассистента
 
 ---
 
@@ -295,6 +296,12 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - Сообщения автоматически привязываются к заявке по номеру телефона клиента (нормализация: `re.sub(r'\D', '', phone)`)
 - В Timeline сохраняется `direction: incoming/outgoing` и `created_by: Client/Operator`
 
+**AI Assistant (Gemini)**:
+- Эндпоинт: `POST /api/ai/generate-response` — генерирует ответ менеджера на основе истории WhatsApp-переписки, данных заявки и базы знаний компании
+- Использует Google Gemini (`gemini-2.0-flash`) через `google-generativeai`
+- Требует `GEMINI_API_KEY` в переменных окружения
+- Работает в ручном режиме: оператор в CRM нажимает кнопку «ИИ ответ» и получает сгенерированный текст в поле ввода
+
 **CORS**: Разрешены `*`, `http://localhost:3000`, `https://entraycompara.com`, `https://www.entraycompara.com`
 
 ### 6.2. Admin Panel (`apps/admin-panel/`)
@@ -314,6 +321,11 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - В `Timeline.tsx` сообщения WhatsApp отображаются в виде chat bubbles (входящие слева, исходящие справа)
 - Оператор может отправить сообщение, выбрав тип **WhatsApp** в форме Timeline
 - Добавлена кнопка **Email** для создания email-заметок
+
+**AI Assistant в CRM**:
+- В `WhatsAppChatPanel.tsx` добавлена кнопка «ИИ ответ» (⚡) в заголовке чата
+- При нажатии вызывается `POST /api/ai/generate-response` — Gemini анализирует историю переписки и данные заявки
+- Сгенерированный текст появляется в поле ввода — оператор может отредактировать и отправить
 
 **Важно**: `compiled/index.html` — это SPA с хэш-роутингом (`#/`).
 

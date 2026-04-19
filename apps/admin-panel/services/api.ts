@@ -270,3 +270,12 @@ export const generateAIResponse = async (applicationId: string): Promise<{ succe
   });
   return handleApiError(response);
 };
+
+export const generateProposal = async (applicationId: string): Promise<{ success: boolean; file_url: string; message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/ai/generate-proposal`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ application_id: applicationId }),
+  });
+  return handleApiError(response);
+};

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote, updateApplication, uploadApplicationFiles, sendWhatsAppDocument } from '../services/api';
+import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote, updateApplication, uploadApplicationFiles, sendWhatsAppDocument, generateProposal } from '../services/api';
 import { Status, Application, ServiceType, NoteType } from '../types';
 import Spinner from './Spinner';
 import StatusBadge from './StatusBadge';
@@ -90,6 +90,14 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
   const sendDocMutation = useMutation({
     mutationFn: ({ url, caption }: { url: string; caption: string }) => sendWhatsAppDocument(appId, url, caption),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+
+  const proposalMutation = useMutation({
+    mutationFn: () => generateProposal(appId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['application', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -323,6 +331,38 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                         </button>
                     ))}
                      {statusUpdateMutation.isError && <p className="text-xs text-red-500 px-2">{t('dashboard.error.generic', { message: (statusUpdateMutation.error as Error).message })}</p>}
+                </div>
+            </div>
+
+            {/* AI Proposal Card */}
+            <div className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">
+                <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/30">
+                    <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">ИИ Ассистент</h3>
+                </div>
+                <div className="p-5">
+                    {proposalMutation.isError && (
+                        <p className="text-xs text-red-500 mb-3">
+                            {t('detail.error.generic', { message: (proposalMutation.error as Error).message })}
+                        </p>
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => proposalMutation.mutate()}
+                        disabled={proposalMutation.isPending}
+                        className="w-full py-3.5 px-5 text-sm font-medium rounded-2xl bg-primary-50 text-primary hover:bg-primary-100 border border-primary-100 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-wait"
+                    >
+                        {proposalMutation.isPending ? (
+                            <Spinner size="h-4 w-4" />
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                        )}
+                        {proposalMutation.isPending ? 'Генерация КП...' : 'Сгенерировать КП'}
+                    </button>
+                    {proposalMutation.isSuccess && (
+                        <p className="text-xs text-green-600 mt-2 text-center">КП успешно создано и добавлено к заявке</p>
+                    )}
                 </div>
             </div>
 

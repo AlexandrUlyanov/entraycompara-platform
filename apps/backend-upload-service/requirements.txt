@@ -6,3 +6,4 @@ google-cloud-firestore
 pydantic
 requests
 google-generativeai
+fpdf2

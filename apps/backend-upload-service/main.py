@@ -15,6 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage, firestore 
 from pydantic import BaseModel
 import google.generativeai as genai
+from fpdf import FPDF
+import tempfile
 
 
 app = FastAPI()
@@ -1110,6 +1112,193 @@ Email: {app_data.get('client_email', 'Не указан')}
     except Exception as e:
         print(f"AI Generation Error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка генерации ответа ИИ: {str(e)}")
+
+# --- Proposal / КП генерация ---
+
+def upload_bytes_to_gcs(data: bytes, destination_blob_name: str, content_type: str = "application/pdf") -> str:
+    """Загружает bytes в Google Cloud Storage и делает публично доступным."""
+    bucket = storage_client.bucket(BUCKET_NAME)
+    blob = bucket.blob(destination_blob_name)
+    blob.upload_from_string(data, content_type=content_type)
+    blob.acl.all().grant_read()
+    blob.acl.save()
+    return f"https://storage.googleapis.com/{BUCKET_NAME}/{destination_blob_name}"
+
+def generate_proposal_pdf(proposal_text: str, client_name: str, service_type: str) -> bytes:
+    """Генерирует PDF коммерческого предложения."""
+    pdf = FPDF()
+    font_path = os.path.join(os.path.dirname(__file__), "fonts", "DejaVuSans.ttf")
+    pdf.add_font("DejaVu", "", font_path, uni=True)
+    pdf.add_font("DejaVu", "B", font_path, uni=True)
+    
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    # Header
+    pdf.set_font("DejaVu", "B", 20)
+    pdf.set_text_color(0, 102, 204)
+    pdf.cell(0, 10, "EntrayCompara", ln=True, align="C")
+    pdf.set_font("DejaVu", "", 12)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 6, "Коммерческое предложение", ln=True, align="C")
+    pdf.cell(0, 6, f"Услуга: {service_type}", ln=True, align="C")
+    pdf.ln(5)
+    pdf.set_draw_color(0, 102, 204)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(8)
+    
+    # Client info
+    pdf.set_font("DejaVu", "B", 11)
+    pdf.set_text_color(50, 50, 50)
+    pdf.cell(0, 6, f"Клиент: {client_name}", ln=True)
+    pdf.set_font("DejaVu", "", 10)
+    pdf.cell(0, 6, f"Дата: {datetime.datetime.utcnow().strftime('%d.%m.%Y')}", ln=True)
+    pdf.ln(5)
+    
+    # Proposal text
+    pdf.set_font("DejaVu", "", 11)
+    pdf.set_text_color(30, 30, 30)
+    for paragraph in proposal_text.split('\n'):
+        if paragraph.strip():
+            pdf.multi_cell(0, 6, paragraph.strip())
+            pdf.ln(2)
+    
+    # Footer
+    pdf.ln(10)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(5)
+    pdf.set_font("DejaVu", "", 9)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 5, "EntrayCompara | https://entraycompara.com | ulyanov.ht@gmail.com", ln=True, align="C")
+    pdf.cell(0, 5, "Помогаем экономить на коммунальных услугах в Испании", ln=True, align="C")
+    
+    return pdf.output(dest="S")
+
+class AIProposalRequest(BaseModel):
+    application_id: str
+
+@app.post("/api/ai/generate-proposal", tags=["AI"], dependencies=[Depends(authenticate_operator)])
+async def api_generate_ai_proposal(data: AIProposalRequest):
+    """Генерирует коммерческое предложение (PDF) на основе анализа счетов клиента через Gemini multimodal."""
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=503, detail="Gemini API Key не настроен на бэкенде.")
+    
+    try:
+        # 1. Получаем заявку
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        app_data = doc.to_dict()
+        client_name = app_data.get('client_name', 'Клиент')
+        service_type = app_data.get('service_type', 'Не указан')
+        
+        # 2. Скачиваем файлы клиента
+        uploaded_files = app_data.get("uploaded_files", [])
+        if not uploaded_files:
+            raise HTTPException(status_code=400, detail="У заявки нет загруженных файлов для анализа.")
+        
+        # 3. Загружаем файлы в Gemini File API для multimodal анализа
+        gemini_files = []
+        for file_url in uploaded_files[:5]:  # Лимит 5 файлов для анализа
+            try:
+                # Скачиваем файл
+                resp = requests.get(file_url, timeout=30)
+                resp.raise_for_status()
+                mime_type = resp.headers.get('content-type', 'application/octet-stream')
+                
+                # Сохраняем во временный файл
+                ext = os.path.splitext(file_url.split('/')[-1])[1] or '.bin'
+                with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                    tmp.write(resp.content)
+                    tmp_path = tmp.name
+                
+                # Загружаем в Gemini
+                gemini_file = genai.upload_file(path=tmp_path, mime_type=mime_type)
+                gemini_files.append(gemini_file)
+                
+                # Удаляем временный файл
+                os.unlink(tmp_path)
+            except Exception as e:
+                print(f"Failed to process file {file_url} for Gemini: {e}")
+                continue
+        
+        if not gemini_files:
+            raise HTTPException(status_code=400, detail="Не удалось подготовить файлы для анализа Gemini.")
+        
+        # 4. Формируем промпт для КП
+        prompt_text = f"""Ты — аналитик компании EntrayCompara. Компания помогает клиентам в Испании сэкономить на коммунальных услугах (электричество, газ, мобильная связь, интернет).
+
+[БАЗА ЗНАНИЙ КОМПАНИИ]
+{KNOWLEDGE_BASE}
+
+[ДАННЫЕ КЛИЕНТА]
+Имя: {client_name}
+Тип услуги: {service_type}
+
+[ЗАДАЧА]
+Проанализируй загруженные счета клиента. Извлеки:
+- Текущего оператора/поставщика
+- Текущий тариф/план
+- Среднемесячную сумму платежа
+- Основные параметры потребления
+
+Составь коммерческое предложение на русском или испанском языке (в зависимости от языка документов).
+Структура:
+1. Обращение к клиенту по имени ({client_name})
+2. Резюме текущей ситуации на основе счетов (кратко)
+3. Предложение по экономии с осторожными формулировками ("потенциально до X%", "по предварительной оценке")
+4. Следующие шаги (как принять предложение)
+5. Контактная информация
+
+Важно:
+- Не обещай точную сумму экономии без уверенности.
+- Формат: plain text, без markdown, без заголовков с #.
+- Текст должен быть готов для вставки в PDF (параграфами, с абзацами).
+- Не используй спецсимволы, которые могут сломать PDF."""
+        
+        # 5. Вызываем Gemini multimodal
+        model = genai.GenerativeModel(GEMINI_MODEL)
+        contents = [prompt_text] + gemini_files
+        response = model.generate_content(contents)
+        
+        if not response.text:
+            raise HTTPException(status_code=500, detail="Gemini вернул пустой ответ для КП.")
+        
+        proposal_text = response.text.strip()
+        
+        # 6. Генерируем PDF
+        pdf_bytes = generate_proposal_pdf(proposal_text, client_name, service_type)
+        
+        # 7. Загружаем PDF в GCS
+        today = datetime.datetime.utcnow()
+        prefix = f"proposals/{today.year}/{today.month:02}/{today.day:02}"
+        unique_name = f"{uuid.uuid4()}_proposal.pdf"
+        destination = f"{prefix}/{unique_name}"
+        public_url = upload_bytes_to_gcs(pdf_bytes, destination, "application/pdf")
+        
+        # 8. Обновляем заявку: добавляем PDF в uploaded_files
+        existing_files = app_data.get("uploaded_files", [])
+        updated_files = existing_files + [public_url]
+        doc_ref.update({"uploaded_files": updated_files, "updated_at": today})
+        
+        # 9. Создаём запись в Timeline
+        create_timeline_event_internal(
+            application_id=data.application_id,
+            content=f"Коммерческое предложение сгенерировано ИИ и добавлено к заявке.",
+            event_type=EventType.NOTE,
+            created_by="AI Assistant"
+        )
+        
+        return {"success": True, "file_url": public_url, "message": "КП успешно сгенерировано и добавлено к заявке."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"AI Proposal Generation Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка генерации КП: {str(e)}")
 
 @app.post("/api/whatsapp/send-document", tags=["WhatsApp"], dependencies=[Depends(authenticate_operator)])
 async def api_send_whatsapp_document(data: WhatsAppDocumentRequest):

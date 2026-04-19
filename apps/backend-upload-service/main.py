@@ -1200,38 +1200,28 @@ async def api_generate_ai_proposal(data: AIProposalRequest):
         if not uploaded_files:
             raise HTTPException(status_code=400, detail="У заявки нет загруженных файлов для анализа.")
         
-        # 3. Скачиваем файлы клиента и готовим для Gemini multimodal
+        # 3. Готовим файлы для Gemini multimodal через public URL (Part.from_uri)
         gemini_parts = []
         for file_url in uploaded_files[:3]:  # Лимит 3 файла для анализа
             try:
-                print(f"Downloading file for proposal analysis: {file_url}")
-                resp = requests.get(file_url, timeout=30)
-                resp.raise_for_status()
+                # Определяем mime type по расширению
+                ext = os.path.splitext(file_url.split('/')[-1])[1].lower()
+                mime_type = 'application/octet-stream'
+                if ext in ['.pdf']:
+                    mime_type = 'application/pdf'
+                elif ext in ['.jpg', '.jpeg']:
+                    mime_type = 'image/jpeg'
+                elif ext in ['.png']:
+                    mime_type = 'image/png'
+                elif ext in ['.doc', '.docx']:
+                    mime_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
                 
-                # Определяем mime type по расширению, если header неинформативен
-                mime_type = resp.headers.get('content-type', 'application/octet-stream')
-                if mime_type == 'application/octet-stream':
-                    ext = os.path.splitext(file_url.split('/')[-1])[1].lower()
-                    if ext in ['.pdf']:
-                        mime_type = 'application/pdf'
-                    elif ext in ['.jpg', '.jpeg']:
-                        mime_type = 'image/jpeg'
-                    elif ext in ['.png']:
-                        mime_type = 'image/png'
-                    elif ext in ['.doc', '.docx']:
-                        mime_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                
-                # Пропускаем слишком большие файлы (>20MB)
-                if len(resp.content) > 20 * 1024 * 1024:
-                    print(f"File too large, skipping: {file_url} ({len(resp.content)} bytes)")
-                    continue
-                
-                # Передаём файл напрямую как bytes через Part.from_bytes
-                part = genai.types.Part.from_bytes(data=resp.content, mime_type=mime_type)
+                # Передаём файл по public URI — Gemini сам скачает его
+                part = genai.types.Part.from_uri(file_uri=file_url, mime_type=mime_type)
                 gemini_parts.append(part)
-                print(f"File prepared for Gemini: {file_url} ({len(resp.content)} bytes, {mime_type})")
+                print(f"File referenced for Gemini: {file_url} ({mime_type})")
             except Exception as e:
-                print(f"Failed to process file {file_url} for Gemini: {e}")
+                print(f"Failed to reference file {file_url} for Gemini: {e}")
                 continue
         
         if not gemini_parts:

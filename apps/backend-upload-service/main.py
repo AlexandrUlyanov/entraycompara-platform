@@ -1200,33 +1200,42 @@ async def api_generate_ai_proposal(data: AIProposalRequest):
         if not uploaded_files:
             raise HTTPException(status_code=400, detail="У заявки нет загруженных файлов для анализа.")
         
-        # 3. Загружаем файлы в Gemini File API для multimodal анализа
-        gemini_files = []
-        for file_url in uploaded_files[:5]:  # Лимит 5 файлов для анализа
+        # 3. Скачиваем файлы клиента и готовим для Gemini multimodal
+        gemini_parts = []
+        for file_url in uploaded_files[:3]:  # Лимит 3 файла для анализа
             try:
-                # Скачиваем файл
+                print(f"Downloading file for proposal analysis: {file_url}")
                 resp = requests.get(file_url, timeout=30)
                 resp.raise_for_status()
+                
+                # Определяем mime type по расширению, если header неинформативен
                 mime_type = resp.headers.get('content-type', 'application/octet-stream')
+                if mime_type == 'application/octet-stream':
+                    ext = os.path.splitext(file_url.split('/')[-1])[1].lower()
+                    if ext in ['.pdf']:
+                        mime_type = 'application/pdf'
+                    elif ext in ['.jpg', '.jpeg']:
+                        mime_type = 'image/jpeg'
+                    elif ext in ['.png']:
+                        mime_type = 'image/png'
+                    elif ext in ['.doc', '.docx']:
+                        mime_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
                 
-                # Сохраняем во временный файл
-                ext = os.path.splitext(file_url.split('/')[-1])[1] or '.bin'
-                with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                    tmp.write(resp.content)
-                    tmp_path = tmp.name
+                # Пропускаем слишком большие файлы (>20MB)
+                if len(resp.content) > 20 * 1024 * 1024:
+                    print(f"File too large, skipping: {file_url} ({len(resp.content)} bytes)")
+                    continue
                 
-                # Загружаем в Gemini
-                gemini_file = genai.upload_file(path=tmp_path, mime_type=mime_type)
-                gemini_files.append(gemini_file)
-                
-                # Удаляем временный файл
-                os.unlink(tmp_path)
+                # Передаём файл напрямую как bytes через Part.from_data
+                part = genai.types.Part.from_data(data=resp.content, mime_type=mime_type)
+                gemini_parts.append(part)
+                print(f"File prepared for Gemini: {file_url} ({len(resp.content)} bytes, {mime_type})")
             except Exception as e:
                 print(f"Failed to process file {file_url} for Gemini: {e}")
                 continue
         
-        if not gemini_files:
-            raise HTTPException(status_code=400, detail="Не удалось подготовить файлы для анализа Gemini.")
+        if not gemini_parts:
+            raise HTTPException(status_code=400, detail="Не удалось подготовить файлы для анализа Gemini. Убедитесь, что файлы доступны и не повреждены.")
         
         # 4. Формируем промпт для КП
         prompt_text = f"""Ты — аналитик компании EntrayCompara. Компания помогает клиентам в Испании сэкономить на коммунальных услугах (электричество, газ, мобильная связь, интернет).
@@ -1261,7 +1270,7 @@ async def api_generate_ai_proposal(data: AIProposalRequest):
         
         # 5. Вызываем Gemini multimodal
         model = genai.GenerativeModel(GEMINI_MODEL)
-        contents = [prompt_text] + gemini_files
+        contents = [prompt_text] + gemini_parts
         response = model.generate_content(contents)
         
         if not response.text:

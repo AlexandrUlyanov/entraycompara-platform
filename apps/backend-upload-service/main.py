@@ -59,7 +59,7 @@ WHATSAPP_API_VERSION = "v25.0"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-GEMINI_MODEL = "gemini-1.5-flash"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 # -------------------------
 
 # --- Настройки Email (Gmail SMTP) ---

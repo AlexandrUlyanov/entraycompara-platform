@@ -1226,8 +1226,8 @@ async def api_generate_ai_proposal(data: AIProposalRequest):
                     print(f"File too large, skipping: {file_url} ({len(resp.content)} bytes)")
                     continue
                 
-                # Передаём файл напрямую как bytes через Part.from_data
-                part = genai.types.Part.from_data(data=resp.content, mime_type=mime_type)
+                # Передаём файл напрямую как bytes через Part.from_bytes
+                part = genai.types.Part.from_bytes(data=resp.content, mime_type=mime_type)
                 gemini_parts.append(part)
                 print(f"File prepared for Gemini: {file_url} ({len(resp.content)} bytes, {mime_type})")
             except Exception as e:

@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage, firestore 
 from pydantic import BaseModel
 import google.generativeai as genai
+import google.ai.generativelanguage as glm
 from fpdf import FPDF
 import tempfile
 
@@ -1200,10 +1201,15 @@ async def api_generate_ai_proposal(data: AIProposalRequest):
         if not uploaded_files:
             raise HTTPException(status_code=400, detail="У заявки нет загруженных файлов для анализа.")
         
-        # 3. Готовим файлы для Gemini multimodal через public URL (Part.from_uri)
+        # 3. Скачиваем файлы клиента и готовим для Gemini через glm.Blob
         gemini_parts = []
         for file_url in uploaded_files[:3]:  # Лимит 3 файла для анализа
             try:
+                print(f"Downloading file for proposal analysis: {file_url}")
+                resp = requests.get(file_url, timeout=30)
+                print(f"Download status: {resp.status_code}, size: {len(resp.content)} bytes")
+                resp.raise_for_status()
+                
                 # Определяем mime type по расширению
                 ext = os.path.splitext(file_url.split('/')[-1])[1].lower()
                 mime_type = 'application/octet-stream'
@@ -1216,12 +1222,18 @@ async def api_generate_ai_proposal(data: AIProposalRequest):
                 elif ext in ['.doc', '.docx']:
                     mime_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
                 
-                # Передаём файл по public URI — Gemini сам скачает его
-                part = genai.types.Part.from_uri(file_uri=file_url, mime_type=mime_type)
+                # Пропускаем слишком большие файлы (>15MB)
+                if len(resp.content) > 15 * 1024 * 1024:
+                    print(f"File too large, skipping: {file_url} ({len(resp.content)} bytes)")
+                    continue
+                
+                # Используем низкоуровневый glm API для inline_data
+                blob = glm.Blob(mime_type=mime_type, data=resp.content)
+                part = glm.Part(inline_data=blob)
                 gemini_parts.append(part)
-                print(f"File referenced for Gemini: {file_url} ({mime_type})")
+                print(f"File prepared via glm: {file_url} ({len(resp.content)} bytes, {mime_type})")
             except Exception as e:
-                print(f"Failed to reference file {file_url} for Gemini: {e}")
+                print(f"Failed to process file {file_url} for Gemini: {e}")
                 continue
         
         if not gemini_parts:

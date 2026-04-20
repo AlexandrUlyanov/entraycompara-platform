@@ -51,14 +51,14 @@ test.describe('CRM Admin Panel', () => {
     await expect(docsCard).toBeVisible();
   });
 
-  test('API docs do not expose generate-proposal', async ({ request }) => {
-    const response = await request.get(`${API_BASE}/docs`, {
-      headers: { Authorization: `Bearer ${SECRET_KEY}` },
-    });
-    expect(response.status()).toBe(200);
-    const body = await response.text();
-    expect(body).not.toContain('generate-proposal');
-    expect(body).toContain('upload-proposal');
-    expect(body).toContain('send-proposal');
-  });
+});
+
+test('API docs do not expose generate-proposal', async ({ page }) => {
+  const base = API_BASE.replace('/api', '');
+  await page.goto(`${base}/openapi.json`);
+  const body = await page.locator('body pre').textContent();
+  expect(body).toBeTruthy();
+  expect(body).not.toContain('generate-proposal');
+  expect(body).toContain('upload-proposal');
+  expect(body).toContain('send-proposal');
 });

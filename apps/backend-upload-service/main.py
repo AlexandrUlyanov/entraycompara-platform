@@ -145,6 +145,9 @@ class WhatsAppSendRequest(BaseModel):
     application_id: str
     message: str
 
+class WhatsAppProposalRequest(BaseModel):
+    application_id: str
+
 class AIGenerateRequest(BaseModel):
     application_id: str
 
@@ -759,6 +762,52 @@ async def upload_application_files(application_id: str, files: list[UploadFile] 
         print(f"Upload files error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при загрузке файлов.")
 
+# --- 4.8. POST /api/applications/{id}/upload-proposal (Загрузка КП) ---
+@app.post("/api/applications/{application_id}/upload-proposal", tags=["Management"], dependencies=[Depends(authenticate_operator)])
+async def upload_proposal(application_id: str, file: UploadFile = File(...)):
+    """Загружает PDF коммерческого предложения в GCS и сохраняет URL в заявке."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail=f"Заявка с ID {application_id} не найдена.")
+        
+        if not file or file.filename == '':
+            raise HTTPException(status_code=400, detail="Не передан файл.")
+        
+        if file.content_type not in ALLOWED_MIME_TYPES:
+            raise HTTPException(status_code=400, detail=f"Недопустимый тип файла: {file.content_type}")
+        
+        file.file.seek(0, os.SEEK_END)
+        size_mb = file.file.tell() / (1024 * 1024)
+        file.file.seek(0)
+        if size_mb > MAX_FILE_SIZE_MB:
+            raise HTTPException(status_code=400, detail=f"Файл превышает {MAX_FILE_SIZE_MB} МБ")
+        
+        ext = os.path.splitext(file.filename)[1].lower()
+        today = datetime.datetime.utcnow()
+        prefix = f"proposals/{today.year}/{today.month:02}/{today.day:02}"
+        unique_name = f"{uuid.uuid4()}{ext}"
+        destination = f"{prefix}/{unique_name}"
+        
+        path = upload_to_gcs(file, destination)
+        
+        doc_ref.update({
+            "proposal_file_url": path,
+            "updated_at": today
+        })
+        
+        return {
+            "success": True,
+            "proposal_file_url": path,
+            "message": "КП успешно загружено."
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Upload proposal error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при загрузке КП.")
+
 # --- 5. DELETE /api/applications/{id} (Удаление заявки) ---
 @app.delete("/api/applications/{application_id}", tags=["Management"], dependencies=[Depends(authenticate_operator)], status_code=status.HTTP_204_NO_CONTENT)
 async def delete_application(application_id: str):
@@ -1156,6 +1205,54 @@ async def api_send_whatsapp_document(data: WhatsAppDocumentRequest):
         print(f"WhatsApp Send Document Error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка отправки документа WhatsApp: {str(e)}")
 
+@app.post("/api/whatsapp/send-proposal", tags=["WhatsApp"], dependencies=[Depends(authenticate_operator)])
+async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
+    """Отправляет загруженное КП клиенту через WhatsApp Business API."""
+    if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="WhatsApp credentials not configured on backend."
+        )
+    
+    try:
+        doc = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        app_data = doc.to_dict()
+        phone = app_data.get("client_phone")
+        proposal_url = app_data.get("proposal_file_url")
+        
+        if not phone:
+            raise HTTPException(status_code=400, detail="У заявки отсутствует телефон клиента.")
+        if not proposal_url:
+            raise HTTPException(status_code=400, detail="КП не загружено. Сначала загрузите файл КП.")
+        
+        result = send_whatsapp_document(phone, proposal_url, "Коммерческое предложение")
+        wa_message_id = result.get("messages", [{}])[0].get("id")
+        
+        event_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).collection("timeline").document()
+        event_ref.set({
+            "application_id": data.application_id,
+            "content": "📎 Коммерческое предложение",
+            "type": EventType.WHATSAPP.value,
+            "created_by": "Operator",
+            "created_at": datetime.datetime.utcnow(),
+            "direction": "outgoing",
+            "wa_message_id": wa_message_id,
+        })
+        
+        return {"success": True, "wa_message_id": wa_message_id}
+        
+    except HTTPException:
+        raise
+    except requests.exceptions.HTTPError as e:
+        meta_error = e.response.text if hasattr(e, 'response') else str(e)
+        print(f"WhatsApp Meta API Error (proposal): {meta_error}")
+        raise HTTPException(status_code=502, detail=f"Meta API Error: {meta_error}")
+    except Exception as e:
+        print(f"WhatsApp Send Proposal Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка отправки КП: {str(e)}")
 
 @app.get("/api/whatsapp/webhook", tags=["WhatsApp"])
 async def whatsapp_webhook_verify(

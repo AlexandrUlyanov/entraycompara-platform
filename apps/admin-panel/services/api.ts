@@ -161,7 +161,7 @@ export const updateApplication = async (
   return handleApiError(response);
 };
 
-export const uploadApplicationFiles = async (id: string, files: FileList): Promise<{ success: boolean; uploaded_files: string[] }> => {
+export const uploadApplicationFiles = async (id: string, files: FileList | File[]): Promise<{ success: boolean; uploaded_files: string[] }> => {
   const formData = new FormData();
   for (let i = 0; i < files.length; i++) {
     formData.append('files', files[i]);
@@ -261,6 +261,31 @@ export const sendWhatsAppDocument = async (applicationId: string, documentUrl: s
 };
 
 // --- AI Assistant API ---
+
+export const uploadProposal = async (applicationId: string, file: File): Promise<{ success: boolean; proposal_file_url: string; message: string }> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const token = getAuthToken();
+  const headers: HeadersInit = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/upload-proposal`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  return handleApiError(response);
+};
+
+export const sendProposalViaWhatsApp = async (applicationId: string): Promise<{ success: boolean; wa_message_id?: string }> => {
+  const response = await fetch(`${API_BASE_URL}/whatsapp/send-proposal`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ application_id: applicationId }),
+  });
+  return handleApiError(response);
+};
 
 export const generateAIResponse = async (applicationId: string): Promise<{ success: boolean; response: string }> => {
   const response = await fetch(`${API_BASE_URL}/ai/generate-response`, {

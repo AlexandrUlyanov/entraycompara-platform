@@ -46,6 +46,7 @@ export interface Application {
   client_email?: string;
   notes?: string; // Deprecated in favor of timeline, but kept for backward compatibility
   uploaded_files?: string[];
+  proposal_file_url?: string;
 }
 
 export interface CursorPaginatedApplications {

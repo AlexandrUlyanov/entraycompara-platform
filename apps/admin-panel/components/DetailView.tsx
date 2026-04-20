@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote, updateApplication, uploadApplicationFiles, sendWhatsAppDocument, generateProposal } from '../services/api';
+import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote, updateApplication, uploadApplicationFiles, sendWhatsAppDocument } from '../services/api';
 import { Status, Application, ServiceType, NoteType } from '../types';
 import Spinner from './Spinner';
 import StatusBadge from './StatusBadge';
@@ -21,6 +21,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
   const { t } = useTranslation();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const proposalFileRef = useRef<HTMLInputElement>(null);
   const [editValues, setEditValues] = useState({
     client_name: '',
     client_phone: '',
@@ -94,13 +95,6 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     },
   });
 
-  const proposalMutation = useMutation({
-    mutationFn: () => generateProposal(appId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['application', appId] });
-      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
-    },
-  });
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteApplicationById(appId),
@@ -334,35 +328,76 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                 </div>
             </div>
 
-            {/* AI Proposal Card */}
+            {/* Proposal / КП Card */}
             <div className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">
-                <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/30">
-                    <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">ИИ Ассистент</h3>
-                </div>
-                <div className="p-5">
-                    {proposalMutation.isError && (
-                        <p className="text-xs text-red-500 mb-3">
-                            {t('detail.error.generic', { message: (proposalMutation.error as Error).message })}
-                        </p>
-                    )}
+                <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">Коммерческое предложение</h3>
+                    <input
+                        type="file"
+                        accept=".pdf"
+                        ref={proposalFileRef}
+                        onChange={(e) => {
+                            if (e.target.files && e.target.files.length > 0) {
+                                uploadFilesMutation.mutate(e.target.files);
+                                e.target.value = '';
+                            }
+                        }}
+                        className="hidden"
+                    />
                     <button
                         type="button"
-                        onClick={() => proposalMutation.mutate()}
-                        disabled={proposalMutation.isPending}
-                        className="w-full py-3.5 px-5 text-sm font-medium rounded-2xl bg-primary-50 text-primary hover:bg-primary-100 border border-primary-100 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-wait"
+                        onClick={() => proposalFileRef.current?.click()}
+                        disabled={uploadFilesMutation.isPending}
+                        className="text-xs font-medium text-primary hover:text-primary-700 flex items-center gap-1 disabled:opacity-50"
                     >
-                        {proposalMutation.isPending ? (
-                            <Spinner size="h-4 w-4" />
+                        {uploadFilesMutation.isPending ? (
+                            <Spinner size="h-3 w-3" />
                         ) : (
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
                             </svg>
                         )}
-                        {proposalMutation.isPending ? 'Генерация КП...' : 'Сгенерировать КП'}
+                        {uploadFilesMutation.isPending ? 'Загрузка...' : 'Загрузить КП'}
                     </button>
-                    {proposalMutation.isSuccess && (
-                        <p className="text-xs text-green-600 mt-2 text-center">КП успешно создано и добавлено к заявке</p>
+                </div>
+                <div className="p-5">
+                    {uploadFilesMutation.isError && (
+                        <p className="text-xs text-red-500 mb-3">
+                            {t('detail.error.generic', { message: (uploadFilesMutation.error as Error).message })}
+                        </p>
                     )}
+                    <ul className="space-y-3">
+                        {application.uploaded_files && application.uploaded_files.length > 0 ? (
+                            application.uploaded_files.map((fileUri, index) => (
+                                <li key={index} className="flex items-center justify-between group bg-slate-50 rounded-xl p-2">
+                                    <div className="flex-1 min-w-0 mr-2">
+                                        <FileLink uri={fileUri} />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const filename = fileUri.split('/').pop() || '';
+                                            sendDocMutation.mutate({ url: fileUri, caption: filename });
+                                        }}
+                                        disabled={sendDocMutation.isPending}
+                                        className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-full bg-green-50 text-green-600 hover:bg-green-100 disabled:opacity-50 transition-all whitespace-nowrap"
+                                        title="Отправить в WhatsApp"
+                                    >
+                                        {sendDocMutation.isPending ? (
+                                            <Spinner size="h-3 w-3" />
+                                        ) : (
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zM12.05 20.21c-1.5 0-2.97-.4-4.26-1.16l-.3-.18-3.11.82.83-3.03-.19-.31a8.19 8.19 0 01-1.26-4.38c0-4.54 3.7-8.24 8.24-8.24 2.2 0 4.27.86 5.82 2.42a8.183 8.183 0 012.41 5.83c.02 4.54-3.68 8.23-8.18 8.23zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.12-.17.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.12-.14.16-.24.24-.4.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.86.84-.86 2.05 0 1.21.88 2.37 1 2.7.12.33 3.46 5.27 8.38 7.41 2.85 1.24 3.97 1.02 4.72.95.83-.07 1.87-.76 2.13-1.5.27-.74.27-1.37.19-1.5-.08-.13-.29-.21-.54-.33z" />
+                                            </svg>
+                                        )}
+                                        Отправить
+                                    </button>
+                                </li>
+                            ))
+                        ) : (
+                            <li className="text-sm text-slate-400 italic text-center py-6 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">Нет загруженных файлов. Загрузите КП (PDF), чтобы отправить клиенту.</li>
+                        )}
+                    </ul>
                 </div>
             </div>
 

@@ -301,7 +301,8 @@ def send_whatsapp_document(to_phone: str, document_url: str, caption: str = "") 
         "type": "document",
         "document": {
             "link": document_url,
-            "caption": caption
+            "caption": caption,
+            "filename": caption if caption else document_url.split('/')[-1]
         }
     }
     

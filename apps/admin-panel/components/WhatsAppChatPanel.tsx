@@ -256,10 +256,10 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
             </svg>
           </button>
-          <div className="flex-1 bg-white rounded-lg px-3 py-2 max-h-32 overflow-y-auto border border-slate-200">
+          <div className="flex-1 bg-white rounded-xl px-4 py-3 max-h-[280px] overflow-y-auto border border-slate-200">
             {selectedFile && (
-              <div className="flex items-center gap-2 mb-1 text-xs text-slate-600">
-                <span className="bg-slate-100 px-2 py-0.5 rounded truncate max-w-[150px]">{selectedFile.name}</span>
+              <div className="flex items-center gap-2 mb-2 text-xs text-slate-600">
+                <span className="bg-slate-100 px-2 py-0.5 rounded truncate max-w-[200px]">{selectedFile.name}</span>
                 <button
                   type="button"
                   onClick={() => setSelectedFile(null)}
@@ -274,14 +274,13 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={t('whatsappChat.placeholder')}
-              className="w-full resize-none outline-none text-sm text-slate-700 bg-transparent min-h-[20px] max-h-24"
-              rows={1}
+              className="w-full resize-none outline-none text-base text-slate-700 bg-transparent min-h-[44px] leading-relaxed"
+              rows={2}
               disabled={sendMutation.isPending}
-              style={{ height: 'auto' }}
               onInput={(e) => {
                 const target = e.target as HTMLTextAreaElement;
                 target.style.height = 'auto';
-                target.style.height = Math.min(target.scrollHeight, 96) + 'px';
+                target.style.height = Math.min(target.scrollHeight, 240) + 'px';
               }}
             />
           </div>

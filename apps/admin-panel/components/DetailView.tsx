@@ -380,6 +380,11 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                             {t('detail.error.generic', { message: (proposalUploadMutation.error as Error).message })}
                         </p>
                     )}
+                    {proposalSendMutation.isError && (
+                        <p className="text-xs text-red-500 mb-3">
+                            {t('detail.error.generic', { message: (proposalSendMutation.error as Error).message })}
+                        </p>
+                    )}
                     {application.proposal_file_url ? (
                         <div className="flex items-center justify-between group bg-slate-50 rounded-xl p-2">
                             <div className="flex-1 min-w-0 mr-2">
@@ -446,6 +451,11 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                     {uploadFilesMutation.isError && (
                         <p className="text-xs text-red-500 mb-3">
                             {t('detail.error.generic', { message: (uploadFilesMutation.error as Error).message })}
+                        </p>
+                    )}
+                    {sendDocMutation.isError && (
+                        <p className="text-xs text-red-500 mb-3">
+                            {t('detail.error.generic', { message: (sendDocMutation.error as Error).message })}
                         </p>
                     )}
                     <ul className="space-y-3">

@@ -54,30 +54,21 @@ export interface Application {
 }
 
 export interface ExtractedData {
-  service_type?: 'electricity' | 'gas' | 'internet' | 'mobile';
-  current_provider?: string;
-  contract_number?: string;
-  current_tariff?: string;
-  power_kw?: number;
-  avg_monthly_consumption_kwh?: number;
-  avg_monthly_cost_eur?: number;
-  contract_end_date?: string;
+  // Поля для симуляции испанских электрических счетов (facturas de luz)
+  cups?: string;                          // CUPS — уникальный номер счетчика
+  client_type?: string;                   // Tipo de cliente: Hogar / Empresa
+  access_tariff?: string;                 // Tarifa de Acceso: 2.0TD / 3.0TD / etc
+  start_date?: string;                    // Fecha de Inicio
+  end_date?: string;                      // Fecha de Fin
+  equipment_rental?: number;              // Alquiler de equipos (€)
+  invoice_amount_with_vat?: number;       // Importe Factura Actual con IVA (€)
+  retailer?: string;                      // Comercializadora
+  billed_power_p1?: number;               // Potencia Facturada P1 (kW)
+  billed_power_p2?: number;               // Potencia Facturada P2 (kW)
+  consumption_p1?: number;                // Consumo P1 (kWh)
+  consumption_p2?: number;                // Consumo P2 (kWh)
+  consumption_p3?: number;                // Consumo P3 (kWh)
   source_files?: string[];
-  // Испанские электрические счета — расширенные поля
-  client_type?: string;
-  access_tariff?: string;
-  start_date?: string;
-  end_date?: string;
-  equipment_rental?: number;
-  invoice_amount_with_vat?: number;
-  retailer?: string;
-  cups?: string;
-  billed_power_p1?: number;
-  billed_power_p2?: number;
-  billed_power_p3?: number;
-  consumption_p1?: number;
-  consumption_p2?: number;
-  consumption_p3?: number;
 }
 
 export interface ProposalData {

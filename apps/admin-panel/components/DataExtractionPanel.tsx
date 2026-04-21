@@ -11,14 +11,19 @@ interface DataExtractionPanelProps {
 }
 
 const EMPTY_DATA: ExtractedData = {
-  service_type: 'electricity',
-  current_provider: '',
-  contract_number: '',
-  current_tariff: '',
-  power_kw: undefined,
-  avg_monthly_consumption_kwh: undefined,
-  avg_monthly_cost_eur: undefined,
-  contract_end_date: '',
+  cups: '',
+  client_type: '',
+  access_tariff: '',
+  start_date: '',
+  end_date: '',
+  equipment_rental: undefined,
+  invoice_amount_with_vat: undefined,
+  retailer: '',
+  billed_power_p1: undefined,
+  billed_power_p2: undefined,
+  consumption_p1: undefined,
+  consumption_p2: undefined,
+  consumption_p3: undefined,
   source_files: [],
 };
 
@@ -150,18 +155,14 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.serviceType')}</label>
-              <select
-                value={formData.service_type || 'electricity'}
-                onChange={e => updateField('service_type', e.target.value as ExtractedData['service_type'])}
+            <div className="sm:col-span-2">
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.cups')}</label>
+              <input
+                type="text"
+                value={formData.cups || ''}
+                onChange={e => updateField('cups', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              >
-                <option value="electricity">Electricity</option>
-                <option value="gas">Gas</option>
-                <option value="internet">Internet</option>
-                <option value="mobile">Mobile</option>
-              </select>
+              />
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.clientType')}</label>
@@ -181,51 +182,6 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 type="text"
                 value={formData.access_tariff || ''}
                 onChange={e => updateField('access_tariff', e.target.value)}
-                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.provider')}</label>
-              <input
-                type="text"
-                value={formData.current_provider || ''}
-                onChange={e => updateField('current_provider', e.target.value)}
-                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.retailer')}</label>
-              <input
-                type="text"
-                value={formData.retailer || ''}
-                onChange={e => updateField('retailer', e.target.value)}
-                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.contractNumber')}</label>
-              <input
-                type="text"
-                value={formData.contract_number || ''}
-                onChange={e => updateField('contract_number', e.target.value)}
-                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.cups')}</label>
-              <input
-                type="text"
-                value={formData.cups || ''}
-                onChange={e => updateField('cups', e.target.value)}
-                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.tariff')}</label>
-              <input
-                type="text"
-                value={formData.current_tariff || ''}
-                onChange={e => updateField('current_tariff', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
             </div>
@@ -268,32 +224,11 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
               />
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.power')}</label>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.retailer')}</label>
               <input
-                type="number"
-                step="0.01"
-                value={formData.power_kw ?? ''}
-                onChange={e => updateField('power_kw', e.target.value ? parseFloat(e.target.value) : undefined)}
-                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.consumption')}</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.avg_monthly_consumption_kwh ?? ''}
-                onChange={e => updateField('avg_monthly_consumption_kwh', e.target.value ? parseFloat(e.target.value) : undefined)}
-                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.cost')}</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.avg_monthly_cost_eur ?? ''}
-                onChange={e => updateField('avg_monthly_cost_eur', e.target.value ? parseFloat(e.target.value) : undefined)}
+                type="text"
+                value={formData.retailer || ''}
+                onChange={e => updateField('retailer', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
             </div>
@@ -314,16 +249,6 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 step="0.01"
                 value={formData.billed_power_p2 ?? ''}
                 onChange={e => updateField('billed_power_p2', e.target.value ? parseFloat(e.target.value) : undefined)}
-                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.billedPowerP3')}</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.billed_power_p3 ?? ''}
-                onChange={e => updateField('billed_power_p3', e.target.value ? parseFloat(e.target.value) : undefined)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
             </div>
@@ -354,15 +279,6 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 step="0.01"
                 value={formData.consumption_p3 ?? ''}
                 onChange={e => updateField('consumption_p3', e.target.value ? parseFloat(e.target.value) : undefined)}
-                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.contractEnd')}</label>
-              <input
-                type="date"
-                value={formData.contract_end_date || ''}
-                onChange={e => updateField('contract_end_date', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
             </div>

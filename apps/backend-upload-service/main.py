@@ -1025,6 +1025,7 @@ async def api_send_whatsapp(data: WhatsAppSendRequest):
             "created_at": datetime.datetime.utcnow(),
             "direction": "outgoing",
             "wa_message_id": wa_message_id,
+            "wa_status": "sent",
         })
         
         return {"success": True, "wa_message_id": wa_message_id}
@@ -1098,6 +1099,7 @@ async def api_send_whatsapp_media(
             "created_at": datetime.datetime.utcnow(),
             "direction": "outgoing",
             "wa_message_id": wa_message_id,
+            "wa_status": "sent",
         })
         
         return {"success": True, "wa_message_id": wa_message_id, "file_url": public_url}
@@ -1240,6 +1242,7 @@ async def api_send_whatsapp_document(data: WhatsAppDocumentRequest):
             "created_at": datetime.datetime.utcnow(),
             "direction": "outgoing",
             "wa_message_id": wa_message_id,
+            "wa_status": "sent",
         })
         
         return {"success": True, "wa_message_id": wa_message_id}
@@ -1289,6 +1292,7 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
             "created_at": datetime.datetime.utcnow(),
             "direction": "outgoing",
             "wa_message_id": wa_message_id,
+            "wa_status": "sent",
         })
         
         return {"success": True, "wa_message_id": wa_message_id}
@@ -1358,6 +1362,7 @@ async def api_send_whatsapp_first_message(data: WhatsAppFirstMessageRequest):
             "created_at": datetime.datetime.utcnow(),
             "direction": "outgoing",
             "wa_message_id": wa_message_id,
+            "wa_status": "sent",
         })
         
         return {"status": "success", "wa_message_id": wa_message_id}
@@ -1432,6 +1437,56 @@ async def whatsapp_webhook_receive(payload: dict = Body(...)):
                             })
                         else:
                             print(f"WhatsApp webhook: no application found for phone {from_phone_raw}")
+                
+                # Обработка статусов доставки (sent / delivered / read)
+                statuses = value.get("statuses", [])
+                for status_obj in statuses:
+                    recipient_phone_raw = status_obj.get("recipient_id", "")
+                    wa_message_id = status_obj.get("id", "")
+                    status_value = status_obj.get("status", "")
+                    
+                    if not wa_message_id or not status_value:
+                        continue
+                    
+                    recipient_phone = normalize_phone(recipient_phone_raw)
+                    fallback_phone = None
+                    if recipient_phone.startswith("79"):
+                        fallback_phone = "78" + recipient_phone[2:]
+                    
+                    # Ищем заявку по телефону получателя
+                    apps_query = firestore_client.collection(FIRESTORE_COLLECTION) \
+                        .order_by("submission_date", direction=firestore.Query.DESCENDING) \
+                        .limit(100) \
+                        .stream()
+                    
+                    matched_app_id = None
+                    for app_doc in apps_query:
+                        app_data = app_doc.to_dict()
+                        app_phone = normalize_phone(app_data.get("client_phone", ""))
+                        if app_phone == recipient_phone or (fallback_phone and app_phone == fallback_phone):
+                            matched_app_id = app_doc.id
+                            break
+                    
+                    if matched_app_id:
+                        # Ищем запись в Timeline по wa_message_id
+                        timeline_query = firestore_client.collection(FIRESTORE_COLLECTION) \
+                            .document(matched_app_id) \
+                            .collection("timeline") \
+                            .where("wa_message_id", "==", wa_message_id) \
+                            .limit(1) \
+                            .stream()
+                        
+                        for timeline_doc in timeline_query:
+                            timeline_doc.reference.update({
+                                "wa_status": status_value,
+                                "wa_status_updated_at": datetime.datetime.utcnow(),
+                            })
+                            print(f"WhatsApp status updated: {wa_message_id} -> {status_value}")
+                            break
+                        else:
+                            print(f"WhatsApp status: timeline entry not found for message {wa_message_id}")
+                    else:
+                        print(f"WhatsApp status: no application found for phone {recipient_phone_raw}")
                             
     except Exception as e:
         print(f"WhatsApp Webhook Error: {e}")

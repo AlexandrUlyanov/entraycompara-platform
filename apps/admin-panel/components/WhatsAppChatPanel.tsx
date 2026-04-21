@@ -249,12 +249,33 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
                           : 'bg-[#d9fdd3] text-slate-800 rounded-tr-none'
                       }`}
                     >
-                      <div className="whitespace-pre-wrap leading-relaxed pr-14">
+                      <div className="whitespace-pre-wrap leading-relaxed pr-16">
                         {note.content}
                       </div>
-                      <span className="absolute bottom-1 right-2 text-[10px] text-slate-400">
-                        {formatTime(note.created_at)}
-                      </span>
+                      <div className="absolute bottom-1 right-2 flex items-center gap-1">
+                        <span className="text-[10px] text-slate-400">
+                          {formatTime(note.created_at)}
+                        </span>
+                        {!isIncoming && note.wa_status && (
+                          <span className="flex" title={note.wa_status}>
+                            {note.wa_status === 'sent' && (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                              </svg>
+                            )}
+                            {note.wa_status === 'delivered' && (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/>
+                              </svg>
+                            )}
+                            {note.wa_status === 'read' && (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/>
+                              </svg>
+                            )}
+                          </span>
+                        )}
+                      </div>
                       {!isIncoming && (
                         <button
                           onClick={() => {

@@ -33,6 +33,7 @@ export interface ApplicationNote {
   created_by?: string;
   direction?: 'incoming' | 'outgoing';
   wa_message_id?: string;
+  wa_status?: 'sent' | 'delivered' | 'read';
 }
 
 export interface Application {

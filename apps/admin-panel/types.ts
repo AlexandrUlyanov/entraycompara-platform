@@ -14,6 +14,7 @@ export enum ServiceType {
   Support = 'Support',
   Marketing = 'Marketing',
   GasComparison = 'Gas Comparison',
+  ElectricityComparison = 'Electricity Comparison',
 }
 
 export enum NoteType {

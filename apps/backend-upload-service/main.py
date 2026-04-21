@@ -94,6 +94,7 @@ class ServiceType(str, Enum):
     Support = 'Support'
     Marketing = 'Marketing'
     GasComparison = 'Gas Comparison'
+    ElectricityComparison = 'Electricity Comparison'
 
 # 1.3. Типы Событий Ленты (EventType)
 class EventType(str, Enum): 

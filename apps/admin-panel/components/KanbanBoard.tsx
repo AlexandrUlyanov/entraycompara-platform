@@ -80,6 +80,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ applications, onSelectApplica
           // Auto-create system note
           const systemMessage = `SYSTEM_STATUS_CHANGE:${variables.newStatus}`;
           createTimelineNote(variables.id, systemMessage, NoteType.System);
+          showToast(t('kanban.statusChanged'));
 
           queryClient.invalidateQueries({ queryKey: ['applications'] });
       },

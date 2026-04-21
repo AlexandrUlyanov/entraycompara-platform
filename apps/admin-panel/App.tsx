@@ -29,6 +29,7 @@ function App() {
   
   const handleSelectApplication = (app: Application) => {
     setActiveView({ view: 'detail', appId: app.id, appDataFromList: app });
+    window.scrollTo(0, 0);
   };
 
   const handleBackToDashboard = () => {

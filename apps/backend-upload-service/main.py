@@ -265,9 +265,12 @@ def create_timeline_event_internal(application_id: str, content: str, event_type
     doc_ref.collection("timeline").add(new_event_data)
 
 def download_gcs_file(gcs_path: str) -> tuple[bytes, str]:
-    """Скачивает файл из GCS по пути вида gs://bucket/path или path внутри bucket."""
-    # Если путь начинается с gs://, убираем префикс
-    if gcs_path.startswith(f"gs://{BUCKET_NAME}/"):
+    """Скачивает файл из GCS по пути вида gs://bucket/path, https://storage.googleapis.com/... или path внутри bucket."""
+    # Публичный URL вида https://storage.googleapis.com/bucket/path
+    public_prefix = f"https://storage.googleapis.com/{BUCKET_NAME}/"
+    if gcs_path.startswith(public_prefix):
+        blob_name = gcs_path[len(public_prefix):]
+    elif gcs_path.startswith(f"gs://{BUCKET_NAME}/"):
         blob_name = gcs_path[len(f"gs://{BUCKET_NAME}/"):]
     elif gcs_path.startswith("gs://"):
         # Другой bucket — не поддерживаем

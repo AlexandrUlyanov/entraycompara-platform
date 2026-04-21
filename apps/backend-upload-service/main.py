@@ -1332,12 +1332,8 @@ def _start_eni_simulation_job(application_id: str, task_id: str, data: AutoCreat
     url = f"https://{region}-run.googleapis.com/v2/projects/{project}/locations/{region}/jobs/{job_name}:run"
 
     payload = {
-        "template": {
-            "containers": [{
-                "image": os.environ.get(
-                    "JOB_IMAGE",
-                    f"europe-west1-docker.pkg.dev/{project}/cloud-run-source-deploy/backend-upload-service-staging:latest"
-                ),
+        "overrides": {
+            "containerOverrides": [{
                 "command": ["python", "job_runner.py"],
                 "env": [
                     {"name": "APPLICATION_ID", "value": application_id},

@@ -295,28 +295,30 @@ def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=503, detail="Gemini API Key не настроен на бэкенде.")
     
-    prompt = """Ты — аналитик испанских электрических счетов (facturas de luz). Извлеки из предоставленных файлов ТОЛЬКО следующие данные в формате JSON:
+    prompt = """Ты — аналитик испанских электрических счетов (facturas de luz). Извлеки из предоставленных файлов ТОЛЬКО следующие данные в формате JSON.
+ГДЕ ИСКАТЬ КАЖДОЕ ПОЛЕ В ДОКУМЕНТЕ:
 {
-  "cups": "string|null — CUPS, уникальный номер счетчика, обычно начинается с ES",
-  "client_type": "Hogar|Empresa|null",
-  "access_tariff": "2.0TD|3.0TD|etc|null — Tarifa de Acceso",
-  "start_date": "YYYY-MM-DD|null — Fecha de Inicio",
-  "end_date": "YYYY-MM-DD|null — Fecha de Fin",
-  "equipment_rental": "number|null — Alquiler de equipos (€)",
-  "invoice_amount_with_vat": "number|null — Importe Factura Actual con IVA (€)",
-  "retailer": "string|null — Comercializadora",
-  "billed_power_p1": "number|null — Potencia Facturada P1 (kW)",
-  "billed_power_p2": "number|null — Potencia Facturada P2 (kW)",
-  "consumption_p1": "number|null — Consumo periodo P1 (kWh)",
-  "consumption_p2": "number|null — Consumo periodo P2 (kWh)",
-  "consumption_p3": "number|null — Consumo periodo P3 (kWh)"
+  "cups": "string|null — ищи в блоке DATOS DEL TITULAR / DATOS DEL SUMINISTRO, рядом с надписью 'CUPS:' или 'C.U.P.S.'. Это 20-22 символа, начинается с ES. НЕ ПУТАЙ с номером договора (COD. CLIENTE).",
+  "client_type": "Hogar|Empresa|null — ищи тип клиента: если тариф 2.0A/2.0DHA/2.0DHS и мощность до 10kW — скорее всего Hogar. Если 3.0A/3.1A и выше — Empresa. Если нет явных признаков — null.",
+  "access_tariff": "string|null — ищи в блоке DATOS DEL TITULAR, рядом с 'TARIFA:' или 'TARIFA DE ACCESO:'. Может быть 2.0A, 2.0DHA, 2.0DHS, 3.0A, 3.1A, 2.0TD, 3.0TD и т.д.",
+  "start_date": "YYYY-MM-DD|null — ищи в блоке DATOS DE LA FACTURA, рядом с 'PERIODO FACTURACION: Del DD/MM/YYYY al DD/MM/YYYY'. Первая дата = start_date.",
+  "end_date": "YYYY-MM-DD|null — ищи в блоке DATOS DE LA FACTURA, рядом с 'PERIODO FACTURACION: Del DD/MM/YYYY al DD/MM/YYYY'. Вторая дата = end_date.",
+  "equipment_rental": "number|null — ищи в нижней части счета, рядом с 'Importe alquiler Equipo de Medida' или 'Alquiler de equipos'. Сумма в €.",
+  "invoice_amount_with_vat": "number|null — ищи в блоке DATOS DE LA FACTURA, рядом с 'TOTAL FACTURA:' или 'TOTAL FACTURA' (самая крупная итоговая сумма, уже с IVA).",
+  "retailer": "string|null — ищи название компании-продавца (comercializadora). Обычно в шапке или внизу страницы мелким шрифтом (например, 'SUNAIR ONE ENERGY, S.L.').",
+  "billed_power_p1": "number|null — ищи в блоке DATOS DEL TITULAR рядом с 'POTENCIA: P1:' или в таблице 'Termino de Potencia'. Значение в kW (например, 3.3).",
+  "billed_power_p2": "number|null — ищи в блоке DATOS DEL TITULAR рядом с 'POTENCIA: P2:' или в таблице 'Termino de Potencia'. Для старых тарифов 2.0A может отсутствовать — тогда null.",
+  "consumption_p1": "number|null — ищи в таблице 'CALCULO DE LA FACTURA' → 'Termino de Energia', рядом с 'P1 XXX kWh'. Это потребление по периоду P1 в kWh.",
+  "consumption_p2": "number|null — ищи в таблице 'CALCULO DE LA FACTURA' → 'Termino de Energia' или в таблице 'Lectura' по периоду P2 (Llano). Потребление в kWh.",
+  "consumption_p3": "number|null — ищи в таблице 'Lectura' по периоду P3 (Valle). Потребление в kWh. Если тариф 2.0A без разделения — может быть null."
 }
+ФОРМАТ ДАТ: если в документе дата '05/04/2013', преобразуй в '2013-04-05' (YYYY-MM-DD).
 Важно:
-- CUPS — это НЕ номер договора, а уникальный код точки поставки (обычно 20-22 символа, начинается с ES)
-- client_type = Hogar или Empresa
-- access_tariff = тариф доступа (2.0TD, 3.0TD и т.д.)
-- billed_power_p1 и p2 — мощность по периодам (Potencia Facturada)
-- consumption_p1, p2, p3 — потребление по периодам (Consumo periodos KWH)
+- НЕ ПУТАЙ CUPS (уникальный код счетчика, начинается с ES) с COD. CLIENTE (код клиента, обычно 4-6 цифр).
+- access_tariff бери ТОЧНО как написано в документе (2.0A, 2.0DHA, 3.0A и т.д.).
+- invoice_amount_with_vat — это ВСЕГДА итоговая сумма 'TOTAL FACTURA' (с IVA).
+- billed_power_p1/p2 — это мощность в kW из раздела POTENCIA, а НЕ потребление в kWh.
+- consumption_p1/p2/p3 — это потребление в kWh из раздела Energia / Lectura.
 Если данных нет — используй null. Отвечай ТОЛЬКО JSON, без пояснений."""
     
     model = genai.GenerativeModel(GEMINI_MODEL)

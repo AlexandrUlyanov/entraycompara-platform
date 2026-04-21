@@ -291,6 +291,8 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - `PUT /api/applications/{id}/proposal/simulations/{sim_id}` — редактирование симуляции
 - `DELETE /api/applications/{id}/proposal/simulations/{sim_id}` — удаление симуляции
 - `POST /api/applications/{id}/proposal/simulations/{sim_id}/select` — выбор финальной симуляции
+- `POST /api/applications/{id}/proposal/simulations/auto-create` — автоматическая симуляция на Eni Plenitude (Playwright)
+- `GET /api/applications/{id}/proposal/simulations/auto-create/{task_id}/status` — статус авто-симуляции
 - `POST /api/applications/{id}/proposal/generate` — генерация PDF-КП на фирменном бланке
 - `GET /api/applications/{id}/proposal/preview` — получение URL КП для превью
 - `GET /docs` — Swagger UI
@@ -312,11 +314,21 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - Требует `GEMINI_API_KEY` в переменных окружения
 - Работает в ручном режиме: оператор в CRM нажимает кнопку «ИИ ответ» и получает сгенерированный текст в поле ввода
 
-**Proposal Builder (AI-извлечение данных)**:
-- Stage 1: Извлечение данных — Gemini анализирует загруженные счета и возвращает структурированные данные (`service_type`, `current_provider`, `contract_number`, `current_tariff`, `power_kw`, `avg_monthly_consumption_kwh`, `avg_monthly_cost_eur`, `contract_end_date`)
-- Данные сохраняются в подколлекции `proposal_data` (документ `data`)
-- Stage 2 (TODO): Симуляции поставщиков — создание сравнительных предложений
-- Stage 3 (TODO): Генерация PDF коммерческого предложения
+**Proposal Builder (3-стадийный workflow)**:
+- Stage 1 — Извлечение данных: Gemini анализирует загруженные счета (электричество Испании) и возвращает 13 полей (`cups`, `client_type`, `access_tariff`, `start_date`, `end_date`, `equipment_rental`, `invoice_amount_with_vat`, `retailer`, `billed_power_p1/p2`, `consumption_p1/p2/p3`). Данные сохраняются в подколлекции `proposal_data` (документ `data`)
+- Stage 2 — Симуляции: оператор создаёт сравнительные предложения вручную или через авто-симуляцию Eni. Симуляции хранятся в подколлекции `proposal_simulations` с полем `is_selected`
+- Stage 3 — Генерация PDF: КП на фирменном бланке A4 (fpdf2), локализованное (`es`/`ru`/`uk`/`eu`), с QR-кодом и данными клиента
+
+**Eni Plenitude Auto Simulation**:
+- Playwright + Chromium headless автоматизирует прохождение симуляции на `https://g2e.eniplenitude.es`
+- Backend эндпоинт `POST .../simulations/auto-create` запускает фоновую задачу (asyncio), которая:
+  1. Открывает реферальную ссылку, выбирает Hogar/Empresa → Factura de Electricidad
+  2. Вводит CUPS, заполняет форму (Potencia, Consumo, Alquiler equipo)
+  3. Выбирает 3-й тариф снизу (наиболее выгодный по бизнес-правилу)
+  4. Ждёт ~3 минуты генерации PDF, скачивает его
+  5. Загружает PDF в GCS (`simulation_files/YYYY/MM/DD/`) и создаёт запись в Firestore
+- Frontend: кнопка «Auto-simulate via Eni» в `SimulationPanel.tsx`, polling статуса каждые 3 секунды
+- Требования: Docker-образ +~500 МБ (Chromium deps), `playwright install chromium` при сборке
 
 **CORS**: Разрешены `*`, `http://localhost:3000`, `https://entraycompara.com`, `https://www.entraycompara.com`
 
@@ -332,6 +344,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - `WhatsAppChatPanel.tsx` — панель для отправки/получения WhatsApp сообщений
 - `Auth.tsx` — простая авторизация по секретному ключу (сохраняется в `localStorage` как `authToken`)
 - `services/api.ts` — HTTP-клиент к бэкенду (хардкожен `API_BASE_URL`)
+- `ProposalBuilder.tsx` — 3-стадийный конструктор КП (Stage 1: DataExtractionPanel, Stage 2: SimulationPanel, Stage 3: ProposalPreviewPanel)
 
 **WhatsApp в CRM**:
 - В `Timeline.tsx` сообщения WhatsApp отображаются в виде chat bubbles (входящие слева, исходящие справа)

@@ -132,8 +132,11 @@ class TimelineResponse(BaseModel):
     application_id: str
     type: EventType
     content: str
-    created_by: str = "Operator" 
-    created_at: datetime.datetime 
+    created_by: str = "Operator"
+    created_at: datetime.datetime
+    direction: str | None = None
+    wa_message_id: str | None = None
+    wa_status: str | None = None 
 
 # 1.5. Модели для Signed URLs
 class SignedUrlRequest(BaseModel): 
@@ -922,8 +925,11 @@ async def list_timeline_events(application_id: str):
                     "application_id": application_id,
                     "type": data.get('type', EventType.NOTE.value),
                     "content": data.get('content', ''),
-                    "created_by": data.get('created_by', 'Operator'), 
-                    "created_at": data['created_at'].isoformat()
+                    "created_by": data.get('created_by', 'Operator'),
+                    "created_at": data['created_at'].isoformat(),
+                    "direction": data.get('direction'),
+                    "wa_message_id": data.get('wa_message_id'),
+                    "wa_status": data.get('wa_status'),
                 })
 
         return events

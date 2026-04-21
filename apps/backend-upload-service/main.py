@@ -1334,7 +1334,6 @@ def _start_eni_simulation_job(application_id: str, task_id: str, data: AutoCreat
     payload = {
         "overrides": {
             "containerOverrides": [{
-                "command": ["python", "job_runner.py"],
                 "env": [
                     {"name": "APPLICATION_ID", "value": application_id},
                     {"name": "TASK_ID", "value": task_id},

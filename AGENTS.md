@@ -286,6 +286,13 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - `POST /api/applications/{id}/proposal/extract-data` — AI-извлечение данных из счетов (Gemini)
 - `PUT /api/applications/{id}/proposal/extracted-data` — сохранение/корректировка извлеченных данных
 - `GET /api/applications/{id}/proposal/extracted-data` — получение извлеченных данных
+- `POST /api/applications/{id}/proposal/simulations` — создание симуляции тарифа
+- `GET /api/applications/{id}/proposal/simulations` — список симуляций
+- `PUT /api/applications/{id}/proposal/simulations/{sim_id}` — редактирование симуляции
+- `DELETE /api/applications/{id}/proposal/simulations/{sim_id}` — удаление симуляции
+- `POST /api/applications/{id}/proposal/simulations/{sim_id}/select` — выбор финальной симуляции
+- `POST /api/applications/{id}/proposal/generate` — генерация PDF-КП на фирменном бланке
+- `GET /api/applications/{id}/proposal/preview` — получение URL КП для превью
 - `GET /docs` — Swagger UI
 
 **Авторизация операторов**: Bearer-токен, сверяется с `OPERATOR_SECRET_KEY`.

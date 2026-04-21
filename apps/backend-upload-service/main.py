@@ -175,6 +175,41 @@ class ExtractDataRequest(BaseModel):
 class ExtractedDataUpdate(BaseModel):
     extracted_data: ExtractedData
 
+# 1.7. Модели для Proposal Builder (Simulations)
+class SimulationInput(BaseModel):
+    simulation_name: str
+    new_provider: str
+    new_tariff: str | None = None
+    new_monthly_cost_eur: float
+    contract_duration_months: int | None = None
+    bonus_description: str | None = None
+    simulation_file_url: str | None = None
+    is_selected: bool = False
+
+class SimulationUpdate(BaseModel):
+    simulation_name: str | None = None
+    new_provider: str | None = None
+    new_tariff: str | None = None
+    new_monthly_cost_eur: float | None = None
+    contract_duration_months: int | None = None
+    bonus_description: str | None = None
+    simulation_file_url: str | None = None
+    is_selected: bool | None = None
+
+class SimulationResponse(BaseModel):
+    id: str
+    simulation_name: str
+    new_provider: str
+    new_tariff: str | None = None
+    new_monthly_cost_eur: float
+    contract_duration_months: int | None = None
+    bonus_description: str | None = None
+    simulation_file_url: str | None = None
+    is_selected: bool
+    savings_monthly_eur: float | None = None
+    savings_percent: float | None = None
+    created_at: datetime.datetime
+
 # --- База знаний компании ---
 KNOWLEDGE_BASE = """
 EntrayCompara — сервис помощи клиентам в Испании по снижению расходов на коммунальные услуги.
@@ -1028,6 +1063,585 @@ async def proposal_get_extracted_data(application_id: str):
     except Exception as e:
         print(f"Get extracted data error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении данных: {str(e)}")
+
+# --- 4.86. Proposal Builder: Simulation CRUD Endpoints ---
+
+@app.post("/api/applications/{application_id}/proposal/simulations", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def create_simulation(application_id: str, input_data: SimulationInput):
+    """Создание симуляции тарифа от поставщика."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        app_data = doc.to_dict()
+        
+        # Получаем текущую стоимость для расчета экономии
+        proposal_data_ref = doc_ref.collection("proposal_data").document("data")
+        proposal_data = proposal_data_ref.get()
+        current_cost = None
+        if proposal_data.exists:
+            extracted = proposal_data.to_dict().get("extracted_data", {})
+            current_cost = extracted.get("avg_monthly_cost_eur")
+        
+        savings_monthly = None
+        savings_percent = None
+        if current_cost and current_cost > 0 and input_data.new_monthly_cost_eur is not None:
+            savings_monthly = round(current_cost - input_data.new_monthly_cost_eur, 2)
+            savings_percent = round((savings_monthly / current_cost) * 100, 1)
+        
+        sim_data = input_data.model_dump()
+        sim_data["savings_monthly_eur"] = savings_monthly
+        sim_data["savings_percent"] = savings_percent
+        sim_data["created_at"] = datetime.datetime.utcnow()
+        sim_data["updated_at"] = datetime.datetime.utcnow()
+        
+        sim_ref = doc_ref.collection("proposal_simulations").document()
+        sim_ref.set(sim_data)
+        
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"Создана симуляция '{input_data.simulation_name}'. Экономия: {savings_percent or 'N/A'}%",
+            event_type=EventType.NOTE,
+            created_by="System"
+        )
+        
+        return {"success": True, "simulation_id": sim_ref.id, "savings_monthly_eur": savings_monthly, "savings_percent": savings_percent}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Create simulation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при создании симуляции: {str(e)}")
+
+
+@app.get("/api/applications/{application_id}/proposal/simulations", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def list_simulations(application_id: str):
+    """Список симуляций для заявки."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        sims = doc_ref.collection("proposal_simulations").order_by("created_at", direction="DESCENDING").stream()
+        results = []
+        for sim in sims:
+            data = sim.to_dict()
+            data["id"] = sim.id
+            results.append(data)
+        
+        return {"success": True, "simulations": results}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"List simulations error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении симуляций: {str(e)}")
+
+
+@app.put("/api/applications/{application_id}/proposal/simulations/{simulation_id}", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def update_simulation(application_id: str, simulation_id: str, update_data: SimulationUpdate):
+    """Редактирование симуляции."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        sim_ref = doc_ref.collection("proposal_simulations").document(simulation_id)
+        sim = sim_ref.get()
+        if not sim.exists:
+            raise HTTPException(status_code=404, detail="Симуляция не найдена.")
+        
+        sim_data = sim.to_dict()
+        updates = {k: v for k, v in update_data.model_dump().items() if v is not None}
+        
+        # Пересчитываем экономию если изменилась стоимость
+        if "new_monthly_cost_eur" in updates:
+            proposal_data_ref = doc_ref.collection("proposal_data").document("data")
+            proposal_data = proposal_data_ref.get()
+            current_cost = None
+            if proposal_data.exists:
+                extracted = proposal_data.to_dict().get("extracted_data", {})
+                current_cost = extracted.get("avg_monthly_cost_eur")
+            
+            new_cost = updates["new_monthly_cost_eur"]
+            if current_cost and current_cost > 0:
+                updates["savings_monthly_eur"] = round(current_cost - new_cost, 2)
+                updates["savings_percent"] = round(((current_cost - new_cost) / current_cost) * 100, 1)
+        
+        updates["updated_at"] = datetime.datetime.utcnow()
+        sim_ref.update(updates)
+        
+        return {"success": True, "message": "Симуляция обновлена."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Update simulation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при обновлении симуляции: {str(e)}")
+
+
+@app.delete("/api/applications/{application_id}/proposal/simulations/{simulation_id}", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def delete_simulation(application_id: str, simulation_id: str):
+    """Удаление симуляции."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        sim_ref = doc_ref.collection("proposal_simulations").document(simulation_id)
+        sim = sim_ref.get()
+        if not sim.exists:
+            raise HTTPException(status_code=404, detail="Симуляция не найдена.")
+        
+        sim_ref.delete()
+        
+        return {"success": True, "message": "Симуляция удалена."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Delete simulation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении симуляции: {str(e)}")
+
+
+@app.post("/api/applications/{application_id}/proposal/simulations/{simulation_id}/select", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def select_simulation(application_id: str, simulation_id: str):
+    """Выбор симуляции как финальной для КП. Только одна может быть выбрана."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        sim_ref = doc_ref.collection("proposal_simulations").document(simulation_id)
+        sim = sim_ref.get()
+        if not sim.exists:
+            raise HTTPException(status_code=404, detail="Симуляция не найдена.")
+        
+        sim_data = sim.to_dict()
+        sim_name = sim_data.get("simulation_name", "")
+        
+        # Снимаем выбор со всех симуляций
+        all_sims = doc_ref.collection("proposal_simulations").stream()
+        for s in all_sims:
+            s.reference.update({"is_selected": False, "updated_at": datetime.datetime.utcnow()})
+        
+        # Ставим выбор на текущую
+        sim_ref.update({"is_selected": True, "updated_at": datetime.datetime.utcnow()})
+        
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"Выбрана симуляция '{sim_name}' для КП.",
+            event_type=EventType.NOTE,
+            created_by="System"
+        )
+        
+        return {"success": True, "message": "Симуляция выбрана."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Select simulation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при выборе симуляции: {str(e)}")
+
+# --- 4.87. Proposal Builder: PDF Generation Endpoints ---
+
+# PDF Texts by language
+PROPOSAL_PDF_TEXTS = {
+    "es": {
+        "title": "Propuesta Comercial",
+        "greeting": "Estimado/a",
+        "current_situation": "Su situación actual",
+        "our_proposal": "Nuestra propuesta",
+        "savings": "Su ahorro",
+        "per_month": "al mes",
+        "per_year": "al año",
+        "next_steps": "Próximos pasos",
+        "step1": "1. Confirme su interés respondiendo a este mensaje.",
+        "step2": "2. Nosotros gestionamos todo el trámite de cambio GRATIS.",
+        "step3": "3. Comience a ahorrar desde el primer mes.",
+        "footer": "Entraycompara — Ahorro en suministros de energía en España",
+        "contact": "Contacto",
+        "provider": "Proveedor",
+        "tariff": "Tarifa",
+        "monthly_cost": "Coste mensual",
+        "contract_end": "Fin de contrato",
+        "power": "Potencia",
+        "consumption": "Consumo medio",
+        "contract_num": "Nº contrato",
+        "service": "Servicio",
+        "date": "Fecha",
+        "proposal_id": "Propuesta",
+        "free_service": "Servicio 100% gratuito para usted",
+    },
+    "ru": {
+        "title": "Коммерческое предложение",
+        "greeting": "Уважаемый(ая)",
+        "current_situation": "Ваша текущая ситуация",
+        "our_proposal": "Наше предложение",
+        "savings": "Ваша экономия",
+        "per_month": "в месяц",
+        "per_year": "в год",
+        "next_steps": "Следующие шаги",
+        "step1": "1. Подтвердите интерес, ответив на это сообщение.",
+        "step2": "2. Мы бесплатно оформим все документы на переход.",
+        "step3": "3. Начните экономить с первого месяца.",
+        "footer": "Entraycompara — Экономия на коммунальных услугах в Испании",
+        "contact": "Контакты",
+        "provider": "Поставщик",
+        "tariff": "Тариф",
+        "monthly_cost": "Ежемесячная стоимость",
+        "contract_end": "Окончание договора",
+        "power": "Мощность",
+        "consumption": "Среднее потребление",
+        "contract_num": "№ договора",
+        "service": "Услуга",
+        "date": "Дата",
+        "proposal_id": "Предложение",
+        "free_service": "Услуга 100% бесплатна для вас",
+    },
+    "uk": {
+        "title": "Комерційна пропозиція",
+        "greeting": "Шановний(а)",
+        "current_situation": "Ваша поточна ситуація",
+        "our_proposal": "Наша пропозиція",
+        "savings": "Ваша економія",
+        "per_month": "на місяць",
+        "per_year": "на рік",
+        "next_steps": "Наступні кроки",
+        "step1": "1. Підтвердіть інтерес, відповівши на це повідомлення.",
+        "step2": "2. Ми безкоштовно оформимо всі документи на перехід.",
+        "step3": "3. Почніть економити з першого місяця.",
+        "footer": "Entraycompara — Економія на комунальних послугах в Іспанії",
+        "contact": "Контакти",
+        "provider": "Постачальник",
+        "tariff": "Тариф",
+        "monthly_cost": "Щомісячна вартість",
+        "contract_end": "Закінчення договору",
+        "power": "Потужність",
+        "consumption": "Середнє споживання",
+        "contract_num": "№ договору",
+        "service": "Послуга",
+        "date": "Дата",
+        "proposal_id": "Пропозиція",
+        "free_service": "Послуга 100% безкоштовна для вас",
+    },
+    "eu": {
+        "title": "Eskaintza Komertziala",
+        "greeting": "Agur",
+        "current_situation": "Zure egoera oraingoa",
+        "our_proposal": "Gure eskaintza",
+        "savings": "Zure aurrezkia",
+        "per_month": "hilean",
+        "per_year": "urtean",
+        "next_steps": "Hurrengo pausoak",
+        "step1": "1. Baieztatu interesa mezu honi erantzunez.",
+        "step2": "2. Doan kudeatuko dugu aldaketa guztia.",
+        "step3": "3. Hasi aurrezten lehen hilabetetik.",
+        "footer": "Entraycompara — Aurrezkiak energia-horniduetan Espainian",
+        "contact": "Kontaktua",
+        "provider": "Hornitzailea",
+        "tariff": "Tarifa",
+        "monthly_cost": "Hileko kostua",
+        "contract_end": "Kontratuaren amaiera",
+        "power": "Potentzia",
+        "consumption": "Kontsumo batez bestekoa",
+        "contract_num": "Kontratu zk.",
+        "service": "Zerbitzua",
+        "date": "Data",
+        "proposal_id": "Eskaintza",
+        "free_service": "Zerbitzua %100 doakoa da zuretzat",
+    }
+}
+
+def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: dict, language: str = "es") -> bytes:
+    """Генерирует PDF коммерческого предложения на фирменном бланке."""
+    from fpdf import FPDF
+    import fpdf
+    
+    texts = PROPOSAL_PDF_TEXTS.get(language, PROPOSAL_PDF_TEXTS["es"])
+    
+    # Находим шрифты fpdf2
+    fpdf_dir = os.path.dirname(fpdf.__file__)
+    font_dir = os.path.join(fpdf_dir, "font")
+    dejavu_regular = os.path.join(font_dir, "DejaVuSans.ttf")
+    dejavu_bold = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
+    
+    # Fallback если нет в font/
+    if not os.path.exists(dejavu_regular):
+        dejavu_regular = os.path.join(fpdf_dir, "fonts", "DejaVuSans.ttf")
+        dejavu_bold = os.path.join(fpdf_dir, "fonts", "DejaVuSans-Bold.ttf")
+    
+    class ProposalPDF(FPDF):
+        def header(self):
+            # Header background
+            self.set_fill_color(42, 106, 150)  # #2a6a96
+            self.rect(0, 0, 210, 25, style='F')
+            # Company name
+            self.set_text_color(255, 255, 255)
+            self.set_font("DejaVu", "B", 20)
+            self.set_xy(15, 8)
+            self.cell(0, 10, "Entraycompara", ln=False)
+            # Tagline
+            self.set_font("DejaVu", "", 9)
+            self.set_xy(15, 16)
+            self.cell(0, 6, texts["free_service"], ln=False)
+            # Date and ID on the right
+            self.set_font("DejaVu", "", 8)
+            self.set_xy(140, 8)
+            today = datetime.datetime.now().strftime("%d.%m.%Y")
+            self.cell(0, 5, f"{texts['date']}: {today}", ln=True)
+            self.set_x(140)
+            self.cell(0, 5, f"{texts['proposal_id']}: #{application.get('id', 'N/A')[:6]}", ln=True)
+            self.ln(5)
+        
+        def footer(self):
+            self.set_y(-20)
+            self.set_fill_color(245, 247, 250)
+            self.rect(0, 277, 210, 20, style='F')
+            self.set_text_color(100, 100, 100)
+            self.set_font("DejaVu", "", 8)
+            self.set_xy(15, 280)
+            self.cell(0, 5, texts["footer"], ln=False)
+            self.set_xy(15, 285)
+            self.cell(0, 5, f"{texts['contact']}: ulyanov.ht@gmail.com | entraycompara.com", ln=False)
+    
+    pdf = ProposalPDF()
+    if os.path.exists(dejavu_regular):
+        pdf.add_font("DejaVu", "", dejavu_regular, uni=True)
+    if os.path.exists(dejavu_bold):
+        pdf.add_font("DejaVu", "B", dejavu_bold, uni=True)
+    pdf.set_auto_page_break(auto=True, margin=25)
+    pdf.add_page()
+    
+    # Greeting
+    client_name = application.get("client_name", "")
+    pdf.set_text_color(42, 106, 150)
+    pdf.set_font("DejaVu", "B", 14)
+    pdf.cell(0, 10, f"{texts['greeting']} {client_name},", ln=True)
+    pdf.ln(2)
+    
+    # Current situation
+    pdf.set_text_color(42, 106, 150)
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 8, texts["current_situation"], ln=True)
+    pdf.set_draw_color(42, 106, 150)
+    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+    pdf.ln(2)
+    
+    pdf.set_text_color(50, 50, 50)
+    pdf.set_font("DejaVu", "", 10)
+    
+    current_provider = extracted_data.get("current_provider") or "N/A"
+    current_tariff = extracted_data.get("current_tariff") or "N/A"
+    current_cost = extracted_data.get("avg_monthly_cost_eur")
+    contract_end = extracted_data.get("contract_end_date") or "N/A"
+    power = extracted_data.get("power_kw")
+    consumption = extracted_data.get("avg_monthly_consumption_kwh")
+    contract_num = extracted_data.get("contract_number") or "N/A"
+    service = extracted_data.get("service_type") or "N/A"
+    
+    col1_x = 15
+    col2_x = 110
+    row_h = 6
+    
+    def draw_row(label, value, x, y):
+        pdf.set_xy(x, y)
+        pdf.set_font("DejaVu", "B", 9)
+        pdf.set_text_color(100, 100, 100)
+        pdf.cell(40, row_h, label, ln=False)
+        pdf.set_font("DejaVu", "", 9)
+        pdf.set_text_color(50, 50, 50)
+        pdf.cell(50, row_h, str(value), ln=True)
+        return y + row_h
+    
+    y = pdf.get_y()
+    y = draw_row(texts["provider"], current_provider, col1_x, y)
+    y = draw_row(texts["tariff"], current_tariff, col1_x, y)
+    y = draw_row(texts["monthly_cost"], f"€{current_cost}" if current_cost else "N/A", col1_x, y)
+    y = draw_row(texts["contract_end"], contract_end, col1_x, y)
+    
+    y2 = pdf.get_y() - (4 * row_h)
+    y2 = draw_row(texts["service"], service, col2_x, y2)
+    y2 = draw_row(texts["power"], f"{power} kW" if power else "N/A", col2_x, y2)
+    y2 = draw_row(texts["consumption"], f"{consumption} kWh" if consumption else "N/A", col2_x, y2)
+    y2 = draw_row(texts["contract_num"], contract_num, col2_x, y2)
+    
+    pdf.set_y(max(y, y2) + 4)
+    
+    # Our proposal
+    pdf.set_text_color(42, 106, 150)
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 8, texts["our_proposal"], ln=True)
+    pdf.set_draw_color(42, 106, 150)
+    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+    pdf.ln(2)
+    
+    pdf.set_text_color(50, 50, 50)
+    pdf.set_font("DejaVu", "", 10)
+    
+    new_provider = simulation.get("new_provider", "N/A")
+    new_tariff = simulation.get("new_tariff") or "N/A"
+    new_cost = simulation.get("new_monthly_cost_eur")
+    duration = simulation.get("contract_duration_months")
+    bonus = simulation.get("bonus_description")
+    
+    y = pdf.get_y()
+    y = draw_row(texts["provider"], new_provider, col1_x, y)
+    y = draw_row(texts["tariff"], new_tariff, col1_x, y)
+    y = draw_row(texts["monthly_cost"], f"€{new_cost}" if new_cost else "N/A", col1_x, y)
+    if duration:
+        y = draw_row("Duration", f"{duration} meses", col1_x, y)
+    
+    y2 = pdf.get_y() - (3 * row_h if duration else 2 * row_h)
+    if bonus:
+        y2 = draw_row("Bonus", bonus, col2_x, y2)
+    
+    pdf.set_y(max(y, y2) + 4)
+    
+    # Savings block
+    savings_monthly = simulation.get("savings_monthly_eur")
+    savings_percent = simulation.get("savings_percent")
+    
+    if savings_monthly is not None and savings_monthly > 0:
+        pdf.set_fill_color(230, 245, 230)
+        pdf.set_draw_color(42, 106, 150)
+        pdf.rect(15, pdf.get_y(), 180, 35, style='DF')
+        
+        pdf.set_xy(15, pdf.get_y() + 5)
+        pdf.set_text_color(42, 106, 150)
+        pdf.set_font("DejaVu", "B", 11)
+        pdf.cell(180, 8, texts["savings"], align="C", ln=True)
+        
+        pdf.set_text_color(34, 139, 34)
+        pdf.set_font("DejaVu", "B", 22)
+        pdf.cell(180, 12, f"€{savings_monthly} {texts['per_month']}", align="C", ln=True)
+        
+        if savings_percent:
+            pdf.set_text_color(80, 80, 80)
+            pdf.set_font("DejaVu", "", 10)
+            yearly = round(savings_monthly * 12, 2)
+            pdf.cell(180, 6, f"{savings_percent}% | €{yearly} {texts['per_year']}", align="C", ln=True)
+        
+        pdf.ln(8)
+    
+    # Next steps
+    pdf.set_text_color(42, 106, 150)
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 8, texts["next_steps"], ln=True)
+    pdf.set_draw_color(42, 106, 150)
+    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+    pdf.ln(2)
+    
+    pdf.set_text_color(50, 50, 50)
+    pdf.set_font("DejaVu", "", 10)
+    pdf.cell(0, 6, texts["step1"], ln=True)
+    pdf.cell(0, 6, texts["step2"], ln=True)
+    pdf.cell(0, 6, texts["step3"], ln=True)
+    
+    return pdf.output(dest="S")
+
+
+@app.post("/api/applications/{application_id}/proposal/generate", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def generate_proposal(application_id: str):
+    """Генерация PDF коммерческого предложения на фирменном бланке."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        app_data = doc.to_dict()
+        app_data["id"] = application_id
+        
+        # Проверяем extracted_data
+        proposal_data_ref = doc_ref.collection("proposal_data").document("data")
+        proposal_data = proposal_data_ref.get()
+        if not proposal_data.exists or not proposal_data.to_dict().get("extracted_data"):
+            raise HTTPException(status_code=400, detail="Сначала извлеките данные счетов.")
+        
+        extracted = proposal_data.to_dict()["extracted_data"]
+        
+        # Проверяем выбранную симуляцию
+        sims_query = doc_ref.collection("proposal_simulations").where("is_selected", "==", True).limit(1).stream()
+        selected_sim = None
+        for sim in sims_query:
+            selected_sim = sim.to_dict()
+            selected_sim["id"] = sim.id
+        
+        if not selected_sim:
+            raise HTTPException(status_code=400, detail="Сначала выберите симуляцию для КП.")
+        
+        language = app_data.get("language", "es")
+        
+        # Генерируем PDF
+        pdf_bytes = generate_proposal_pdf(app_data, extracted, selected_sim, language)
+        
+        # Сохраняем в GCS
+        today = datetime.datetime.utcnow()
+        prefix = f"proposals/{today.year}/{today.month:02}/{today.day:02}"
+        unique_name = f"{uuid.uuid4()}.pdf"
+        blob_name = f"{prefix}/{unique_name}"
+        
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+        blob.upload_from_string(pdf_bytes, content_type="application/pdf")
+        blob.acl.all().grant_read()
+        blob.acl.save()
+        
+        proposal_url = f"https://storage.googleapis.com/{BUCKET_NAME}/{blob_name}"
+        
+        # Обновляем заявку
+        doc_ref.update({
+            "proposal_file_url": proposal_url,
+            "proposal_uploaded": True,
+            "updated_at": today,
+        })
+        
+        # Timeline
+        create_timeline_event_internal(
+            application_id=application_id,
+            content="Коммерческое предложение сгенерировано.",
+            event_type=EventType.NOTE,
+            created_by="System"
+        )
+        
+        return {"success": True, "proposal_file_url": proposal_url, "message": "КП сгенерировано."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Generate proposal error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при генерации КП: {str(e)}")
+
+
+@app.get("/api/applications/{application_id}/proposal/preview", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def preview_proposal(application_id: str):
+    """Возвращает Signed URL для предпросмотра текущего КП."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        app_data = doc.to_dict()
+        proposal_url = app_data.get("proposal_file_url")
+        
+        if not proposal_url:
+            raise HTTPException(status_code=404, detail="КП не найдено. Сначала сгенерируйте или загрузите КП.")
+        
+        return {"success": True, "proposal_file_url": proposal_url}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Preview proposal error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении превью: {str(e)}")
 
 # --- 4.8. POST /api/applications/{id}/upload-proposal (Загрузка КП) ---
 @app.post("/api/applications/{application_id}/upload-proposal", tags=["Management"], dependencies=[Depends(authenticate_operator)])

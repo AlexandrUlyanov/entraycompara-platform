@@ -1,5 +1,5 @@
 
-import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData } from '../types';
+import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation } from '../types';
 
 const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
@@ -329,6 +329,68 @@ export const updateExtractedData = async (applicationId: string, extractedData: 
 
 export const getExtractedData = async (applicationId: string): Promise<ProposalData> => {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/extracted-data`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+// --- Simulation API ---
+
+export const createSimulation = async (applicationId: string, data: Omit<Simulation, 'id' | 'created_at' | 'savings_monthly_eur' | 'savings_percent'>): Promise<{ success: boolean; simulation_id: string; savings_monthly_eur?: number; savings_percent?: number }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handleApiError(response);
+};
+
+export const listSimulations = async (applicationId: string): Promise<{ success: boolean; simulations: Simulation[] }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const updateSimulation = async (applicationId: string, simulationId: string, data: Partial<Omit<Simulation, 'id' | 'created_at'>>): Promise<{ success: boolean; message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations/${simulationId}`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handleApiError(response);
+};
+
+export const deleteSimulation = async (applicationId: string, simulationId: string): Promise<{ success: boolean; message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations/${simulationId}`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const selectSimulation = async (applicationId: string, simulationId: string): Promise<{ success: boolean; message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations/${simulationId}/select`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+// --- Proposal Generation API ---
+
+export const generateProposal = async (applicationId: string): Promise<{ success: boolean; proposal_file_url: string; message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/generate`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const getProposalPreview = async (applicationId: string): Promise<{ success: boolean; proposal_file_url: string }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/preview`, {
     method: 'GET',
     headers: getHeaders(),
   });

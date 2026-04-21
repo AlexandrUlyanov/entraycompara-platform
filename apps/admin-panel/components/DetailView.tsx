@@ -7,6 +7,7 @@ import ConfirmModal from './ConfirmModal';
 import Timeline from './Timeline';
 import FileLink from './FileLink';
 import WhatsAppChatPanel from './WhatsAppChatPanel';
+import ProposalBuilder from './ProposalBuilder';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 
@@ -391,6 +392,13 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                 </div>}
             </div>
             
+            {/* Proposal Builder */}
+            <ProposalBuilder
+              appId={appId}
+              uploadedFiles={application.uploaded_files || []}
+              proposalFileUrl={application.proposal_file_url}
+            />
+
             {/* WhatsApp Chat Panel */}
             <WhatsAppChatPanel
               appId={appId}

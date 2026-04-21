@@ -72,6 +72,21 @@ export interface ProposalData {
   manually_corrected?: boolean;
 }
 
+export interface Simulation {
+  id: string;
+  simulation_name: string;
+  new_provider: string;
+  new_tariff?: string;
+  new_monthly_cost_eur: number;
+  contract_duration_months?: number;
+  bonus_description?: string;
+  simulation_file_url?: string;
+  is_selected: boolean;
+  savings_monthly_eur?: number;
+  savings_percent?: number;
+  created_at: string;
+}
+
 export interface CursorPaginatedApplications {
   applications: Application[];
   next_cursor: string | null;

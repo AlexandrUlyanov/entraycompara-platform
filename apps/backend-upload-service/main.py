@@ -149,6 +149,9 @@ class WhatsAppSendRequest(BaseModel):
 class WhatsAppProposalRequest(BaseModel):
     application_id: str
 
+class WhatsAppFirstMessageRequest(BaseModel):
+    application_id: str
+
 class AIGenerateRequest(BaseModel):
     application_id: str
 
@@ -304,6 +307,44 @@ def send_whatsapp_document(to_phone: str, document_url: str, caption: str = "") 
             "link": document_url,
             "caption": caption,
             "filename": caption if caption else document_url.split('/')[-1]
+        }
+    }
+    
+    resp = requests.post(url, headers=headers, json=payload)
+    if resp.status_code == 400 and normalized.startswith("79"):
+        try:
+            err = resp.json()
+            if err.get("error", {}).get("code") == 131030:
+                fallback = "78" + normalized[2:]
+                payload["to"] = fallback
+                resp = requests.post(url, headers=headers, json=payload)
+        except Exception:
+            pass
+    resp.raise_for_status()
+    return resp.json()
+
+
+def send_whatsapp_template(to_phone: str, template_name: str = "hola", language_code: str = "es") -> dict:
+    """Отправляет шаблонное сообщение WhatsApp через Meta Business API."""
+    if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
+        raise ValueError("WhatsApp credentials not configured")
+    
+    url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}/messages"
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    normalized = normalize_phone(to_phone)
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": normalized,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {
+                "code": language_code
+            }
         }
     }
     
@@ -1261,6 +1302,75 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
     except Exception as e:
         print(f"WhatsApp Send Proposal Error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка отправки КП: {str(e)}")
+
+@app.post("/api/whatsapp/send-first-message", tags=["WhatsApp"], dependencies=[Depends(authenticate_operator)])
+async def api_send_whatsapp_first_message(data: WhatsAppFirstMessageRequest):
+    """Отправляет первое шаблонное сообщение (hola) клиенту через WhatsApp Business API.
+    
+    Проверяет, что сообщение ещё не отправлялось, отправляет template,
+    сохраняет статус в заявке и создаёт запись в Timeline.
+    """
+    if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="WhatsApp credentials not configured on backend."
+        )
+    
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        app_data = doc.to_dict()
+        phone = app_data.get("client_phone")
+        
+        if not phone:
+            raise HTTPException(status_code=400, detail="У заявки отсутствует телефон клиента.")
+        
+        # Проверяем, не отправлялось ли уже первое сообщение
+        if app_data.get("whatsapp_first_message_sent"):
+            return {"status": "already_sent", "message": "Первое сообщение уже отправлялось."}
+        
+        # Определяем язык шаблона из заявки (fallback: es)
+        client_lang = app_data.get("language", "es")
+        # Поддерживаемые языки шаблона Meta — обычно es, en. Для остальных fallback на es.
+        template_lang = client_lang if client_lang in ("es", "en") else "es"
+        
+        result = send_whatsapp_template(phone, template_name="hola", language_code=template_lang)
+        wa_message_id = result.get("messages", [{}])[0].get("id")
+        
+        # Сохраняем статус в заявке
+        doc_ref.update({
+            "whatsapp_first_message_sent": True,
+            "whatsapp_first_message_sent_at": datetime.datetime.utcnow(),
+            "whatsapp_first_message_id": wa_message_id,
+            "updated_at": datetime.datetime.utcnow(),
+        })
+        
+        # Создаём запись в Timeline
+        event_ref = doc_ref.collection("timeline").document()
+        event_ref.set({
+            "application_id": data.application_id,
+            "content": "Шаблонное приветственное сообщение отправлено (hola).",
+            "type": EventType.WHATSAPP.value,
+            "created_by": "Operator",
+            "created_at": datetime.datetime.utcnow(),
+            "direction": "outgoing",
+            "wa_message_id": wa_message_id,
+        })
+        
+        return {"status": "success", "wa_message_id": wa_message_id}
+        
+    except HTTPException:
+        raise
+    except requests.exceptions.HTTPError as e:
+        meta_error = e.response.text if hasattr(e, 'response') else str(e)
+        print(f"WhatsApp Meta API Error (first message): {meta_error}")
+        raise HTTPException(status_code=502, detail=f"Meta API Error: {meta_error}")
+    except Exception as e:
+        print(f"WhatsApp Send First Message Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка отправки первого сообщения: {str(e)}")
 
 @app.get("/api/whatsapp/webhook", tags=["WhatsApp"])
 async def whatsapp_webhook_verify(

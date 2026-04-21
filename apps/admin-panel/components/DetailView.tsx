@@ -343,6 +343,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
               appId={appId}
               clientName={application.client_name}
               clientPhone={application.client_phone}
+              firstMessageSent={application.whatsapp_first_message_sent || false}
             />
 
         </div>

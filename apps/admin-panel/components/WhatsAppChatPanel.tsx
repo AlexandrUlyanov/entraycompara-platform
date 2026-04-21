@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchApplicationTimeline, sendWhatsAppMessage, sendWhatsAppMedia, deleteTimelineNote, generateAIResponse } from '../services/api';
+import { fetchApplicationTimeline, sendWhatsAppMessage, sendWhatsAppMedia, deleteTimelineNote, generateAIResponse, sendWhatsAppFirstMessage } from '../services/api';
 import { ApplicationNote, NoteType } from '../types';
 import { useTranslation } from '../i18n';
 import Spinner from './Spinner';
@@ -9,20 +9,27 @@ interface WhatsAppChatPanelProps {
   appId: string;
   clientName: string;
   clientPhone: string;
+  firstMessageSent?: boolean;
 }
 
 const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
   appId,
   clientName,
   clientPhone,
+  firstMessageSent = false,
 }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [newMessage, setNewMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [firstMessageStatus, setFirstMessageStatus] = useState<'idle' | 'loading' | 'sent'>('idle');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setFirstMessageStatus(firstMessageSent ? 'sent' : 'idle');
+  }, [firstMessageSent]);
 
   const { data: allNotes, isLoading, isError } = useQuery({
     queryKey: ['timeline', appId],
@@ -66,6 +73,17 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
     },
     onError: (error: Error) => {
       setAiError(error.message || 'Ошибка генерации ответа');
+    },
+  });
+
+  const firstMessageMutation = useMutation({
+    mutationFn: () => sendWhatsAppFirstMessage(appId),
+    onSuccess: (data) => {
+      if (data.status === 'success' || data.status === 'already_sent') {
+        setFirstMessageStatus('sent');
+        queryClient.invalidateQueries({ queryKey: ['application', appId] });
+        queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+      }
     },
   });
 
@@ -121,22 +139,52 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
             <p className="text-xs text-slate-500">{clientPhone}</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => aiMutation.mutate()}
-          disabled={aiMutation.isPending}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-primary-50 hover:bg-primary-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-primary-100"
-          title="Сгенерировать ответ ИИ"
-        >
-          {aiMutation.isPending ? (
-            <Spinner size="h-3.5 w-3.5" />
+        <div className="flex items-center gap-2">
+          {firstMessageStatus === 'sent' ? (
+            <button
+              type="button"
+              disabled
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 rounded-full opacity-80 cursor-default border border-green-100"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              {t('whatsappChat.firstMessageSent')}
+            </button>
           ) : (
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
+            <button
+              type="button"
+              onClick={() => firstMessageMutation.mutate()}
+              disabled={firstMessageMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {firstMessageMutation.isPending ? (
+                <Spinner size="h-3.5 w-3.5" />
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+              )}
+              {firstMessageMutation.isPending ? t('whatsappChat.sendingFirstMessage') : t('whatsappChat.sendFirstMessage')}
+            </button>
           )}
-          {aiMutation.isPending ? 'Думаю...' : 'ИИ ответ'}
-        </button>
+          <button
+            type="button"
+            onClick={() => aiMutation.mutate()}
+            disabled={aiMutation.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-primary-50 hover:bg-primary-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-primary-100"
+            title="Сгенерировать ответ ИИ"
+          >
+            {aiMutation.isPending ? (
+              <Spinner size="h-3.5 w-3.5" />
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            )}
+            {aiMutation.isPending ? 'Думаю...' : 'ИИ ответ'}
+          </button>
+        </div>
       </div>
 
       {/* Messages */}

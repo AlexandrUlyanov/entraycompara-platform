@@ -48,6 +48,9 @@ export interface Application {
   language?: string;
   uploaded_files?: string[];
   proposal_file_url?: string;
+  whatsapp_first_message_sent?: boolean;
+  whatsapp_first_message_sent_at?: string;
+  whatsapp_first_message_id?: string;
 }
 
 export interface CursorPaginatedApplications {

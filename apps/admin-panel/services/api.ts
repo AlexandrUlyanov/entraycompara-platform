@@ -287,6 +287,15 @@ export const sendProposalViaWhatsApp = async (applicationId: string): Promise<{ 
   return handleApiError(response);
 };
 
+export const sendWhatsAppFirstMessage = async (applicationId: string): Promise<{ status: string; wa_message_id?: string; message?: string }> => {
+  const response = await fetch(`${API_BASE_URL}/whatsapp/send-first-message`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ application_id: applicationId }),
+  });
+  return handleApiError(response);
+};
+
 export const generateAIResponse = async (applicationId: string): Promise<{ success: boolean; response: string }> => {
   const response = await fetch(`${API_BASE_URL}/ai/generate-response`, {
     method: 'POST',

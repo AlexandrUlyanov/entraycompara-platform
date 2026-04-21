@@ -96,6 +96,9 @@ const translations: Record<Language, Record<string, string>> = {
     "language.uk": "Українська",
     "language.eu": "Euskara",
     
+    "whatsappChat.sendFirstMessage": "Отправить первое сообщение",
+    "whatsappChat.sendingFirstMessage": "Отправка...",
+    "whatsappChat.firstMessageSent": "Связь настроена",
     "whatsappChat.openButton": "Открыть чат WhatsApp",
     "whatsappChat.placeholder": "Введите сообщение...",
     "whatsappChat.empty": "Начните переписку с клиентом"
@@ -193,6 +196,9 @@ const translations: Record<Language, Record<string, string>> = {
     "language.eu": "Euskera",
     
     "whatsappChat.openButton": "Abrir chat de WhatsApp",
+    "whatsappChat.sendFirstMessage": "Enviar primer mensaje",
+    "whatsappChat.sendingFirstMessage": "Enviando...",
+    "whatsappChat.firstMessageSent": "Conexión configurada",
     "whatsappChat.placeholder": "Escribe un mensaje...",
     "whatsappChat.empty": "Inicia la conversación con el cliente"
   }

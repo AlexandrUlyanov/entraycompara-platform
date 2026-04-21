@@ -194,7 +194,6 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - `WHATSAPP_ACCESS_TOKEN` — Access Token для Meta Graph API
 - `WHATSAPP_VERIFY_TOKEN` — Verify Token для верификации webhook'ов Meta
 - `GEMINI_API_KEY` — API-ключ Google Gemini для генерации ответов ИИ-ассистента
-- `B_TOKEN` — GitHub Personal Access Token (для MCP-сервера GitHub: работа с Issues, PR, комментариями)
 
 ---
 

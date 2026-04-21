@@ -51,7 +51,25 @@ export interface Application {
   whatsapp_first_message_id?: string;
   analysis_started_at?: string;
   proposal_uploaded?: boolean;
-  proposal_file_url?: string;
+}
+
+export interface ExtractedData {
+  service_type?: 'electricity' | 'gas' | 'internet' | 'mobile';
+  current_provider?: string;
+  contract_number?: string;
+  current_tariff?: string;
+  power_kw?: number;
+  avg_monthly_consumption_kwh?: number;
+  avg_monthly_cost_eur?: number;
+  contract_end_date?: string;
+  source_files?: string[];
+}
+
+export interface ProposalData {
+  extracted_data?: ExtractedData;
+  extracted_at?: string;
+  extracted_by?: string;
+  manually_corrected?: boolean;
 }
 
 export interface CursorPaginatedApplications {

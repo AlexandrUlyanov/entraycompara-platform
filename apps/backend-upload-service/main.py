@@ -6,6 +6,7 @@ import smtplib
 import re
 import requests
 import json
+import mimetypes
 from typing import List, Optional, Dict, Any 
 from enum import Enum 
 from email.mime.multipart import MIMEMultipart
@@ -155,6 +156,25 @@ class WhatsAppFirstMessageRequest(BaseModel):
 class AIGenerateRequest(BaseModel):
     application_id: str
 
+# 1.6. Модели для Proposal Builder (Extracted Data)
+class ExtractedData(BaseModel):
+    service_type: str | None = None
+    current_provider: str | None = None
+    contract_number: str | None = None
+    current_tariff: str | None = None
+    power_kw: float | None = None
+    avg_monthly_consumption_kwh: float | None = None
+    avg_monthly_cost_eur: float | None = None
+    contract_end_date: str | None = None
+    source_files: list[str] = []
+
+class ExtractDataRequest(BaseModel):
+    file_urls: list[str]
+    force_reextract: bool = False
+
+class ExtractedDataUpdate(BaseModel):
+    extracted_data: ExtractedData
+
 # --- База знаний компании ---
 KNOWLEDGE_BASE = """
 EntrayCompara — сервис помощи клиентам в Испании по снижению расходов на коммунальные услуги.
@@ -208,6 +228,74 @@ def create_timeline_event_internal(application_id: str, content: str, event_type
     
     # Добавление документа в под-коллекцию
     doc_ref.collection("timeline").add(new_event_data)
+
+def download_gcs_file(gcs_path: str) -> tuple[bytes, str]:
+    """Скачивает файл из GCS по пути вида gs://bucket/path или path внутри bucket."""
+    # Если путь начинается с gs://, убираем префикс
+    if gcs_path.startswith(f"gs://{BUCKET_NAME}/"):
+        blob_name = gcs_path[len(f"gs://{BUCKET_NAME}/"):]
+    elif gcs_path.startswith("gs://"):
+        # Другой bucket — не поддерживаем
+        raise ValueError(f"Unsupported bucket in path: {gcs_path}")
+    else:
+        blob_name = gcs_path
+    
+    bucket = storage_client.bucket(BUCKET_NAME)
+    blob = bucket.blob(blob_name)
+    file_bytes = blob.download_as_bytes()
+    mime_type = mimetypes.guess_type(blob_name)[0] or "application/octet-stream"
+    return file_bytes, mime_type
+
+def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
+    """Отправляет файлы в Gemini с промптом для извлечения данных счета."""
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=503, detail="Gemini API Key не настроен на бэкенде.")
+    
+    prompt = """Ты — аналитик коммунальных счетов. Извлеки из предоставленных файлов (счета за электричество/газ/интернет/мобильную связь) следующие данные в формате JSON:
+{
+  "service_type": "electricity|gas|internet|mobile",
+  "current_provider": "string",
+  "contract_number": "string|null",
+  "current_tariff": "string|null",
+  "power_kw": "number|null",
+  "avg_monthly_consumption_kwh": "number|null",
+  "avg_monthly_cost_eur": "number|null",
+  "contract_end_date": "YYYY-MM-DD|null"
+}
+Если данных нет — используй null. Отвечай ТОЛЬКО JSON, без пояснений."""
+    
+    model = genai.GenerativeModel(GEMINI_MODEL)
+    
+    # Формируем контент: промпт + файлы
+    content_parts = [prompt]
+    for file_bytes, mime_type in file_bytes_list:
+        content_parts.append({
+            "mime_type": mime_type,
+            "data": file_bytes
+        })
+    
+    response = model.generate_content(content_parts)
+    
+    if not response.text:
+        raise HTTPException(status_code=500, detail="Gemini вернул пустой ответ.")
+    
+    # Пытаемся извлечь JSON из ответа
+    response_text = response.text.strip()
+    # Убираем markdown code blocks если есть
+    if response_text.startswith("```json"):
+        response_text = response_text[7:]
+    if response_text.startswith("```"):
+        response_text = response_text[3:]
+    if response_text.endswith("```"):
+        response_text = response_text[:-3]
+    response_text = response_text.strip()
+    
+    try:
+        extracted = json.loads(response_text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Gemini вернул невалидный JSON: {str(e)}")
+    
+    return extracted
 
 def upload_to_gcs(file_obj: UploadFile, destination_blob_name: str):
     """Загружает файл в Google Cloud Storage и делает его публично доступным для чтения."""
@@ -812,6 +900,134 @@ async def upload_application_files(application_id: str, files: list[UploadFile] 
     except Exception as e:
         print(f"Upload files error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при загрузке файлов.")
+
+# --- 4.85. Proposal Builder: Extracted Data Endpoints ---
+
+@app.post("/api/applications/{application_id}/proposal/extract-data", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def proposal_extract_data(application_id: str, request: ExtractDataRequest):
+    """AI-извлечение данных из загруженных счетов клиента."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        app_data = doc.to_dict()
+        
+        # Проверяем, не извлекали ли уже данные (если не force_reextract)
+        if not request.force_reextract:
+            existing = doc_ref.collection("proposal_data").document("data").get()
+            if existing.exists and existing.to_dict().get("extracted_data"):
+                return {"success": True, "message": "Данные уже извлечены. Используйте force_reextract=true для повторного извлечения.", "extracted_data": existing.to_dict()["extracted_data"]}
+        
+        if not request.file_urls:
+            raise HTTPException(status_code=400, detail="Не указаны файлы для анализа.")
+        
+        # Скачиваем файлы из GCS
+        file_contents = []
+        for url in request.file_urls:
+            try:
+                file_bytes, mime_type = download_gcs_file(url)
+                # Проверяем лимит размера (20 MB)
+                if len(file_bytes) > 20 * 1024 * 1024:
+                    raise HTTPException(status_code=400, detail=f"Файл {url} превышает 20 МБ.")
+                file_contents.append((file_bytes, mime_type))
+            except Exception as e:
+                print(f"Ошибка скачивания файла {url}: {e}")
+                raise HTTPException(status_code=400, detail=f"Не удалось скачать файл: {url}")
+        
+        # Отправляем в Gemini
+        extracted = extract_data_with_gemini(file_contents)
+        
+        # Добавляем source_files
+        extracted["source_files"] = request.file_urls
+        
+        # Сохраняем в Firestore
+        proposal_data_ref = doc_ref.collection("proposal_data").document("data")
+        proposal_data_ref.set({
+            "extracted_data": extracted,
+            "extracted_at": datetime.datetime.utcnow(),
+            "extracted_by": "Operator",
+            "manually_corrected": False,
+        })
+        
+        # Запись в Timeline
+        create_timeline_event_internal(
+            application_id=application_id,
+            content="Данные счетов извлечены ИИ.",
+            event_type=EventType.NOTE,
+            created_by="System"
+        )
+        
+        return {"success": True, "extracted_data": extracted}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Extract data error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при извлечении данных: {str(e)}")
+
+
+@app.put("/api/applications/{application_id}/proposal/extracted-data", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def proposal_update_extracted_data(application_id: str, update_data: ExtractedDataUpdate):
+    """Сохранение/корректировка извлеченных данных оператором."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        proposal_data_ref = doc_ref.collection("proposal_data").document("data")
+        proposal_data_ref.set({
+            "extracted_data": update_data.extracted_data.model_dump(),
+            "updated_at": datetime.datetime.utcnow(),
+            "manually_corrected": True,
+        }, merge=True)
+        
+        # Запись в Timeline
+        create_timeline_event_internal(
+            application_id=application_id,
+            content="Данные скорректированы оператором.",
+            event_type=EventType.NOTE,
+            created_by="System"
+        )
+        
+        return {"success": True, "message": "Данные обновлены."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Update extracted data error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при обновлении данных: {str(e)}")
+
+
+@app.get("/api/applications/{application_id}/proposal/extracted-data", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def proposal_get_extracted_data(application_id: str):
+    """Получение извлеченных данных счетов клиента."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        
+        proposal_data_ref = doc_ref.collection("proposal_data").document("data")
+        proposal_data = proposal_data_ref.get()
+        
+        if not proposal_data.exists:
+            raise HTTPException(status_code=404, detail="Данные не найдены. Сначала извлеките данные.")
+        
+        data = proposal_data.to_dict()
+        return {
+            "extracted_data": data.get("extracted_data"),
+            "extracted_at": data.get("extracted_at"),
+            "manually_corrected": data.get("manually_corrected", False),
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Get extracted data error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении данных: {str(e)}")
 
 # --- 4.8. POST /api/applications/{id}/upload-proposal (Загрузка КП) ---
 @app.post("/api/applications/{application_id}/upload-proposal", tags=["Management"], dependencies=[Depends(authenticate_operator)])

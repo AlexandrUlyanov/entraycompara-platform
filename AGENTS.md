@@ -283,6 +283,9 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - `POST /api/whatsapp/send` — отправка сообщения клиенту через WhatsApp Business API
 - `GET /api/whatsapp/webhook` — верификация webhook от Meta
 - `POST /api/whatsapp/webhook` — получение входящих сообщений от Meta
+- `POST /api/applications/{id}/proposal/extract-data` — AI-извлечение данных из счетов (Gemini)
+- `PUT /api/applications/{id}/proposal/extracted-data` — сохранение/корректировка извлеченных данных
+- `GET /api/applications/{id}/proposal/extracted-data` — получение извлеченных данных
 - `GET /docs` — Swagger UI
 
 **Авторизация операторов**: Bearer-токен, сверяется с `OPERATOR_SECRET_KEY`.
@@ -298,9 +301,15 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 
 **AI Assistant (Gemini)**:
 - Эндпоинт: `POST /api/ai/generate-response` — генерирует ответ менеджера на основе истории WhatsApp-переписки, данных заявки и базы знаний компании
-- Использует Google Gemini (`gemini-2.0-flash`) через `google-generativeai`
+- Использует Google Gemini (`gemini-2.5-flash-lite`) через `google-generativeai`
 - Требует `GEMINI_API_KEY` в переменных окружения
 - Работает в ручном режиме: оператор в CRM нажимает кнопку «ИИ ответ» и получает сгенерированный текст в поле ввода
+
+**Proposal Builder (AI-извлечение данных)**:
+- Stage 1: Извлечение данных — Gemini анализирует загруженные счета и возвращает структурированные данные (`service_type`, `current_provider`, `contract_number`, `current_tariff`, `power_kw`, `avg_monthly_consumption_kwh`, `avg_monthly_cost_eur`, `contract_end_date`)
+- Данные сохраняются в подколлекции `proposal_data` (документ `data`)
+- Stage 2 (TODO): Симуляции поставщиков — создание сравнительных предложений
+- Stage 3 (TODO): Генерация PDF коммерческого предложения
 
 **CORS**: Разрешены `*`, `http://localhost:3000`, `https://entraycompara.com`, `https://www.entraycompara.com`
 

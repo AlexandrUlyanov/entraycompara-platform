@@ -89,7 +89,10 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
 
   useEffect(() => {
     if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const container = messagesEndRef.current.parentElement;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
     }
   }, [whatsAppNotes]);
 

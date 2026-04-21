@@ -321,13 +321,16 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 
 **Eni Plenitude Auto Simulation**:
 - Playwright + Chromium headless автоматизирует прохождение симуляции на `https://g2e.eniplenitude.es`
-- Backend эндпоинт `POST .../simulations/auto-create` запускает фоновую задачу (asyncio), которая:
+- Backend эндпоинт `POST .../simulations/auto-create` создаёт Firestore-задачу и запускает **Cloud Run Job** `eni-simulation-runner`, который:
   1. Открывает реферальную ссылку, выбирает Hogar/Empresa → Factura de Electricidad
   2. Вводит CUPS, заполняет форму (Potencia, Consumo, Alquiler equipo)
   3. Выбирает 3-й тариф снизу (наиболее выгодный по бизнес-правилу)
   4. Ждёт ~3 минуты генерации PDF, скачивает его
   5. Загружает PDF в GCS (`simulation_files/YYYY/MM/DD/`) и создаёт запись в Firestore
+- Задачи хранятся в `applications/{id}/auto_simulation_tasks/{task_id}` (Firestore)
 - Frontend: кнопка «Auto-simulate via Eni» в `SimulationPanel.tsx`, polling статуса каждые 3 секунды
+- Инфраструктура: Cloud Run Job `eni-simulation-runner` (`europe-west1`), таймаут 600 сек
+- IAM: backend service account needs `roles/run.admin` on the job
 - Требования: Docker-образ +~500 МБ (Chromium deps), `playwright install chromium` при сборке
 
 **CORS**: Разрешены `*`, `http://localhost:3000`, `https://entraycompara.com`, `https://www.entraycompara.com`

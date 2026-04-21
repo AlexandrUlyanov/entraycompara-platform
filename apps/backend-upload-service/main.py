@@ -1301,14 +1301,18 @@ async def select_simulation(application_id: str, simulation_id: str):
 
 # --- 4.875. Proposal Builder: Auto-Create Simulation (Eni Plenitude) ---
 
-# In-memory task store (for MVP). In production, use Firestore or Redis.
-_auto_simulation_tasks: dict[str, dict] = {}
+# Firestore-backed task store for auto-simulation tasks.
+def _task_doc_ref(application_id: str, task_id: str):
+    return firestore_client.collection(FIRESTORE_COLLECTION).document(application_id).collection("auto_simulation_tasks").document(task_id)
 
-def _get_task_status(task_id: str) -> dict | None:
-    return _auto_simulation_tasks.get(task_id)
+def _get_task_status(application_id: str, task_id: str) -> dict | None:
+    doc = _task_doc_ref(application_id, task_id).get()
+    if doc.exists:
+        return doc.to_dict()
+    return None
 
-def _set_task_status(task_id: str, status: dict):
-    _auto_simulation_tasks[task_id] = status
+def _set_task_status(application_id: str, task_id: str, status: dict):
+    _task_doc_ref(application_id, task_id).set(status, merge=True)
 
 async def _run_eni_simulation_task(
     task_id: str,
@@ -1317,11 +1321,12 @@ async def _run_eni_simulation_task(
 ):
     """Фоновая задача: проходит симуляцию на Eni и сохраняет результат."""
     try:
-        _set_task_status(task_id, {
+        _set_task_status(application_id, task_id, {
             "status": "running",
             "message": "Запущена автоматическая симуляция на Eni Plenitude...",
             "simulation_id": None,
             "error": None,
+            "updated_at": datetime.datetime.utcnow(),
         })
 
         # Запускаем Playwright
@@ -1403,21 +1408,23 @@ async def _run_eni_simulation_task(
         except Exception:
             pass
 
-        _set_task_status(task_id, {
+        _set_task_status(application_id, task_id, {
             "status": "completed",
             "message": "Симуляция успешно создана.",
             "simulation_id": sim_ref.id,
             "simulation_file_url": pdf_url,
             "error": None,
+            "updated_at": datetime.datetime.utcnow(),
         })
 
     except Exception as e:
         print(f"[Eni Task {task_id}] Error: {e}")
-        _set_task_status(task_id, {
+        _set_task_status(application_id, task_id, {
             "status": "failed",
             "message": str(e),
             "simulation_id": None,
             "error": str(e),
+            "updated_at": datetime.datetime.utcnow(),
         })
 
 
@@ -1434,6 +1441,17 @@ async def auto_create_simulation(application_id: str, request: AutoCreateSimulat
             raise HTTPException(status_code=400, detail="CUPS обязателен для автоматической симуляции.")
 
         task_id = f"auto-sim-{uuid.uuid4().hex[:12]}"
+
+        # Создаём документ задачи в Firestore
+        _set_task_status(application_id, task_id, {
+            "status": "pending",
+            "message": "Ожидание запуска...",
+            "simulation_id": None,
+            "simulation_file_url": None,
+            "error": None,
+            "created_at": datetime.datetime.utcnow(),
+            "updated_at": datetime.datetime.utcnow(),
+        })
 
         # Запускаем фоновую задачу
         asyncio.create_task(_run_eni_simulation_task(task_id, application_id, request))
@@ -1460,7 +1478,7 @@ async def get_auto_simulation_status(application_id: str, task_id: str):
         if not doc_ref.get().exists:
             raise HTTPException(status_code=404, detail="Заявка не найдена.")
 
-        task = _get_task_status(task_id)
+        task = _get_task_status(application_id, task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Задача не найдена.")
 

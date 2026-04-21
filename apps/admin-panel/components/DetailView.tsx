@@ -39,6 +39,12 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     notes: '',
     language: 'es',
   });
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   const { data: application, isLoading, isError, error } = useQuery<Application | undefined, Error>({
     queryKey: ['application', appId],
@@ -72,6 +78,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
       queryClient.invalidateQueries({ queryKey: ['application', appId] });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ['timeline', appId] }), 500);
+      showToast(t('kanban.statusChanged'));
     },
   });
 
@@ -120,6 +127,10 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['application', appId] });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
+      showToast('КП загружено');
+    },
+    onError: (error) => {
+      showToast((error as Error).message || 'Ошибка загрузки КП');
     },
   });
 
@@ -127,6 +138,12 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     mutationFn: () => sendProposalViaWhatsApp(appId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+      queryClient.invalidateQueries({ queryKey: ['application', appId] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+      showToast('КП отправлено');
+    },
+    onError: (error) => {
+      showToast((error as Error).message || 'Ошибка отправки КП');
     },
   });
 
@@ -190,7 +207,12 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
   }
 
   return (
-    <div className="max-w-7xl mx-auto animate-fade-in pb-10">
+    <div className="max-w-7xl mx-auto animate-fade-in pb-10 relative">
+      {toastMessage && (
+        <div className="fixed bottom-4 right-4 bg-white text-slate-700 px-4 py-2.5 rounded-xl shadow-lg border border-slate-100 z-[100] text-sm font-medium animate-fade-in-up">
+          {toastMessage}
+        </div>
+      )}
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         

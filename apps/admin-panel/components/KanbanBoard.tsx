@@ -155,7 +155,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ applications, onSelectApplica
   return (
     <div className="h-[calc(100vh-220px)] overflow-x-auto pb-4">
         {toastMessage && (
-            <div className="fixed top-24 left-1/2 transform -translate-x-1/2 bg-secondary text-white px-6 py-3 rounded-2xl shadow-apple-hover z-[100] text-sm font-medium animate-fade-in-up backdrop-blur-md bg-opacity-90">
+            <div className="fixed bottom-4 right-4 bg-white text-slate-700 px-4 py-2.5 rounded-xl shadow-lg border border-slate-100 z-[100] text-sm font-medium animate-fade-in-up">
                 {toastMessage}
             </div>
         )}

@@ -335,9 +335,6 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                 </div>
             </div>
             
-            {/* Timeline Component */}
-            <Timeline appId={appId} />
-
             {/* WhatsApp Chat Panel */}
             <WhatsAppChatPanel
               appId={appId}
@@ -345,6 +342,9 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
               clientPhone={application.client_phone}
               firstMessageSent={application.whatsapp_first_message_sent || false}
             />
+
+            {/* Timeline Component */}
+            <Timeline appId={appId} />
 
         </div>
 

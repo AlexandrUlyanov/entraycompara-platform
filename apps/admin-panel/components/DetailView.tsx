@@ -16,6 +16,16 @@ interface DetailViewProps {
   onBack: () => void;
 }
 
+const getAnalysisHours = (startedAt?: string): string | null => {
+  if (!startedAt) return null;
+  const start = new Date(startedAt);
+  const now = new Date();
+  const diffMs = now.getTime() - start.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  if (diffHours < 1) return '<1h';
+  return `${diffHours}h`;
+};
+
 const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack }) => {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -368,7 +378,14 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                                 : 'bg-white text-secondary-light hover:bg-slate-50 hover:text-secondary shadow-sm border border-slate-100'
                             } disabled:opacity-50 disabled:cursor-wait`}
                         >
-                            <span>{t(`status.${status.replace(' ', '')}`)}</span>
+                            <span className="flex items-center gap-2">
+                                {t(`status.${status.replace(' ', '')}`)}
+                                {status === Status.Analysis && application.analysis_started_at && (
+                                    <span className="text-[10px] font-semibold bg-white/20 px-1.5 py-0.5 rounded">
+                                        {getAnalysisHours(application.analysis_started_at)}
+                                    </span>
+                                )}
+                            </span>
                             {application.status === status && (
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
                                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />

@@ -573,6 +573,8 @@ def transform_firestore_doc(doc: firestore.DocumentSnapshot) -> Dict[str, Any]:
         data['id'] = doc.id
         if isinstance(data.get('submission_date'), datetime.datetime):
             data['submission_date'] = data['submission_date'].isoformat()
+        if isinstance(data.get('analysis_started_at'), datetime.datetime):
+            data['analysis_started_at'] = data['analysis_started_at'].isoformat()
         return data
     return None
 
@@ -673,10 +675,14 @@ async def update_application_status(application_id: str, update_data: Applicatio
 
         new_status = update_data.status.value
         
-        doc_ref.update({
+        update_fields = {
             "status": new_status,
             "updated_at": datetime.datetime.utcnow()
-        })
+        }
+        if new_status == Status.ANALYSIS.value:
+            update_fields["analysis_started_at"] = datetime.datetime.utcnow()
+        
+        doc_ref.update(update_fields)
         
         # АВТОМАТИЗАЦИЯ: Запись в Timeline об изменении статуса
         create_timeline_event_internal(
@@ -1347,11 +1353,13 @@ async def api_send_whatsapp_first_message(data: WhatsAppFirstMessageRequest):
         result = send_whatsapp_template(phone, template_name="hola", language_code=template_lang)
         wa_message_id = result.get("messages", [{}])[0].get("id")
         
-        # Сохраняем статус в заявке
+        # Сохраняем статус в заявке и переводим в Analysis
         doc_ref.update({
             "whatsapp_first_message_sent": True,
             "whatsapp_first_message_sent_at": datetime.datetime.utcnow(),
             "whatsapp_first_message_id": wa_message_id,
+            "status": Status.ANALYSIS.value,
+            "analysis_started_at": datetime.datetime.utcnow(),
             "updated_at": datetime.datetime.utcnow(),
         })
         

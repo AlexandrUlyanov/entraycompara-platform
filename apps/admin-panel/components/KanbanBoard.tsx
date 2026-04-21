@@ -33,6 +33,16 @@ const COLUMN_COLORS: Record<Status, { header: string, accent: string }> = {
   [Status.DealLost]: { header: 'bg-slate-100/90 border-slate-200', accent: 'bg-slate-400' },
 };
 
+const getAnalysisHours = (startedAt?: string): string | null => {
+  if (!startedAt) return null;
+  const start = new Date(startedAt);
+  const now = new Date();
+  const diffMs = now.getTime() - start.getTime();
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  if (diffHours < 1) return '<1h';
+  return `${diffHours}h`;
+};
+
 const KanbanBoard: React.FC<KanbanBoardProps> = ({ applications, onSelectApplication }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -200,9 +210,16 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ applications, onSelectApplica
                                                         ${snapshot.isDragging ? 'rotate-2 scale-105 shadow-apple-hover z-50 ring-2 ring-primary-100 opacity-95' : 'hover:shadow-apple hover:-translate-y-0.5'}`}
                                                     >
                                                         <div className="flex justify-between items-start mb-2.5">
-                                                            <span className="text-[10px] font-mono text-slate-400 uppercase bg-slate-50/80 px-2 py-1 rounded-md">
-                                                                #{app.id.slice(0,6)}
-                                                            </span>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="text-[10px] font-mono text-slate-400 uppercase bg-slate-50/80 px-2 py-1 rounded-md">
+                                                                    #{app.id.slice(0,6)}
+                                                                </span>
+                                                                {app.status === Status.Analysis && app.analysis_started_at && (
+                                                                    <span className="text-[10px] font-semibold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-md">
+                                                                        {getAnalysisHours(app.analysis_started_at)}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                             <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                                                                 <button 
                                                                     onClick={(e) => handleDeleteClick(e, app)}

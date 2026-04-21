@@ -49,6 +49,7 @@ export interface Application {
   whatsapp_first_message_sent?: boolean;
   whatsapp_first_message_sent_at?: string;
   whatsapp_first_message_id?: string;
+  analysis_started_at?: string;
 }
 
 export interface CursorPaginatedApplications {

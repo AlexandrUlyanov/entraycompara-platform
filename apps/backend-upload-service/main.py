@@ -306,11 +306,11 @@ def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
   "equipment_rental": "number|null — ищи в нижней части счета, рядом с 'Importe alquiler Equipo de Medida' или 'Alquiler de equipos'. Сумма в €.",
   "invoice_amount_with_vat": "number|null — ищи в блоке DATOS DE LA FACTURA, рядом с 'TOTAL FACTURA:' или 'TOTAL FACTURA' (самая крупная итоговая сумма, уже с IVA).",
   "retailer": "string|null — ищи название компании-продавца (comercializadora). Обычно в шапке или внизу страницы мелким шрифтом (например, 'SUNAIR ONE ENERGY, S.L.').",
-  "billed_power_p1": "number|null — ищи в блоке DATOS DEL TITULAR рядом с 'POTENCIA: P1:' или в таблице 'Termino de Potencia'. Значение в kW (например, 3.3).",
-  "billed_power_p2": "number|null — ищи в блоке DATOS DEL TITULAR рядом с 'POTENCIA: P2:' или в таблице 'Termino de Potencia'. Для старых тарифов 2.0A может отсутствовать — тогда null.",
-  "consumption_p1": "number|null — ищи в таблице 'CALCULO DE LA FACTURA' → 'Termino de Energia', рядом с 'P1 XXX kWh'. Это потребление по периоду P1 в kWh.",
-  "consumption_p2": "number|null — ищи в таблице 'CALCULO DE LA FACTURA' → 'Termino de Energia' или в таблице 'Lectura' по периоду P2 (Llano). Потребление в kWh.",
-  "consumption_p3": "number|null — ищи в таблице 'Lectura' по периоду P3 (Valle). Потребление в kWh. Если тариф 2.0A без разделения — может быть null."
+  "billed_power_p1": "number|null — ищи в блоке DATOS DEL TITULAR рядом с 'POTENCIA: P1:' или в таблице 'Termino de Potencia'. Значение в kW (например, 3.3). P1 = Punta (пиковая мощность).",
+  "billed_power_p2": "number|null — ищи в блоке DATOS DEL TITULAR рядом с 'POTENCIA: P2:' или в таблице 'Termino de Potencia'. P2 = Llano. Для старых тарифов 2.0A может отсутствовать — тогда null.",
+  "consumption_p1": "number|null — ищи в таблице 'CALCULO DE LA FACTURA' → 'Termino de Energia', рядом с 'P1 XXX kWh'. P1 = Punta (самый дорогой период, horas laborables). Потребление в kWh.",
+  "consumption_p2": "number|null — ищи в таблице 'CALCULO DE LA FACTURA' → 'Termino de Energia' или в таблице 'Lectura' по периоду P2 (Llano). P2 = Llano (переходный период, precio intermedio). Потребление в kWh.",
+  "consumption_p3": "number|null — ищи в таблице 'Lectura' по периоду P3 (Valle). P3 = Valle (самый дешёвый период, noches/fines de semana). Потребление в kWh. Если тариф 2.0A без разделения — может быть null."
 }
 ФОРМАТ ДАТ: если в документе дата '05/04/2013', преобразуй в '2013-04-05' (YYYY-MM-DD).
 Важно:

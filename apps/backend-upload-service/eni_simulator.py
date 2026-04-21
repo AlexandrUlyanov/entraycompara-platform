@@ -1,10 +1,12 @@
 import asyncio
 import os
-import tempfile
+import uuid
 from datetime import datetime
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
+from google.cloud import storage
 
 REFERRAL_URL = "https://g2e.eniplenitude.es/index.php?refid=60335660J3"
+GCS_BUCKET = os.environ.get("GCP_BUCKET_NAME", "entraycompara-invoices")
 
 
 class EniSimulationError(Exception):
@@ -46,6 +48,8 @@ async def run_eni_simulation(
             print("[Eni] Step 2: Clicking Simulador...")
             await page.click('button[name="option"][value="simulador"]', timeout=10000)
             await page.wait_for_load_state("networkidle", timeout=30000)
+            await asyncio.sleep(1)
+            print(f"[Eni] URL after Step 2: {page.url}")
 
             # Шаг 3: Выбрать Hogar / Empresa
             print(f"[Eni] Step 3: Selecting client type: {client_type}...")
@@ -54,23 +58,28 @@ async def run_eni_simulation(
             else:
                 await page.click('button[name="tipo_cliente"][value="1"]', timeout=10000)
             await page.wait_for_load_state("networkidle", timeout=30000)
+            await asyncio.sleep(1)
+            print(f"[Eni] URL after Step 3: {page.url}")
 
             # Шаг 4: Выбрать Factura de Electricidad
             print("[Eni] Step 4: Selecting Factura de Electricidad...")
             await page.click('button[name="tipo_suministro"][value="suministro_luz"]', timeout=10000)
             await page.wait_for_load_state("networkidle", timeout=30000)
+            await asyncio.sleep(1)
+            print(f"[Eni] URL after Step 4: {page.url}")
 
             # Шаг 5: Ввести CUPS
             print(f"[Eni] Step 5: Entering CUPS: {cups}...")
             await page.fill('input#cups_luz', cups, timeout=10000)
-
-            # Небольшая пауза для валидации CUPS на клиенте
             await asyncio.sleep(1)
+            print(f"[Eni] URL after Step 5: {page.url}")
 
             # Шаг 6: Нажать Comenzar Simulación
             print("[Eni] Step 6: Clicking Comenzar Simulación...")
             await page.click('button#simulador_submit', timeout=10000)
             await page.wait_for_load_state("networkidle", timeout=30000)
+            await asyncio.sleep(2)  # Ждём загрузки формы
+            print(f"[Eni] URL after Comenzar: {page.url}")
 
             # Проверка на ошибку CUPS (если CUPS невалиден)
             error_selector = '.alert-danger, .error-message, .mensaje-error'
@@ -157,6 +166,7 @@ async def _dismiss_cookie_banner(page):
 
 async def _click_continuar(page):
     """Нажимает кнопку Continuar/Siguiente с fallback'ами."""
+    await asyncio.sleep(1)  # Даём странице время на рендер
     selectors = [
         'text=Continuar',
         'text=SIGUIENTE',
@@ -167,14 +177,32 @@ async def _click_continuar(page):
         '.btn-continuar',
         '#btn-continuar',
         '[value="continuar"]',
+        '#continuar',
+        '.btn-primary',
+        'button.btn-default',
     ]
     for sel in selectors:
         try:
-            await page.click(sel, timeout=5000)
-            print(f"[Eni] Clicked Continuar via selector: {sel}")
-            return
+            el = await page.query_selector(sel)
+            if el:
+                await el.click()
+                print(f"[Eni] Clicked Continuar via selector: {sel}")
+                return
         except Exception:
             continue
+    # Fallback: JavaScript click on any button containing "Continuar" or "Siguiente"
+    try:
+        clicked = await page.evaluate("""() => {
+            const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a'));
+            const target = buttons.find(b => /continuar|siguiente/i.test(b.innerText || b.value || ''));
+            if (target) { target.click(); return true; }
+            return false;
+        }""")
+        if clicked:
+            print("[Eni] Clicked Continuar via JavaScript fallback")
+            return
+    except Exception:
+        pass
     raise EniSimulationError("Could not find Continuar/Siguiente button")
 
 
@@ -182,17 +210,23 @@ async def _fill_simulation_form(page, data: dict):
     """Заполняет форму симуляции данными из счета."""
     # Потенциальные селекторы для полей (Eni может менять вёрстку)
     field_map = {
-        "tarifa": ['select[name="tarifa"]', 'input[name="tarifa"]', '#tarifa'],
-        "potencia_p1": ['input[name="potencia_p1"]', 'input[name="potenciaContratadaP1"]', '#potencia_p1'],
-        "potencia_p2": ['input[name="potencia_p2"]', 'input[name="potenciaContratadaP2"]', '#potencia_p2'],
-        "consumo_p1": ['input[name="consumo_p1"]', 'input[name="consumoAnualP1"]', '#consumo_p1'],
-        "consumo_p2": ['input[name="consumo_p2"]', 'input[name="consumoAnualP2"]', '#consumo_p2'],
-        "consumo_p3": ['input[name="consumo_p3"]', 'input[name="consumoAnualP3"]', '#consumo_p3'],
-        "alquiler": ['input[name="alquiler"]', 'input[name="alquilerEquipo"]', '#alquiler'],
-        "importe": ['input[name="importe"]', 'input[name="importeFactura"]', '#importe'],
-        "fecha_inicio": ['input[name="fecha_inicio"]', 'input[name="fechaInicio"]', '#fecha_inicio'],
-        "fecha_fin": ['input[name="fecha_fin"]', 'input[name="fechaFin"]', '#fecha_fin'],
+        "tarifa": ['select[name="tarifa"]', 'input[name="tarifa"]', '#tarifa', '[name="tarifa"]'],
+        "potencia_p1": ['input[name="potencia_p1"]', 'input[name="potenciaContratadaP1"]', '#potencia_p1', '[name="potencia_p1"]', '[id*="potencia"]'],
+        "potencia_p2": ['input[name="potencia_p2"]', 'input[name="potenciaContratadaP2"]', '#potencia_p2', '[name="potencia_p2"]', '[id*="potencia"]'],
+        "consumo_p1": ['input[name="consumo_p1"]', 'input[name="consumoAnualP1"]', '#consumo_p1', '[name="consumo_p1"]', '[id*="consumo"]'],
+        "consumo_p2": ['input[name="consumo_p2"]', 'input[name="consumoAnualP2"]', '#consumo_p2', '[name="consumo_p2"]', '[id*="consumo"]'],
+        "consumo_p3": ['input[name="consumo_p3"]', 'input[name="consumoAnualP3"]', '#consumo_p3', '[name="consumo_p3"]', '[id*="consumo"]'],
+        "alquiler": ['input[name="alquiler"]', 'input[name="alquilerEquipo"]', '#alquiler', '[name="alquiler"]'],
+        "importe": ['input[name="importe"]', 'input[name="importeFactura"]', '#importe', '[name="importe"]'],
+        "fecha_inicio": ['input[name="fecha_inicio"]', 'input[name="fechaInicio"]', '#fecha_inicio', '[name="fecha_inicio"]'],
+        "fecha_fin": ['input[name="fecha_fin"]', 'input[name="fechaFin"]', '#fecha_fin', '[name="fecha_fin"]'],
     }
+
+    # Дополнительное ожидание появления формы
+    try:
+        await page.wait_for_selector('input, select, textarea', timeout=5000)
+    except Exception:
+        pass
 
     async def fill_field(field_name: str, value):
         if value is None:
@@ -306,18 +340,36 @@ async def _wait_for_download(page, timeout_seconds: int = 180) -> str:
 
 
 async def _save_debug_snapshot(page, browser, prefix: str):
-    """Сохраняет скриншот и HTML для отладки."""
+    """Сохраняет скриншот и HTML в GCS для отладки."""
     try:
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        screenshot_path = f"/tmp/eni_{prefix}_{timestamp}.png"
-        html_path = f"/tmp/eni_{prefix}_{timestamp}.html"
+        screenshot_local = f"/tmp/eni_{prefix}_{timestamp}.png"
+        html_local = f"/tmp/eni_{prefix}_{timestamp}.html"
 
-        await page.screenshot(path=screenshot_path, full_page=True)
+        await page.screenshot(path=screenshot_local, full_page=True)
         html_content = await page.content()
-        with open(html_path, "w", encoding="utf-8") as f:
+        with open(html_local, "w", encoding="utf-8") as f:
             f.write(html_content)
 
-        print(f"[Eni] Debug snapshot saved: {screenshot_path}, {html_path}")
+        # Upload to GCS
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET)
+        base_path = f"eni_debug/{timestamp}"
+
+        blob_png = bucket.blob(f"{base_path}/screenshot.png")
+        blob_png.upload_from_filename(screenshot_local)
+        blob_png.acl.all().grant_read()
+        blob_png.acl.save()
+
+        blob_html = bucket.blob(f"{base_path}/page.html")
+        blob_html.upload_from_filename(html_local)
+        blob_html.acl.all().grant_read()
+        blob_html.acl.save()
+
+        png_url = f"https://storage.googleapis.com/{GCS_BUCKET}/{base_path}/screenshot.png"
+        html_url = f"https://storage.googleapis.com/{GCS_BUCKET}/{base_path}/page.html"
+        print(f"[Eni] Debug snapshot uploaded: {png_url}")
+        print(f"[Eni] Debug HTML uploaded: {html_url}")
     except Exception as e:
         print(f"[Eni] Failed to save debug snapshot: {e}")
     finally:

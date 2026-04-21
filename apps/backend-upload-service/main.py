@@ -1314,118 +1314,60 @@ def _get_task_status(application_id: str, task_id: str) -> dict | None:
 def _set_task_status(application_id: str, task_id: str, status: dict):
     _task_doc_ref(application_id, task_id).set(status, merge=True)
 
-async def _run_eni_simulation_task(
-    task_id: str,
-    application_id: str,
-    data: AutoCreateSimulationRequest,
-):
-    """Фоновая задача: проходит симуляцию на Eni и сохраняет результат."""
-    try:
-        _set_task_status(application_id, task_id, {
-            "status": "running",
-            "message": "Запущена автоматическая симуляция на Eni Plenitude...",
-            "simulation_id": None,
-            "error": None,
-            "updated_at": datetime.datetime.utcnow(),
-        })
+def _start_eni_simulation_job(application_id: str, task_id: str, data: AutoCreateSimulationRequest) -> str:
+    """Запускает Cloud Run Job для автоматической симуляции Eni."""
+    project = "entraycompara"
+    region = "europe-west1"
+    job_name = "eni-simulation-runner"
 
-        # Запускаем Playwright
-        pdf_path = await eni_simulator.run_eni_simulation(
-            cups=data.cups,
-            client_type=data.client_type or "Hogar",
-            access_tariff=data.access_tariff,
-            billed_power_p1=data.billed_power_p1,
-            billed_power_p2=data.billed_power_p2,
-            consumption_p1=data.consumption_p1,
-            consumption_p2=data.consumption_p2,
-            consumption_p3=data.consumption_p3,
-            equipment_rental=data.equipment_rental,
-            invoice_amount_with_vat=data.invoice_amount_with_vat,
-            start_date=data.start_date,
-            end_date=data.end_date,
-            headless=True,
-        )
+    # Получаем access token из metadata server (Cloud Run default service account)
+    token_resp = requests.get(
+        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+        headers={"Metadata-Flavor": "Google"},
+        timeout=5
+    )
+    token_resp.raise_for_status()
+    token = token_resp.json()["access_token"]
 
-        # Загружаем PDF в GCS
-        today = datetime.datetime.utcnow()
-        prefix = f"simulation_files/{today.year}/{today.month:02}/{today.day:02}"
-        unique_name = f"{uuid.uuid4()}.pdf"
-        blob_name = f"{prefix}/{unique_name}"
+    url = f"https://{region}-run.googleapis.com/v2/projects/{project}/locations/{region}/jobs/{job_name}:run"
 
-        bucket = storage_client.bucket(BUCKET_NAME)
-        blob = bucket.blob(blob_name)
-        blob.upload_from_filename(pdf_path)
-        blob.acl.all().grant_read()
-        blob.acl.save()
-
-        pdf_url = f"https://storage.googleapis.com/{BUCKET_NAME}/{blob_name}"
-
-        # Получаем текущую стоимость для расчёта экономии
-        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
-        proposal_data = doc_ref.collection("proposal_data").document("data").get()
-        current_cost = None
-        if proposal_data.exists:
-            extracted = proposal_data.to_dict().get("extracted_data", {})
-            current_cost = extracted.get("invoice_amount_with_vat")
-
-        # Для автоматической симуляции "новая стоимость" неизвестна сразу — ставим 0,
-        # оператор скорректирует вручную при просмотре PDF
-        savings_monthly = None
-        savings_percent = None
-        if current_cost:
-            savings_monthly = 0.0
-            savings_percent = 0.0
-
-        # Создаём simulation документ
-        sim_data = {
-            "simulation_name": f"Eni Auto — {data.cups}",
-            "new_provider": "Eni Plenitude",
-            "new_tariff": data.access_tariff,
-            "new_monthly_cost_eur": 0.0,
-            "contract_duration_months": None,
-            "bonus_description": None,
-            "simulation_file_url": pdf_url,
-            "is_selected": False,
-            "savings_monthly_eur": savings_monthly,
-            "savings_percent": savings_percent,
-            "created_at": datetime.datetime.utcnow(),
-            "updated_at": datetime.datetime.utcnow(),
+    payload = {
+        "template": {
+            "containers": [{
+                "image": os.environ.get(
+                    "JOB_IMAGE",
+                    f"europe-west1-docker.pkg.dev/{project}/cloud-run-source-deploy/backend-upload-service-staging:latest"
+                ),
+                "command": ["python", "job_runner.py"],
+                "env": [
+                    {"name": "APPLICATION_ID", "value": application_id},
+                    {"name": "TASK_ID", "value": task_id},
+                    {"name": "CUPS", "value": data.cups},
+                    {"name": "CLIENT_TYPE", "value": data.client_type or "Hogar"},
+                    {"name": "ACCESS_TARIFF", "value": data.access_tariff or ""},
+                    {"name": "BILLED_POWER_P1", "value": str(data.billed_power_p1 or "")},
+                    {"name": "BILLED_POWER_P2", "value": str(data.billed_power_p2 or "")},
+                    {"name": "CONSUMPTION_P1", "value": str(data.consumption_p1 or "")},
+                    {"name": "CONSUMPTION_P2", "value": str(data.consumption_p2 or "")},
+                    {"name": "CONSUMPTION_P3", "value": str(data.consumption_p3 or "")},
+                    {"name": "EQUIPMENT_RENTAL", "value": str(data.equipment_rental or "")},
+                    {"name": "INVOICE_AMOUNT_WITH_VAT", "value": str(data.invoice_amount_with_vat or "")},
+                    {"name": "START_DATE", "value": data.start_date or ""},
+                    {"name": "END_DATE", "value": data.end_date or ""},
+                ],
+            }]
         }
-        sim_ref = doc_ref.collection("proposal_simulations").document()
-        sim_ref.set(sim_data)
+    }
 
-        # Timeline
-        create_timeline_event_internal(
-            application_id=application_id,
-            content=f"Автоматическая симуляция Eni создана для CUPS {data.cups}.",
-            event_type=EventType.NOTE,
-            created_by="System"
-        )
+    resp = requests.post(url, json=payload, headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }, timeout=30)
 
-        # Cleanup local file
-        try:
-            os.remove(pdf_path)
-        except Exception:
-            pass
+    if resp.status_code not in (200, 202):
+        raise Exception(f"Failed to start job: {resp.status_code} {resp.text}")
 
-        _set_task_status(application_id, task_id, {
-            "status": "completed",
-            "message": "Симуляция успешно создана.",
-            "simulation_id": sim_ref.id,
-            "simulation_file_url": pdf_url,
-            "error": None,
-            "updated_at": datetime.datetime.utcnow(),
-        })
-
-    except Exception as e:
-        print(f"[Eni Task {task_id}] Error: {e}")
-        _set_task_status(application_id, task_id, {
-            "status": "failed",
-            "message": str(e),
-            "simulation_id": None,
-            "error": str(e),
-            "updated_at": datetime.datetime.utcnow(),
-        })
+    return resp.json().get("name", "unknown")
 
 
 @app.post("/api/applications/{application_id}/proposal/simulations/auto-create", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
@@ -1453,8 +1395,8 @@ async def auto_create_simulation(application_id: str, request: AutoCreateSimulat
             "updated_at": datetime.datetime.utcnow(),
         })
 
-        # Запускаем фоновую задачу
-        asyncio.create_task(_run_eni_simulation_task(task_id, application_id, request))
+        # Запускаем Cloud Run Job
+        _start_eni_simulation_job(application_id, task_id, request)
 
         return {
             "success": True,

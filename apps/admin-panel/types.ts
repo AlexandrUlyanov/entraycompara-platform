@@ -45,6 +45,7 @@ export interface Application {
   // Fields available in detail view
   client_email?: string;
   notes?: string; // Deprecated in favor of timeline, but kept for backward compatibility
+  language?: string;
   uploaded_files?: string[];
   proposal_file_url?: string;
 }

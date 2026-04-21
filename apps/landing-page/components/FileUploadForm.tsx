@@ -14,7 +14,7 @@ const FileUploadForm: React.FC<FileUploadFormProps> = ({
   formTitle,
   idSuffix
 }) => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   
   const [name, setName] = useState('');
   const [phoneNumberSuffix, setPhoneNumberSuffix] = useState('');
@@ -230,6 +230,7 @@ const FileUploadForm: React.FC<FileUploadFormProps> = ({
     formData.append('client_email', showEmailField ? email : '');
     formData.append('service_type', 'GasComparison');
     formData.append('notes', '');
+    formData.append('language', language || 'es');
     
     files.forEach((file) => {
       formData.append('invoiceFiles', file, file.name);

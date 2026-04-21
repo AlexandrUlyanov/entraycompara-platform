@@ -426,7 +426,8 @@ async def submit_application(
     client_phone: str = Form(...),
     client_email: Optional[str] = Form(None),
     service_type: str = Form(...),
-    notes: Optional[str] = Form(None), 
+    notes: Optional[str] = Form(None),
+    language: Optional[str] = Form(None),
     invoiceFiles: list[UploadFile] = File(...) 
 ):
     """Прием заявки, загрузка файлов, отправка уведомления и АВТОМАТИЧЕСКАЯ запись в Timeline."""
@@ -462,6 +463,7 @@ async def submit_application(
         "client_email": client_email or '',
         "service_type": service_type,
         "notes": notes or '',
+        "language": language or 'es',
         "uploaded_files": uploaded_paths, # Здесь теперь публичные ссылки
         "submission_date": today,
         "status": Status.NEW_LEAD.value # Устанавливаем статус 'New Lead'
@@ -1108,6 +1110,9 @@ async def api_generate_ai_response(data: AIGenerateRequest):
         has_files = len(uploaded_files) > 0
         status = app_data.get('status', 'New Lead')
         service_type = app_data.get('service_type', 'Не указан')
+        client_language = app_data.get('language', 'es')
+        language_names = {'es': 'испанском', 'ru': 'русском', 'uk': 'украинском', 'eu': 'баскском'}
+        language_name = language_names.get(client_language, client_language)
         
         prompt = f"""Ты — профессиональный менеджер по продажам компании EntrayCompara. Компания помогает клиентам в Испании сэкономить на коммунальных услугах (электричество, газ, мобильная связь, интернет).
 
@@ -1123,6 +1128,7 @@ Email: {app_data.get('client_email', 'Не указан')}
 Заметки: {app_data.get('notes', 'Нет заметок')}
 Количество загруженных файлов: {len(uploaded_files)}
 Загруженные файлы: {files}
+Язык клиента на сайте: {language_name}
 
 [ИСТОРИЯ ПЕРЕПИСКИ В WHATSAPP]
 {chat_history}
@@ -1130,7 +1136,7 @@ Email: {app_data.get('client_email', 'Не указан')}
 Твоя задача — написать следующее сообщение клиенту.
 
 КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА:
-1. Отвечай строго на том же языке, на котором пишет клиент.
+1. Отвечай строго на {language_name} языке. Если клиент явно пишет на другом языке в переписке — переключись на язык клиента.
 2. Будь дружелюбным, профессиональным и лаконичным.
 3. Не используй markdown, только plain text.
 4. Максимум 2-3 предложения, если вопрос не требует развернутого ответа.

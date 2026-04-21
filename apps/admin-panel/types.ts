@@ -9,10 +9,6 @@ export enum Status {
 }
 
 export enum ServiceType {
-  Consulting = 'Consulting',
-  Development = 'Development',
-  Support = 'Support',
-  Marketing = 'Marketing',
   GasComparison = 'Gas Comparison',
   ElectricityComparison = 'Electricity Comparison',
 }

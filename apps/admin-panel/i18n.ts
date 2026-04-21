@@ -86,10 +86,6 @@ const translations: Record<Language, Record<string, string>> = {
     "status.ContractWon": "Контракт",
     "status.DealLost": "Отказ",
     
-    "serviceType.Consulting": "Консультация",
-    "serviceType.Development": "Разработка",
-    "serviceType.Support": "Поддержка",
-    "serviceType.Marketing": "Маркетинг",
     "serviceType.GasComparison": "Сравнение газа",
     "serviceType.ElectricityComparison": "Сравнение электроэнергии",
     "language.es": "Español",
@@ -186,10 +182,6 @@ const translations: Record<Language, Record<string, string>> = {
     "status.ContractWon": "Ganado",
     "status.DealLost": "Perdido",
     
-    "serviceType.Consulting": "Consultoría",
-    "serviceType.Development": "Desarrollo",
-    "serviceType.Support": "Soporte",
-    "serviceType.Marketing": "Marketing",
     "serviceType.GasComparison": "Gas",
     "serviceType.ElectricityComparison": "Luz",
     "language.es": "Español",

@@ -89,10 +89,6 @@ class Status(str, Enum):
 
 # 1.2. Типы Услуг (ServiceType)
 class ServiceType(str, Enum):
-    Consulting = 'Consulting'
-    Development = 'Development'
-    Support = 'Support'
-    Marketing = 'Marketing'
     GasComparison = 'Gas Comparison'
     ElectricityComparison = 'Electricity Comparison'
 

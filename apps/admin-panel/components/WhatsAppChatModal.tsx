@@ -55,7 +55,7 @@ const WhatsAppChatModal: React.FC<WhatsAppChatModalProps> = ({
 
   useEffect(() => {
     if (isOpen && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }, [whatsAppNotes, isOpen]);
 

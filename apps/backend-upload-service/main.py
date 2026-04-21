@@ -350,6 +350,16 @@ def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"Gemini вернул невалидный JSON: {str(e)}")
     
+    # Gemini иногда возвращает JSON-массив вместо объекта
+    if isinstance(extracted, list):
+        if len(extracted) > 0 and isinstance(extracted[0], dict):
+            extracted = extracted[0]
+        else:
+            raise HTTPException(status_code=500, detail="Gemini вернул JSON-массив вместо объекта.")
+    
+    if not isinstance(extracted, dict):
+        raise HTTPException(status_code=500, detail=f"Gemini вернул неожиданный тип данных: {type(extracted).__name__}")
+    
     return extracted
 
 def upload_to_gcs(file_obj: UploadFile, destination_blob_name: str):

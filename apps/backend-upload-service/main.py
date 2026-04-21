@@ -1232,7 +1232,8 @@ async def api_send_whatsapp_document(data: WhatsAppDocumentRequest):
         )
     
     try:
-        doc = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).get()
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id)
+        doc = doc_ref.get()
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Заявка не найдена.")
         
@@ -1278,7 +1279,8 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
         )
     
     try:
-        doc = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).get()
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id)
+        doc = doc_ref.get()
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Заявка не найдена.")
         

@@ -175,6 +175,7 @@ class ExtractedData(BaseModel):
     equipment_rental: float | None = None   # Alquiler de equipos (€)
     invoice_amount_with_vat: float | None = None  # Importe Factura Actual con IVA (€)
     retailer: str | None = None             # Comercializadora
+    cups: str | None = None                 # CUPS — уникальный номер счетчика (Universal Supply Point Code)
     billed_power_p1: float | None = None    # Potencia Facturada P1 (kW)
     billed_power_p2: float | None = None    # Potencia Facturada P2 (kW)
     billed_power_p3: float | None = None    # Potencia Facturada P3 (kW)
@@ -308,6 +309,7 @@ def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
   "service_type": "electricity",
   "current_provider": "string|null",
   "contract_number": "string|null",
+  "cups": "string|null — уникальный номер счетчика (CUPS), обычно начинается с ES",
   "current_tariff": "string|null",
   "power_kw": "number|null",
   "avg_monthly_consumption_kwh": "number|null",

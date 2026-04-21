@@ -212,6 +212,15 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
               />
             </div>
             <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.cups')}</label>
+              <input
+                type="text"
+                value={formData.cups || ''}
+                onChange={e => updateField('cups', e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.tariff')}</label>
               <input
                 type="text"

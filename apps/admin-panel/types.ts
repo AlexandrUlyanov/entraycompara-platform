@@ -71,6 +71,7 @@ export interface ExtractedData {
   equipment_rental?: number;
   invoice_amount_with_vat?: number;
   retailer?: string;
+  cups?: string;
   billed_power_p1?: number;
   billed_power_p2?: number;
   billed_power_p3?: number;

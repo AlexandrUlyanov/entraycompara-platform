@@ -1014,7 +1014,8 @@ async def api_send_whatsapp(data: WhatsAppSendRequest):
         )
     
     try:
-        doc = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).get()
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id)
+        doc = doc_ref.get()
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Заявка не найдена.")
         

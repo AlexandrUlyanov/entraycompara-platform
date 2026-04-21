@@ -30,6 +30,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isClientInfoOpen, setIsClientInfoOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const proposalFileRef = useRef<HTMLInputElement>(null);
   const [editValues, setEditValues] = useState({
@@ -255,11 +256,34 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
 
             {/* Client Details Card */}
             <div className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">
-                <div className="px-8 py-5 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between">
-                    <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">{t('detail.clientInfo.title')}</h3>
-                    {updateMutation.isPending && <Spinner size="h-4 w-4" />}
-                </div>
-                <div className="p-8">
+                <button
+                    onClick={() => setIsClientInfoOpen(!isClientInfoOpen)}
+                    className="w-full px-8 py-5 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between cursor-pointer text-left"
+                >
+                    <div className="flex items-center gap-3">
+                        <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">{t('detail.clientInfo.title')}</h3>
+                        {!isClientInfoOpen && (
+                            <div className="flex items-center gap-2">
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
+                                    {t(`language.${application.language || 'es'}`)}
+                                </span>
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
+                                    {t(`serviceType.${application.service_type.replace(' ', '')}`)}
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {updateMutation.isPending && <Spinner size="h-4 w-4" />}
+                        <svg
+                            className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${isClientInfoOpen ? 'rotate-180' : ''}`}
+                            fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </div>
+                </button>
+                {isClientInfoOpen && <div className="p-8 animate-fade-in">
                     <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-10 gap-y-6">
                         <div className="sm:col-span-2">
                             <dt className="text-xs font-semibold text-secondary-light uppercase tracking-wide mb-1.5">{t('detail.clientInfo.fullName')}</dt>
@@ -364,7 +388,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                         </div>
                     </dl>
                     {updateMutation.isError && <p className="text-xs text-red-500 mt-4">{t('detail.error.generic', { message: (updateMutation.error as Error).message })}</p>}
-                </div>
+                </div>}
             </div>
             
             {/* WhatsApp Chat Panel */}

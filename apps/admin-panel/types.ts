@@ -50,6 +50,8 @@ export interface Application {
   whatsapp_first_message_sent_at?: string;
   whatsapp_first_message_id?: string;
   analysis_started_at?: string;
+  proposal_uploaded?: boolean;
+  proposal_file_url?: string;
 }
 
 export interface CursorPaginatedApplications {

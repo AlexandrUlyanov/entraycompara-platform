@@ -241,9 +241,20 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ applications, onSelectApplica
                                                             <span className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600">
                                                                 {t(`serviceType.${app.service_type.replace(' ', '')}`)}
                                                             </span>
-                                                            <span className="text-[10px] font-medium text-slate-400">
-                                                                {new Date(app.submission_date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
-                                                            </span>
+                                                            <div className="flex items-center gap-1.5">
+                                                                {app.proposal_uploaded && (
+                                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded text-white ${
+                                                                        app.status === Status.Proposal || app.status === Status.Negotiation || app.status === Status.ContractWon
+                                                                            ? 'bg-amber-500'
+                                                                            : 'bg-emerald-500'
+                                                                    }`}>
+                                                                        КП
+                                                                    </span>
+                                                                )}
+                                                                <span className="text-[10px] font-medium text-slate-400">
+                                                                    {new Date(app.submission_date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>

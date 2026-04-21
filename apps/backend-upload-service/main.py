@@ -845,6 +845,7 @@ async def upload_proposal(application_id: str, file: UploadFile = File(...)):
         
         doc_ref.update({
             "proposal_file_url": path,
+            "proposal_uploaded": True,
             "updated_at": today
         })
         
@@ -1302,6 +1303,12 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
             "direction": "outgoing",
             "wa_message_id": wa_message_id,
             "wa_status": "sent",
+        })
+        
+        # Автоматически переводим заявку в статус Proposal
+        doc_ref.update({
+            "status": Status.PROPOSAL.value,
+            "updated_at": datetime.datetime.utcnow(),
         })
         
         return {"success": True, "wa_message_id": wa_message_id}

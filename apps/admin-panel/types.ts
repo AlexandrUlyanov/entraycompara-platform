@@ -63,6 +63,20 @@ export interface ExtractedData {
   avg_monthly_cost_eur?: number;
   contract_end_date?: string;
   source_files?: string[];
+  // Испанские электрические счета — расширенные поля
+  client_type?: string;
+  access_tariff?: string;
+  start_date?: string;
+  end_date?: string;
+  equipment_rental?: number;
+  invoice_amount_with_vat?: number;
+  retailer?: string;
+  billed_power_p1?: number;
+  billed_power_p2?: number;
+  billed_power_p3?: number;
+  consumption_p1?: number;
+  consumption_p2?: number;
+  consumption_p3?: number;
 }
 
 export interface ProposalData {

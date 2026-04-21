@@ -167,6 +167,20 @@ class ExtractedData(BaseModel):
     avg_monthly_cost_eur: float | None = None
     contract_end_date: str | None = None
     source_files: list[str] = []
+    # Испанские электрические счета — расширенные поля
+    client_type: str | None = None          # Tipo de cliente: Hogar / Empresa
+    access_tariff: str | None = None        # Tarifa de Acceso: 2.0TD / 3.0TD / etc
+    start_date: str | None = None           # Fecha de Inicio
+    end_date: str | None = None             # Fecha de Fin
+    equipment_rental: float | None = None   # Alquiler de equipos (€)
+    invoice_amount_with_vat: float | None = None  # Importe Factura Actual con IVA (€)
+    retailer: str | None = None             # Comercializadora
+    billed_power_p1: float | None = None    # Potencia Facturada P1 (kW)
+    billed_power_p2: float | None = None    # Potencia Facturada P2 (kW)
+    billed_power_p3: float | None = None    # Potencia Facturada P3 (kW)
+    consumption_p1: float | None = None     # Consumo P1 (kWh)
+    consumption_p2: float | None = None     # Consumo P2 (kWh)
+    consumption_p3: float | None = None     # Consumo P3 (kWh)
 
 class ExtractDataRequest(BaseModel):
     file_urls: list[str]
@@ -289,17 +303,36 @@ def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=503, detail="Gemini API Key не настроен на бэкенде.")
     
-    prompt = """Ты — аналитик коммунальных счетов. Извлеки из предоставленных файлов (счета за электричество/газ/интернет/мобильную связь) следующие данные в формате JSON:
+    prompt = """Ты — аналитик испанских электрических счетов. Извлеки из предоставленных файлов (facturas de luz) следующие данные в формате JSON. Используй ИСКЛЮЧИТЕЛЬНО эти поля:
 {
-  "service_type": "electricity|gas|internet|mobile",
-  "current_provider": "string",
+  "service_type": "electricity",
+  "current_provider": "string|null",
   "contract_number": "string|null",
   "current_tariff": "string|null",
   "power_kw": "number|null",
   "avg_monthly_consumption_kwh": "number|null",
   "avg_monthly_cost_eur": "number|null",
-  "contract_end_date": "YYYY-MM-DD|null"
+  "contract_end_date": "YYYY-MM-DD|null",
+  "client_type": "Hogar|Empresa|null",
+  "access_tariff": "2.0TD|3.0TD|etc|null",
+  "start_date": "YYYY-MM-DD|null",
+  "end_date": "YYYY-MM-DD|null",
+  "equipment_rental": "number|null",
+  "invoice_amount_with_vat": "number|null",
+  "retailer": "string|null",
+  "billed_power_p1": "number|null",
+  "billed_power_p2": "number|null",
+  "billed_power_p3": "number|null",
+  "consumption_p1": "number|null",
+  "consumption_p2": "number|null",
+  "consumption_p3": "number|null"
 }
+Важно:
+- client_type = Hogar (дом) или Empresa (бизнес)
+- access_tariff = тариф доступа из счета (2.0TD, 3.0TD, и т.д.)
+- invoice_amount_with_vat = полная сумма счета с IVA
+- billed_power_p1/p2/p3 = потребленная мощность по периодам (kW)
+- consumption_p1/p2/p3 = потребление по периодам (kWh)
 Если данных нет — используй null. Отвечай ТОЛЬКО JSON, без пояснений."""
     
     model = genai.GenerativeModel(GEMINI_MODEL)

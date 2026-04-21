@@ -164,11 +164,41 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
               </select>
             </div>
             <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.clientType')}</label>
+              <select
+                value={formData.client_type || ''}
+                onChange={e => updateField('client_type', e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              >
+                <option value="">—</option>
+                <option value="Hogar">Hogar</option>
+                <option value="Empresa">Empresa</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.accessTariff')}</label>
+              <input
+                type="text"
+                value={formData.access_tariff || ''}
+                onChange={e => updateField('access_tariff', e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.provider')}</label>
               <input
                 type="text"
                 value={formData.current_provider || ''}
                 onChange={e => updateField('current_provider', e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.retailer')}</label>
+              <input
+                type="text"
+                value={formData.retailer || ''}
+                onChange={e => updateField('retailer', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
             </div>
@@ -187,6 +217,44 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 type="text"
                 value={formData.current_tariff || ''}
                 onChange={e => updateField('current_tariff', e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.startDate')}</label>
+              <input
+                type="date"
+                value={formData.start_date || ''}
+                onChange={e => updateField('start_date', e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.endDate')}</label>
+              <input
+                type="date"
+                value={formData.end_date || ''}
+                onChange={e => updateField('end_date', e.target.value)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.equipmentRental')}</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.equipment_rental ?? ''}
+                onChange={e => updateField('equipment_rental', e.target.value ? parseFloat(e.target.value) : undefined)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.invoiceAmount')}</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.invoice_amount_with_vat ?? ''}
+                onChange={e => updateField('invoice_amount_with_vat', e.target.value ? parseFloat(e.target.value) : undefined)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
             </div>
@@ -217,6 +285,66 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 step="0.01"
                 value={formData.avg_monthly_cost_eur ?? ''}
                 onChange={e => updateField('avg_monthly_cost_eur', e.target.value ? parseFloat(e.target.value) : undefined)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.billedPowerP1')}</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.billed_power_p1 ?? ''}
+                onChange={e => updateField('billed_power_p1', e.target.value ? parseFloat(e.target.value) : undefined)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.billedPowerP2')}</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.billed_power_p2 ?? ''}
+                onChange={e => updateField('billed_power_p2', e.target.value ? parseFloat(e.target.value) : undefined)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.billedPowerP3')}</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.billed_power_p3 ?? ''}
+                onChange={e => updateField('billed_power_p3', e.target.value ? parseFloat(e.target.value) : undefined)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.consumptionP1')}</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.consumption_p1 ?? ''}
+                onChange={e => updateField('consumption_p1', e.target.value ? parseFloat(e.target.value) : undefined)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.consumptionP2')}</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.consumption_p2 ?? ''}
+                onChange={e => updateField('consumption_p2', e.target.value ? parseFloat(e.target.value) : undefined)}
+                className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.consumptionP3')}</label>
+              <input
+                type="number"
+                step="0.01"
+                value={formData.consumption_p3 ?? ''}
+                onChange={e => updateField('consumption_p3', e.target.value ? parseFloat(e.target.value) : undefined)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
             </div>

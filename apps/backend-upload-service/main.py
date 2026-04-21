@@ -120,6 +120,7 @@ class ApplicationUpdate(BaseModel):
     client_phone: str | None = None
     client_email: str | None = None
     notes: str | None = None
+    language: str | None = None
 
 # 1.4. Модели для Ленты событий
 class TimelineCreate(BaseModel):

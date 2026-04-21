@@ -27,6 +27,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     client_phone: '',
     client_email: '',
     notes: '',
+    language: 'es',
   });
 
   const { data: application, isLoading, isError, error } = useQuery<Application | undefined, Error>({
@@ -47,6 +48,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
         client_phone: application.client_phone || '',
         client_email: application.client_email || '',
         notes: application.notes || '',
+        language: application.language || 'es',
       });
     }
   }, [application]);
@@ -67,6 +69,14 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     mutationFn: ({ newServiceType }: { newServiceType: ServiceType }) => updateApplicationServiceType(appId, newServiceType),
     onSuccess: (data) => {
         console.log(data.message);
+        queryClient.invalidateQueries({ queryKey: ['application', appId] });
+        queryClient.invalidateQueries({ queryKey: ['applications'] });
+    }
+  });
+
+  const languageUpdateMutation = useMutation({
+    mutationFn: ({ newLanguage }: { newLanguage: string }) => updateApplication(appId, { language: newLanguage }),
+    onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: ['application', appId] });
         queryClient.invalidateQueries({ queryKey: ['applications'] });
     }
@@ -128,6 +138,13 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     const newServiceType = event.target.value as ServiceType;
     if(application && application.service_type !== newServiceType) {
         serviceTypeUpdateMutation.mutate({ newServiceType });
+    }
+  }
+
+  const handleLanguageChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const newLanguage = event.target.value;
+    if(application && application.language !== newLanguage) {
+        languageUpdateMutation.mutate({ newLanguage });
     }
   }
 
@@ -260,7 +277,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                                 />
                             </dd>
                         </div>
-                        <div className="sm:col-span-2">
+                        <div>
                             <dt className="text-xs font-semibold text-secondary-light uppercase tracking-wide mb-1.5">{t('detail.clientInfo.serviceType')}</dt>
                             <dd className="text-sm text-secondary relative max-w-xs">
                                 <div className="relative">
@@ -278,6 +295,26 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                                      {serviceTypeUpdateMutation.isPending && <div className="absolute right-10 top-3"><Spinner size="h-4 w-4" /></div>}
                                 </div>
                                 {serviceTypeUpdateMutation.isError && <p className="text-xs text-red-500 mt-1">{t('dashboard.error.generic', { message: (serviceTypeUpdateMutation.error as Error).message })}</p>}
+                            </dd>
+                        </div>
+                        <div>
+                            <dt className="text-xs font-semibold text-secondary-light uppercase tracking-wide mb-1.5">{t('detail.clientInfo.language')}</dt>
+                            <dd className="text-sm text-secondary relative max-w-xs">
+                                <div className="relative">
+                                    <select
+                                        value={application.language || 'es'}
+                                        onChange={handleLanguageChange}
+                                        disabled={languageUpdateMutation.isPending}
+                                        className="appearance-none w-full bg-slate-50 border-none rounded-xl text-secondary py-3 px-4 pr-8 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white disabled:opacity-60 transition-all shadow-sm font-medium cursor-pointer"
+                                    >
+                                        {['es', 'ru', 'uk', 'eu'].map(lang => <option key={lang} value={lang}>{t(`language.${lang}`)}</option>)}
+                                    </select>
+                                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-500">
+                                        <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                                    </div>
+                                     {languageUpdateMutation.isPending && <div className="absolute right-10 top-3"><Spinner size="h-4 w-4" /></div>}
+                                </div>
+                                {languageUpdateMutation.isError && <p className="text-xs text-red-500 mt-1">{t('dashboard.error.generic', { message: (languageUpdateMutation.error as Error).message })}</p>}
                             </dd>
                         </div>
                         <div className="sm:col-span-2">

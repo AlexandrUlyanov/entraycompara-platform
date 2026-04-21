@@ -151,7 +151,7 @@ export const deleteApplicationById = async (id: string): Promise<{ success: bool
 
 export const updateApplication = async (
   id: string,
-  updates: Partial<Pick<Application, 'client_name' | 'client_phone' | 'client_email' | 'notes'>>
+  updates: Partial<Pick<Application, 'client_name' | 'client_phone' | 'client_email' | 'notes' | 'language'>>
 ): Promise<{ success: boolean; message: string }> => {
   const response = await fetch(`${API_BASE_URL}/applications/${id}`, {
     method: 'PUT',

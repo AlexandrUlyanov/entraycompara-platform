@@ -217,6 +217,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectApplication }) => {
                             <th scope="col" className="px-8 py-5 font-semibold tracking-wide">{t('dashboard.tableId')}</th>
                             <th scope="col" className="px-6 py-5 font-semibold tracking-wide">{t('dashboard.tableClient')}</th>
                             <th scope="col" className="px-6 py-5 font-semibold tracking-wide">{t('dashboard.tableServiceType')}</th>
+                            <th scope="col" className="px-6 py-5 font-semibold tracking-wide">{t('dashboard.tableLanguage')}</th>
                             <th scope="col" className="px-6 py-5 font-semibold tracking-wide">{t('dashboard.tableDate')}</th>
                             <th scope="col" className="px-8 py-5 font-semibold text-right tracking-wide">{t('dashboard.tableStatus')}</th>
                         </tr>
@@ -242,6 +243,11 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectApplication }) => {
                                     {t(`serviceType.${app.service_type.replace(' ', '')}`)}
                                     </span>
                                 </td>
+                                <td className="px-6 py-5">
+                                    <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-600 border border-transparent group-hover:border-blue-200 transition-all uppercase">
+                                    {app.language || '—'}
+                                    </span>
+                                </td>
                                 <td className="px-6 py-5 text-secondary-light">
                                     {new Date(app.submission_date).toLocaleDateString()}
                                 </td>
@@ -251,7 +257,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectApplication }) => {
                             </tr>
                             ))}
                             {data?.applications.length === 0 && (
-                                <tr><td colSpan={5} className="text-center py-20 text-slate-400">No applications found.</td></tr>
+                                <tr><td colSpan={6} className="text-center py-20 text-slate-400">No applications found.</td></tr>
                             )}
                         </tbody>
                     </table>

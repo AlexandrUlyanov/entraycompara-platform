@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage, firestore 
 from pydantic import BaseModel
 import google.generativeai as genai
+import eni_simulator
 
 
 app = FastAPI()
@@ -215,6 +216,22 @@ class SimulationResponse(BaseModel):
     savings_monthly_eur: float | None = None
     savings_percent: float | None = None
     created_at: datetime.datetime
+
+# 1.8. Модель для автоматического создания симуляции (Eni)
+class AutoCreateSimulationRequest(BaseModel):
+    cups: str
+    client_type: str | None = None
+    access_tariff: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    equipment_rental: float | None = None
+    invoice_amount_with_vat: float | None = None
+    retailer: str | None = None
+    billed_power_p1: float | None = None
+    billed_power_p2: float | None = None
+    consumption_p1: float | None = None
+    consumption_p2: float | None = None
+    consumption_p3: float | None = None
 
 # --- База знаний компании ---
 KNOWLEDGE_BASE = """
@@ -1280,6 +1297,187 @@ async def select_simulation(application_id: str, simulation_id: str):
     except Exception as e:
         print(f"Select simulation error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при выборе симуляции: {str(e)}")
+
+# --- 4.875. Proposal Builder: Auto-Create Simulation (Eni Plenitude) ---
+
+# In-memory task store (for MVP). In production, use Firestore or Redis.
+_auto_simulation_tasks: dict[str, dict] = {}
+
+def _get_task_status(task_id: str) -> dict | None:
+    return _auto_simulation_tasks.get(task_id)
+
+def _set_task_status(task_id: str, status: dict):
+    _auto_simulation_tasks[task_id] = status
+
+async def _run_eni_simulation_task(
+    task_id: str,
+    application_id: str,
+    data: AutoCreateSimulationRequest,
+):
+    """Фоновая задача: проходит симуляцию на Eni и сохраняет результат."""
+    try:
+        _set_task_status(task_id, {
+            "status": "running",
+            "message": "Запущена автоматическая симуляция на Eni Plenitude...",
+            "simulation_id": None,
+            "error": None,
+        })
+
+        # Запускаем Playwright
+        pdf_path = await eni_simulator.run_eni_simulation(
+            cups=data.cups,
+            client_type=data.client_type or "Hogar",
+            access_tariff=data.access_tariff,
+            billed_power_p1=data.billed_power_p1,
+            billed_power_p2=data.billed_power_p2,
+            consumption_p1=data.consumption_p1,
+            consumption_p2=data.consumption_p2,
+            consumption_p3=data.consumption_p3,
+            equipment_rental=data.equipment_rental,
+            invoice_amount_with_vat=data.invoice_amount_with_vat,
+            start_date=data.start_date,
+            end_date=data.end_date,
+            headless=True,
+        )
+
+        # Загружаем PDF в GCS
+        today = datetime.datetime.utcnow()
+        prefix = f"simulation_files/{today.year}/{today.month:02}/{today.day:02}"
+        unique_name = f"{uuid.uuid4()}.pdf"
+        blob_name = f"{prefix}/{unique_name}"
+
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(blob_name)
+        blob.upload_from_filename(pdf_path)
+        blob.acl.all().grant_read()
+        blob.acl.save()
+
+        pdf_url = f"https://storage.googleapis.com/{BUCKET_NAME}/{blob_name}"
+
+        # Получаем текущую стоимость для расчёта экономии
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        proposal_data = doc_ref.collection("proposal_data").document("data").get()
+        current_cost = None
+        if proposal_data.exists:
+            extracted = proposal_data.to_dict().get("extracted_data", {})
+            current_cost = extracted.get("invoice_amount_with_vat")
+
+        # Для автоматической симуляции "новая стоимость" неизвестна сразу — ставим 0,
+        # оператор скорректирует вручную при просмотре PDF
+        savings_monthly = None
+        savings_percent = None
+        if current_cost:
+            savings_monthly = 0.0
+            savings_percent = 0.0
+
+        # Создаём simulation документ
+        sim_data = {
+            "simulation_name": f"Eni Auto — {data.cups}",
+            "new_provider": "Eni Plenitude",
+            "new_tariff": data.access_tariff,
+            "new_monthly_cost_eur": 0.0,
+            "contract_duration_months": None,
+            "bonus_description": None,
+            "simulation_file_url": pdf_url,
+            "is_selected": False,
+            "savings_monthly_eur": savings_monthly,
+            "savings_percent": savings_percent,
+            "created_at": datetime.datetime.utcnow(),
+            "updated_at": datetime.datetime.utcnow(),
+        }
+        sim_ref = doc_ref.collection("proposal_simulations").document()
+        sim_ref.set(sim_data)
+
+        # Timeline
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"Автоматическая симуляция Eni создана для CUPS {data.cups}.",
+            event_type=EventType.NOTE,
+            created_by="System"
+        )
+
+        # Cleanup local file
+        try:
+            os.remove(pdf_path)
+        except Exception:
+            pass
+
+        _set_task_status(task_id, {
+            "status": "completed",
+            "message": "Симуляция успешно создана.",
+            "simulation_id": sim_ref.id,
+            "simulation_file_url": pdf_url,
+            "error": None,
+        })
+
+    except Exception as e:
+        print(f"[Eni Task {task_id}] Error: {e}")
+        _set_task_status(task_id, {
+            "status": "failed",
+            "message": str(e),
+            "simulation_id": None,
+            "error": str(e),
+        })
+
+
+@app.post("/api/applications/{application_id}/proposal/simulations/auto-create", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def auto_create_simulation(application_id: str, request: AutoCreateSimulationRequest):
+    """Запускает автоматическое создание симуляции на Eni Plenitude. Возвращает task_id."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        if not request.cups:
+            raise HTTPException(status_code=400, detail="CUPS обязателен для автоматической симуляции.")
+
+        task_id = f"auto-sim-{uuid.uuid4().hex[:12]}"
+
+        # Запускаем фоновую задачу
+        asyncio.create_task(_run_eni_simulation_task(task_id, application_id, request))
+
+        return {
+            "success": True,
+            "task_id": task_id,
+            "message": "Автоматическая симуляция запущена. Ожидайте ~3 минуты.",
+            "status": "pending",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Auto-create simulation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при запуске автосимуляции: {str(e)}")
+
+
+@app.get("/api/applications/{application_id}/proposal/simulations/auto-create/{task_id}/status", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def get_auto_simulation_status(application_id: str, task_id: str):
+    """Проверяет статус автоматической симуляции."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        if not doc_ref.get().exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        task = _get_task_status(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Задача не найдена.")
+
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": task.get("status"),
+            "message": task.get("message"),
+            "simulation_id": task.get("simulation_id"),
+            "simulation_file_url": task.get("simulation_file_url"),
+            "error": task.get("error"),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Get task status error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении статуса: {str(e)}")
 
 # --- 4.87. Proposal Builder: PDF Generation Endpoints ---
 

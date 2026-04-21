@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { listSimulations, createSimulation, updateSimulation, deleteSimulation, selectSimulation } from '../services/api';
+import {
+  listSimulations, createSimulation, updateSimulation, deleteSimulation, selectSimulation,
+  autoCreateEniSimulation, getAutoSimulationStatus, getExtractedData
+} from '../services/api';
 import { Simulation } from '../types';
 import Spinner from './Spinner';
 import { useTranslation } from '../i18n';
@@ -20,6 +23,8 @@ const EMPTY_SIMULATION = {
   is_selected: false,
 };
 
+type AutoTaskStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed';
+
 const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -27,12 +32,46 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState(EMPTY_SIMULATION);
 
+  // Auto-simulation state
+  const [autoTaskId, setAutoTaskId] = useState<string | null>(null);
+  const [autoStatus, setAutoStatus] = useState<AutoTaskStatus>('idle');
+  const [autoMessage, setAutoMessage] = useState<string>('');
+
   const { data, isLoading } = useQuery({
     queryKey: ['simulations', appId],
     queryFn: () => listSimulations(appId),
   });
 
+  const { data: proposalData } = useQuery({
+    queryKey: ['proposal-data', appId],
+    queryFn: () => getExtractedData(appId),
+    retry: false,
+  });
+
   const simulations = data?.simulations || [];
+  const extracted = proposalData?.extracted_data;
+  const hasCups = !!extracted?.cups;
+
+  // Polling auto-simulation status
+  useEffect(() => {
+    if (!autoTaskId || autoStatus === 'completed' || autoStatus === 'failed') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const result = await getAutoSimulationStatus(appId, autoTaskId);
+        setAutoStatus(result.status as AutoTaskStatus);
+        setAutoMessage(result.message || '');
+        if (result.status === 'completed' || result.status === 'failed') {
+          clearInterval(interval);
+          queryClient.invalidateQueries({ queryKey: ['simulations', appId] });
+        }
+      } catch (e) {
+        console.error('Polling error:', e);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [autoTaskId, autoStatus, appId, queryClient]);
 
   const createMutation = useMutation({
     mutationFn: (data: typeof EMPTY_SIMULATION) => createSimulation(appId, data),
@@ -95,8 +134,102 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
     setFormData(EMPTY_SIMULATION);
   };
 
+  const handleAutoCreate = async () => {
+    if (!extracted || !extracted.cups) {
+      setAutoStatus('failed');
+      setAutoMessage(t('proposalBuilder.simulation.cupsRequired'));
+      return;
+    }
+    setAutoStatus('pending');
+    setAutoMessage(t('proposalBuilder.simulation.autoCreatePending'));
+    try {
+      const result = await autoCreateEniSimulation(appId, {
+        cups: extracted.cups,
+        client_type: extracted.client_type,
+        access_tariff: extracted.access_tariff,
+        start_date: extracted.start_date,
+        end_date: extracted.end_date,
+        equipment_rental: extracted.equipment_rental,
+        invoice_amount_with_vat: extracted.invoice_amount_with_vat,
+        retailer: extracted.retailer,
+        billed_power_p1: extracted.billed_power_p1,
+        billed_power_p2: extracted.billed_power_p2,
+        consumption_p1: extracted.consumption_p1,
+        consumption_p2: extracted.consumption_p2,
+        consumption_p3: extracted.consumption_p3,
+      });
+      setAutoTaskId(result.task_id);
+      setAutoStatus(result.status as AutoTaskStatus);
+      setAutoMessage(result.message);
+    } catch (e: any) {
+      setAutoStatus('failed');
+      setAutoMessage(e.message || t('proposalBuilder.simulation.autoCreateFailed'));
+    }
+  };
+
+  const getAutoStatusColor = () => {
+    switch (autoStatus) {
+      case 'completed': return 'bg-green-50 text-green-600 border-green-200';
+      case 'failed': return 'bg-red-50 text-red-600 border-red-200';
+      case 'running': return 'bg-blue-50 text-blue-600 border-blue-200';
+      case 'pending': return 'bg-amber-50 text-amber-600 border-amber-200';
+      default: return '';
+    }
+  };
+
   return (
     <div className="space-y-4">
+      {/* Auto-create Eni Simulation */}
+      {!isFormOpen && (
+        <button
+          onClick={handleAutoCreate}
+          disabled={autoStatus === 'pending' || autoStatus === 'running' || !hasCups}
+          className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all disabled:opacity-50 ${
+            hasCups
+              ? 'bg-secondary text-white hover:bg-secondary/90'
+              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+          }`}
+        >
+          {(autoStatus === 'pending' || autoStatus === 'running') ? (
+            <Spinner size="h-4 w-4" />
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+            </svg>
+          )}
+          {autoStatus === 'pending' || autoStatus === 'running'
+            ? t('proposalBuilder.simulation.autoCreating')
+            : t('proposalBuilder.simulation.autoCreateEni')
+          }
+        </button>
+      )}
+
+      {/* Auto-simulation status */}
+      {autoStatus !== 'idle' && (
+        <div className={`p-3 rounded-xl text-sm border ${getAutoStatusColor()}`}>
+          <div className="flex items-center gap-2">
+            {(autoStatus === 'pending' || autoStatus === 'running') && <Spinner size="h-3 w-3" />}
+            <span className="font-medium">{autoMessage}</span>
+          </div>
+          {autoStatus === 'completed' && (
+            <button
+              onClick={() => { setAutoStatus('idle'); setAutoTaskId(null); }}
+              className="mt-2 text-xs underline"
+            >
+              Очистить
+            </button>
+          )}
+          {autoStatus === 'failed' && (
+            <button
+              onClick={() => { setAutoStatus('idle'); setAutoTaskId(null); }}
+              className="mt-2 text-xs underline"
+            >
+              Закрыть
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Add Button */}
       {!isFormOpen && (
         <button

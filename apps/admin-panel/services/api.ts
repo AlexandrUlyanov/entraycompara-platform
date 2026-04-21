@@ -397,4 +397,45 @@ export const getProposalPreview = async (applicationId: string): Promise<{ succe
   return handleApiError(response);
 };
 
+// --- Eni Auto Simulation API ---
+
+export const autoCreateEniSimulation = async (applicationId: string, data: {
+  cups: string;
+  client_type?: string;
+  access_tariff?: string;
+  start_date?: string;
+  end_date?: string;
+  equipment_rental?: number;
+  invoice_amount_with_vat?: number;
+  retailer?: string;
+  billed_power_p1?: number;
+  billed_power_p2?: number;
+  consumption_p1?: number;
+  consumption_p2?: number;
+  consumption_p3?: number;
+}): Promise<{ success: boolean; task_id: string; status: string; message: string }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations/auto-create`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(data),
+  });
+  return handleApiError(response);
+};
+
+export const getAutoSimulationStatus = async (applicationId: string, taskId: string): Promise<{
+  success: boolean;
+  task_id: string;
+  status: string;
+  message: string;
+  simulation_id?: string;
+  simulation_file_url?: string;
+  error?: string;
+}> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations/auto-create/${taskId}/status`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
 

@@ -7,3 +7,4 @@ pydantic
 requests
 google-generativeai
 fpdf2
+playwright

@@ -39,6 +39,9 @@ async def run_eni_simulation(
             print("[Eni] Step 1: Opening referral URL...")
             await page.goto(REFERRAL_URL, wait_until="networkidle", timeout=30000)
 
+            # Закрыть cookie banner если есть
+            await _dismiss_cookie_banner(page)
+
             # Шаг 2: Нажать Simulador
             print("[Eni] Step 2: Clicking Simulador...")
             await page.click('button[name="option"][value="simulador"]', timeout=10000)
@@ -93,7 +96,7 @@ async def run_eni_simulation(
 
             # Шаг 8: Нажать Continuar
             print("[Eni] Step 8: Clicking Continuar...")
-            await page.click('button[name="option"][value="simulador"]', timeout=10000)
+            await _click_continuar(page)
             await page.wait_for_load_state("networkidle", timeout=30000)
 
             # Шаг 9: Выбрать 3-й тариф снизу
@@ -120,6 +123,59 @@ async def run_eni_simulation(
         except Exception as e:
             await _save_debug_snapshot(page, browser, "error")
             raise EniSimulationError(f"Eni simulation failed: {str(e)}")
+
+
+async def _dismiss_cookie_banner(page):
+    """Удаляет cookie banner, если он мешает кликам."""
+    try:
+        # Пробуем кликнуть на кнопку принятия cookies
+        accept_btn = await page.query_selector(
+            '#div_banner button, .contCookie button, #cookiescript_accept, .btn-accept-cookies, [class*="cookie"] button'
+        )
+        if accept_btn:
+            await accept_btn.click()
+            print("[Eni] Cookie banner dismissed (click)")
+            await asyncio.sleep(0.5)
+            return
+    except Exception:
+        pass
+
+    # Если кнопка не сработала — удаляем баннер из DOM
+    try:
+        await page.evaluate("""() => {
+            const selectors = ['#div_banner', '.contCookie', '#cookie-banner', '.cookie-banner', '.cookies-banner'];
+            for (const sel of selectors) {
+                const el = document.querySelector(sel);
+                if (el) { el.remove(); }
+            }
+        }""")
+        print("[Eni] Cookie banner dismissed (remove)")
+        await asyncio.sleep(0.3)
+    except Exception:
+        pass
+
+
+async def _click_continuar(page):
+    """Нажимает кнопку Continuar/Siguiente с fallback'ами."""
+    selectors = [
+        'text=Continuar',
+        'text=SIGUIENTE',
+        'text=Siguiente',
+        'button:has-text("Continuar")',
+        'button:has-text("Siguiente")',
+        'button[type="submit"]',
+        '.btn-continuar',
+        '#btn-continuar',
+        '[value="continuar"]',
+    ]
+    for sel in selectors:
+        try:
+            await page.click(sel, timeout=5000)
+            print(f"[Eni] Clicked Continuar via selector: {sel}")
+            return
+        except Exception:
+            continue
+    raise EniSimulationError("Could not find Continuar/Siguiente button")
 
 
 async def _fill_simulation_form(page, data: dict):

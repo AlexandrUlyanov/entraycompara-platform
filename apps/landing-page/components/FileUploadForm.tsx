@@ -228,7 +228,7 @@ const FileUploadForm: React.FC<FileUploadFormProps> = ({
     formData.append('client_name', name);
     formData.append('client_phone', fullPhoneNumber);
     formData.append('client_email', showEmailField ? email : '');
-    formData.append('service_type', 'ElectricityComparison');
+    formData.append('service_type', 'Electricity Comparison');
     formData.append('notes', '');
     formData.append('language', language || 'es');
     

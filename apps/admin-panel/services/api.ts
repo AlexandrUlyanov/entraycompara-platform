@@ -55,7 +55,9 @@ const handleApiError = async (response: Response) => {
 
 const correctServiceTypeFormatting = (serviceType: string): ServiceType => {
     if (!serviceType) return serviceType as ServiceType;
+    // Разбиваем CamelCase и заменяем underscore на пробел
     const corrected = serviceType
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
       .replace(/_/g, ' ')
       .split(' ')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())

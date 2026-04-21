@@ -68,25 +68,31 @@ async def run_eni_simulation(
             await asyncio.sleep(1)
             print(f"[Eni] URL after Step 4: {page.url}")
 
-            # Шаг 5: Ввести CUPS
+            # Шаг 5: Ввести CUPS и дождаться валидации
             print(f"[Eni] Step 5: Entering CUPS: {cups}...")
             await page.fill('input#cups_luz', cups, timeout=10000)
-            await asyncio.sleep(1)
+            await page.keyboard.press('Tab')  # Trigger blur/validation
+            print("[Eni] Waiting for CUPS validation (5s)...")
+            await asyncio.sleep(5)
             print(f"[Eni] URL after Step 5: {page.url}")
+
+            # Проверяем статус кнопки
+            submit_btn = await page.query_selector('button#simulador_submit')
+            is_disabled = await submit_btn.evaluate('el => el.disabled') if submit_btn else True
+            if is_disabled:
+                # Проверяем сообщение об ошибке
+                error_msg = await page.evaluate("""() => {
+                    const el = document.querySelector('.error_input, .alert-danger, .mensaje-error');
+                    return el ? el.innerText || el.textContent : '';
+                }""")
+                raise EniSimulationError(f"CUPS validation failed. Eni message: {error_msg or 'No data for this CUPS'}")
 
             # Шаг 6: Нажать Comenzar Simulación
             print("[Eni] Step 6: Clicking Comenzar Simulación...")
             await page.click('button#simulador_submit', timeout=10000)
             await page.wait_for_load_state("networkidle", timeout=30000)
-            await asyncio.sleep(2)  # Ждём загрузки формы
+            await asyncio.sleep(3)  # Ждём загрузки формы симуляции
             print(f"[Eni] URL after Comenzar: {page.url}")
-
-            # Проверка на ошибку CUPS (если CUPS невалиден)
-            error_selector = '.alert-danger, .error-message, .mensaje-error'
-            error_el = await page.query_selector(error_selector)
-            if error_el:
-                error_text = await error_el.inner_text()
-                raise EniSimulationError(f"Eni returned error after CUPS input: {error_text}")
 
             # Шаг 7: Заполнить форму данными
             print("[Eni] Step 7: Filling simulation form...")
@@ -103,10 +109,12 @@ async def run_eni_simulation(
                 "end_date": end_date,
             })
 
-            # Шаг 8: Нажать Continuar
-            print("[Eni] Step 8: Clicking Continuar...")
-            await _click_continuar(page)
+            # Шаг 8: Нажать Comenzar Simulación повторно для отправки данных
+            print("[Eni] Step 8: Clicking Comenzar Simulación (submit simulation data)...")
+            await page.click('button#simulador_submit', timeout=10000)
             await page.wait_for_load_state("networkidle", timeout=30000)
+            await asyncio.sleep(3)
+            print(f"[Eni] URL after Step 8: {page.url}")
 
             # Шаг 9: Выбрать 3-й тариф снизу
             print("[Eni] Step 9: Selecting tariff (3rd from bottom)...")
@@ -210,13 +218,13 @@ async def _fill_simulation_form(page, data: dict):
     """Заполняет форму симуляции данными из счета."""
     # Потенциальные селекторы для полей (Eni может менять вёрстку)
     field_map = {
-        "tarifa": ['select[name="tarifa"]', 'input[name="tarifa"]', '#tarifa', '[name="tarifa"]'],
-        "potencia_p1": ['input[name="potencia_p1"]', 'input[name="potenciaContratadaP1"]', '#potencia_p1', '[name="potencia_p1"]', '[id*="potencia"]'],
-        "potencia_p2": ['input[name="potencia_p2"]', 'input[name="potenciaContratadaP2"]', '#potencia_p2', '[name="potencia_p2"]', '[id*="potencia"]'],
-        "consumo_p1": ['input[name="consumo_p1"]', 'input[name="consumoAnualP1"]', '#consumo_p1', '[name="consumo_p1"]', '[id*="consumo"]'],
-        "consumo_p2": ['input[name="consumo_p2"]', 'input[name="consumoAnualP2"]', '#consumo_p2', '[name="consumo_p2"]', '[id*="consumo"]'],
-        "consumo_p3": ['input[name="consumo_p3"]', 'input[name="consumoAnualP3"]', '#consumo_p3', '[name="consumo_p3"]', '[id*="consumo"]'],
-        "alquiler": ['input[name="alquiler"]', 'input[name="alquilerEquipo"]', '#alquiler', '[name="alquiler"]'],
+        "tarifa": ['select[name="tarifa"]', 'input[name="tarifa"]', '#tarifa', '[name="tarifa"]', '#tarifa_cliente_electricidad', '[name="tarifa_cliente_electricidad"]'],
+        "potencia_p1": ['input[name="potencia_p1"]', 'input[name="potenciaContratadaP1"]', '#potencia_p1', '[name="potencia_p1"]', '#p1_electricidad', '[name="p1_electricidad"]'],
+        "potencia_p2": ['input[name="potencia_p2"]', 'input[name="potenciaContratadaP2"]', '#potencia_p2', '[name="potencia_p2"]', '#p2_electricidad', '[name="p2_electricidad"]'],
+        "consumo_p1": ['input[name="consumo_p1"]', 'input[name="consumoAnualP1"]', '#consumo_p1', '[name="consumo_p1"]', '#e1_electricidad', '[name="e1_electricidad"]'],
+        "consumo_p2": ['input[name="consumo_p2"]', 'input[name="consumoAnualP2"]', '#consumo_p2', '[name="consumo_p2"]', '#e2_electricidad', '[name="e2_electricidad"]'],
+        "consumo_p3": ['input[name="consumo_p3"]', 'input[name="consumoAnualP3"]', '#consumo_p3', '[name="consumo_p3"]', '#e3_electricidad', '[name="e3_electricidad"]'],
+        "alquiler": ['input[name="alquiler"]', 'input[name="alquilerEquipo"]', '#alquiler', '[name="alquiler"]', '#alquiler_equipos_electricidad', '[name="alquiler_equipos_electricidad"]'],
         "importe": ['input[name="importe"]', 'input[name="importeFactura"]', '#importe', '[name="importe"]'],
         "fecha_inicio": ['input[name="fecha_inicio"]', 'input[name="fechaInicio"]', '#fecha_inicio', '[name="fecha_inicio"]'],
         "fecha_fin": ['input[name="fecha_fin"]', 'input[name="fechaFin"]', '#fecha_fin', '[name="fecha_fin"]'],

@@ -74,9 +74,10 @@ async def run_eni_simulation(
             await asyncio.sleep(1)
             print(f"[Eni] URL after Step 4: {page.url}")
 
-            # Шаг 5: Ввести CUPS и дождаться валидации
-            print(f"[Eni] Step 5: Entering CUPS: {cups}...")
-            await page.fill('input#cups_luz', cups, timeout=10000)
+            # Нормализуем CUPS: только заглавные буквы и цифры, без пробелов/дефисов
+            cups_clean = cups.upper().replace(' ', '').replace('-', '').replace('.', '')
+            print(f"[Eni] Step 5: Entering CUPS: {cups_clean} (original: {cups})...")
+            await page.fill('input#cups_luz', cups_clean, timeout=10000)
             await page.keyboard.press('Tab')  # Trigger blur/validation
             print("[Eni] Waiting for CUPS validation (5s)...")
             await asyncio.sleep(5)
@@ -95,7 +96,26 @@ async def run_eni_simulation(
                 return el ? (el.innerText || el.textContent || '').trim() : '';
             }""")
             if error_msg or is_disabled:
-                raise EniSimulationError(f"CUPS validation failed. Eni message: {error_msg or 'No data for this CUPS'}")
+                # Fallback: пробуем CUPS без последних 2 символов (20 вместо 22)
+                if len(cups_clean) == 22:
+                    cups_20 = cups_clean[:20]
+                    print(f"[Eni] Trying shortened CUPS (20 chars): {cups_20}")
+                    await page.fill('input#cups_luz', cups_20, timeout=10000)
+                    await page.keyboard.press('Tab')
+                    await asyncio.sleep(5)
+                    error_msg_20 = await page.evaluate(r"""() => {
+                        const el = document.querySelector('.text-danger.h3, .alert-danger, .mensaje-error');
+                        return el ? (el.innerText || el.textContent || '').trim() : '';
+                    }""")
+                    submit_btn_20 = await page.query_selector('button#simulador_submit')
+                    is_disabled_20 = await submit_btn_20.evaluate('el => el.disabled') if submit_btn_20 else True
+                    if not error_msg_20 and not is_disabled_20:
+                        print("[Eni] Shortened CUPS accepted!")
+                        cups_clean = cups_20
+                    else:
+                        raise EniSimulationError(f"CUPS validation failed. Eni message: {error_msg_20 or error_msg or 'No data for this CUPS'}")
+                else:
+                    raise EniSimulationError(f"CUPS validation failed. Eni message: {error_msg or 'No data for this CUPS'}")
 
             # Шаг 6: Нажать Comenzar Simulación
             print("[Eni] Step 6: Clicking Comenzar Simulación...")
@@ -425,17 +445,16 @@ async def _fill_simulation_form(page, data: dict):
         print(f"[Eni] Warning: could not find field {field_name}")
 
     # Заполняем поля согласно реальной вёрстке Eni
+    # Tarifa de acceso обычно readonly (выбирается автоматически по CUPS)
     await fill_field("tarifa", data.get("access_tariff"))
     await fill_field("potencia_p1", data.get("billed_power_p1"))
     await fill_field("potencia_p2", data.get("billed_power_p2"))
-    # Eni использует ОДНО поле для общего потребления, а не P1/P2/P3
-    # Если есть consumption_p1 — используем его, иначе сумму всех периодов
-    total_consumption = data.get("consumption_p1")
-    if total_consumption is None and (data.get("consumption_p1") or data.get("consumption_p2") or data.get("consumption_p3")):
-        total_consumption = (data.get("consumption_p1") or 0) + (data.get("consumption_p2") or 0) + (data.get("consumption_p3") or 0)
-        if total_consumption == 0:
-            total_consumption = None
-    await fill_field("consumo_actual", total_consumption)
+    # Eni использует ОДНО поле consumo_actual для общего потребления
+    p1 = data.get("consumption_p1") or 0
+    p2 = data.get("consumption_p2") or 0
+    p3 = data.get("consumption_p3") or 0
+    total_consumption = p1 + p2 + p3
+    await fill_field("consumo_actual", total_consumption if total_consumption > 0 else None)
     await fill_field("alquiler_equipos", data.get("equipment_rental"))
     await fill_field("fecha_inicio", data.get("start_date"))
     await fill_field("fecha_fin", data.get("end_date"))

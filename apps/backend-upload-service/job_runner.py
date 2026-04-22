@@ -27,7 +27,8 @@ def _get_float_env(name: str) -> float | None:
         return None
 
 
-def _set_task_status(firestore_client, application_id: str, task_id: str, status: dict):
+def _set_task_status_sync(firestore_client, application_id: str, task_id: str, status: dict):
+    """Synchronous Firestore write."""
     doc_ref = (
         firestore_client.collection(FIRESTORE_COLLECTION)
         .document(application_id)
@@ -37,8 +38,8 @@ def _set_task_status(firestore_client, application_id: str, task_id: str, status
     doc_ref.set(status, merge=True)
 
 
-def _create_timeline_event(firestore_client, application_id: str, content: str):
-    """Lightweight timeline event creation (duplicated from main.py to avoid importing FastAPI app)."""
+def _create_timeline_event_sync(firestore_client, application_id: str, content: str):
+    """Lightweight timeline event creation."""
     try:
         doc_ref = (
             firestore_client.collection(FIRESTORE_COLLECTION)
@@ -67,7 +68,11 @@ async def main():
 
     firestore_client = firestore.Client()
 
-    _set_task_status(firestore_client, application_id, task_id, {
+    # Helper: write task status (run in thread to avoid blocking event loop)
+    async def _set_task(status: dict):
+        await asyncio.to_thread(_set_task_status_sync, firestore_client, application_id, task_id, status)
+
+    await _set_task({
         "status": "running",
         "message": "Запущена автоматическая симуляция на Eni Plenitude...",
         "simulation_id": None,
@@ -79,7 +84,7 @@ async def main():
         print(f"[Job {task_id}] Starting Eni simulation for CUPS={cups}")
 
         async def _on_tariffs_ready(tariffs: list[dict]):
-            _set_task_status(firestore_client, application_id, task_id, {
+            await _set_task({
                 "status": "awaiting_tariff_selection",
                 "message": f"Выберите один из {len(tariffs)} тарифов",
                 "tariffs": tariffs,
@@ -88,19 +93,30 @@ async def main():
             print(f"[Job {task_id}] Awaiting tariff selection from manager ({len(tariffs)} options)")
 
         async def _get_selected_tariff() -> int | None:
-            doc_ref = (
-                firestore_client.collection(FIRESTORE_COLLECTION)
-                .document(application_id)
-                .collection("auto_simulation_tasks")
-                .document(task_id)
-            )
-            doc = doc_ref.get()
-            if doc.exists:
-                data = doc.to_dict() or {}
-                sel = data.get("selected_tariff_index")
+            def _read():
+                doc_ref = (
+                    firestore_client.collection(FIRESTORE_COLLECTION)
+                    .document(application_id)
+                    .collection("auto_simulation_tasks")
+                    .document(task_id)
+                )
+                doc = doc_ref.get()
+                if doc.exists:
+                    data = doc.to_dict() or {}
+                    sel = data.get("selected_tariff_index")
+                    print(f"[Job {task_id}] Firestore read: selected_tariff_index={sel!r}, doc_exists=True")
+                    return sel
+                else:
+                    print(f"[Job {task_id}] Firestore read: doc_exists=False")
+                    return None
+
+            try:
+                sel = await asyncio.to_thread(_read)
                 if sel is not None:
                     print(f"[Job {task_id}] Manager selected tariff index: {sel}")
                     return sel
+            except Exception as e:
+                print(f"[Job {task_id}] Firestore read error: {e}")
             return None
 
         result = await eni_simulator.run_eni_simulation(
@@ -159,17 +175,23 @@ async def main():
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
         }
-        sim_ref = (
-            firestore_client.collection(FIRESTORE_COLLECTION)
-            .document(application_id)
-            .collection("proposal_simulations")
-            .document()
-        )
-        sim_ref.set(sim_data)
-        print(f"[Job {task_id}] Simulation doc created: {sim_ref.id}")
+
+        def _create_sim():
+            sim_ref = (
+                firestore_client.collection(FIRESTORE_COLLECTION)
+                .document(application_id)
+                .collection("proposal_simulations")
+                .document()
+            )
+            sim_ref.set(sim_data)
+            return sim_ref.id
+
+        sim_id = await asyncio.to_thread(_create_sim)
+        print(f"[Job {task_id}] Simulation doc created: {sim_id}")
 
         # Timeline event
-        _create_timeline_event(
+        await asyncio.to_thread(
+            _create_timeline_event_sync,
             firestore_client,
             application_id,
             f"Автоматическая симуляция Eni создана для CUPS {cups}.",
@@ -181,10 +203,10 @@ async def main():
         except Exception:
             pass
 
-        _set_task_status(firestore_client, application_id, task_id, {
+        await _set_task({
             "status": "completed",
             "message": "Симуляция успешно создана.",
-            "simulation_id": sim_ref.id,
+            "simulation_id": sim_id,
             "simulation_file_url": pdf_url,
             "error": None,
             "updated_at": datetime.utcnow(),
@@ -194,7 +216,7 @@ async def main():
 
     except Exception as e:
         print(f"[Job {task_id}] ERROR: {e}")
-        _set_task_status(firestore_client, application_id, task_id, {
+        await _set_task({
             "status": "failed",
             "message": str(e),
             "simulation_id": None,

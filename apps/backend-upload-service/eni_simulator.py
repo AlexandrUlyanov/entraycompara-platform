@@ -85,24 +85,25 @@ async def run_eni_simulation(
             # Удаляем overlay'и ещё раз — они могли появиться после взаимодействия
             await _remove_all_overlays(page)
 
-            # Проверяем статус кнопки
+            # Проверяем статус кнопки И сообщения об ошибке
             submit_btn = await page.query_selector('button#simulador_submit')
             is_disabled = await submit_btn.evaluate('el => el.disabled') if submit_btn else True
-            if is_disabled:
-                # Проверяем сообщение об ошибке
-                error_msg = await page.evaluate("""() => {
-                    const el = document.querySelector('.error_input, .alert-danger, .mensaje-error');
-                    return el ? el.innerText || el.textContent : '';
-                }""")
+
+            # Eni показывает ошибку CUPS в .text-danger даже если кнопка enabled
+            error_msg = await page.evaluate(r"""() => {
+                const el = document.querySelector('.text-danger.h3, .alert-danger, .mensaje-error');
+                return el ? (el.innerText || el.textContent || '').trim() : '';
+            }""")
+            if error_msg or is_disabled:
                 raise EniSimulationError(f"CUPS validation failed. Eni message: {error_msg or 'No data for this CUPS'}")
 
             # Шаг 6: Нажать Comenzar Simulación
             print("[Eni] Step 6: Clicking Comenzar Simulación...")
-            # Кнопка часто перекрыта баннером или вне viewport — используем JS fallback
             await _scroll_and_click(page, 'button#simulador_submit')
             await page.wait_for_load_state("networkidle", timeout=30000)
             await asyncio.sleep(3)  # Ждём загрузки формы симуляции
             print(f"[Eni] URL after Comenzar: {page.url}")
+            await _take_step_screenshot(page, "06_after_comenzar")
 
             # Шаг 7: Заполнить форму данными
             print("[Eni] Step 7: Filling simulation form...")
@@ -114,28 +115,43 @@ async def run_eni_simulation(
                 "consumption_p2": consumption_p2,
                 "consumption_p3": consumption_p3,
                 "equipment_rental": equipment_rental,
-                "invoice_amount": invoice_amount_with_vat,
                 "start_date": start_date,
                 "end_date": end_date,
             })
+            await _take_step_screenshot(page, "07_after_fill")
 
             # Шаг 8: Нажать Comenzar Simulación повторно для отправки данных
             print("[Eni] Step 8: Clicking Comenzar Simulación (submit simulation data)...")
             await _scroll_and_click(page, 'button#simulador_submit')
             await page.wait_for_load_state("networkidle", timeout=30000)
-            await asyncio.sleep(5)  # Увеличили ожидание — Eni долго рендерит следующий экран
-            print(f"[Eni] URL after Step 8: {page.url}")
+            await asyncio.sleep(5)
+            current_url = page.url
+            print(f"[Eni] URL after Step 8: {current_url}")
             await _take_step_screenshot(page, "08_after_submit")
 
-            # Возможен промежуточный экран с кнопкой "Continuar" / "Siguiente"
-            try:
-                await _click_continuar(page)
-                await page.wait_for_load_state("networkidle", timeout=30000)
-                await asyncio.sleep(3)
-                print(f"[Eni] URL after Continuar: {page.url}")
-                await _take_step_screenshot(page, "08b_after_continuar")
-            except Exception:
-                print("[Eni] No Continuar button found, proceeding to tariff selection")
+            # КРИТИЧНАЯ ПРОВЕРКА: если мы всё ещё на pantalla=2 — форма не принята
+            if 'pantalla=2' in current_url or 'option=simulador' in current_url and 'pantalla=' not in current_url:
+                # Проверяем, нет ли ошибки на странице
+                page_error = await page.evaluate(r"""() => {
+                    const el = document.querySelector('.text-danger.h3, .alert-danger');
+                    return el ? (el.innerText || '').trim() : '';
+                }""")
+                if page_error:
+                    raise EniSimulationError(f"Form submission failed. Eni says: {page_error}")
+                # Возможно, нужно нажать "Continuar" для перехода к тарифам
+                try:
+                    await _click_continuar(page)
+                    await page.wait_for_load_state("networkidle", timeout=30000)
+                    await asyncio.sleep(3)
+                    current_url = page.url
+                    print(f"[Eni] URL after Continuar: {current_url}")
+                    await _take_step_screenshot(page, "08b_after_continuar")
+                except Exception:
+                    print("[Eni] No Continuar button found")
+
+            # Ещё раз проверяем URL — если всё ещё pantalla=2, значит что-то пошло не так
+            if 'pantalla=2' in page.url:
+                raise EniSimulationError("Still on pantalla=2 after form submission. Check CUPS validity and required fields.")
 
             # Шаг 9: Выбрать 3-й тариф снизу
             print("[Eni] Step 9: Selecting tariff (3rd from bottom)...")
@@ -144,7 +160,7 @@ async def run_eni_simulation(
             await asyncio.sleep(1)
             await _take_step_screenshot(page, "09_after_tariff_selection")
 
-            # Шаг 10: Отправить на симуляцию (после выбора тарифа обычно нужно нажать "Continuar"/"Simular"/"Enviar")
+            # Шаг 10: Отправить на симуляцию
             print("[Eni] Step 10: Sending simulation request...")
             try:
                 await _click_send_simulation(page)
@@ -155,7 +171,7 @@ async def run_eni_simulation(
             except Exception as e:
                 print(f"[Eni] No send button found or already submitted: {e}")
 
-            # Шаг 11: Ожидать результат (до 5 минут — Eni иногда генерирует дольше 3 мин)
+            # Шаг 11: Ожидать результат (до 5 минут)
             print("[Eni] Step 11: Waiting for simulation result (up to 5 min)...")
             download_path = await _wait_for_download(page, timeout_seconds=300)
 
@@ -371,18 +387,15 @@ async def _click_continuar(page):
 
 async def _fill_simulation_form(page, data: dict):
     """Заполняет форму симуляции данными из счета."""
-    # Потенциальные селекторы для полей (Eni может менять вёрстку)
+    # Реальные селекторы Eni Plenitude (g2e.eniplenitude.es)
     field_map = {
-        "tarifa": ['select[name="tarifa"]', 'input[name="tarifa"]', '#tarifa', '[name="tarifa"]', '#tarifa_cliente_electricidad', '[name="tarifa_cliente_electricidad"]'],
-        "potencia_p1": ['input[name="potencia_p1"]', 'input[name="potenciaContratadaP1"]', '#potencia_p1', '[name="potencia_p1"]', '#p1_electricidad', '[name="p1_electricidad"]'],
-        "potencia_p2": ['input[name="potencia_p2"]', 'input[name="potenciaContratadaP2"]', '#potencia_p2', '[name="potencia_p2"]', '#p2_electricidad', '[name="p2_electricidad"]'],
-        "consumo_p1": ['input[name="consumo_p1"]', 'input[name="consumoAnualP1"]', '#consumo_p1', '[name="consumo_p1"]', '#e1_electricidad', '[name="e1_electricidad"]'],
-        "consumo_p2": ['input[name="consumo_p2"]', 'input[name="consumoAnualP2"]', '#consumo_p2', '[name="consumo_p2"]', '#e2_electricidad', '[name="e2_electricidad"]'],
-        "consumo_p3": ['input[name="consumo_p3"]', 'input[name="consumoAnualP3"]', '#consumo_p3', '[name="consumo_p3"]', '#e3_electricidad', '[name="e3_electricidad"]'],
-        "alquiler": ['input[name="alquiler"]', 'input[name="alquilerEquipo"]', '#alquiler', '[name="alquiler"]', '#alquiler_equipos_electricidad', '[name="alquiler_equipos_electricidad"]'],
-        "importe": ['input[name="importe"]', 'input[name="importeFactura"]', '#importe', '[name="importe"]'],
-        "fecha_inicio": ['input[name="fecha_inicio"]', 'input[name="fechaInicio"]', '#fecha_inicio', '[name="fecha_inicio"]'],
-        "fecha_fin": ['input[name="fecha_fin"]', 'input[name="fechaFin"]', '#fecha_fin', '[name="fecha_fin"]'],
+        "tarifa": ['select[name="tarifa_acceso"]', '#tarifa_acceso', 'select#tarifa_acceso', '[name="tarifa_acceso"]'],
+        "potencia_p1": ['input[name="potencia_p1"]', '#potencia_p1', '[name="potencia_p1"]'],
+        "potencia_p2": ['input[name="potencia_p2"]', '#potencia_p2', '[name="potencia_p2"]'],
+        "consumo_actual": ['input[name="consumo_actual"]', '#consumo_actual', '[name="consumo_actual"]'],
+        "alquiler_equipos": ['input[name="alquiler_equipos"]', '#alquiler_equipos', '[name="alquiler_equipos"]'],
+        "fecha_inicio": ['input[name="fecha_inicio"]', '#fecha_inicio', '[name="fecha_inicio"]'],
+        "fecha_fin": ['input[name="fecha_fin"]', '#fecha_fin', '[name="fecha_fin"]'],
     }
 
     # Дополнительное ожидание появления формы
@@ -411,15 +424,19 @@ async def _fill_simulation_form(page, data: dict):
                 continue
         print(f"[Eni] Warning: could not find field {field_name}")
 
-    # Заполняем поля
+    # Заполняем поля согласно реальной вёрстке Eni
     await fill_field("tarifa", data.get("access_tariff"))
     await fill_field("potencia_p1", data.get("billed_power_p1"))
     await fill_field("potencia_p2", data.get("billed_power_p2"))
-    await fill_field("consumo_p1", data.get("consumption_p1"))
-    await fill_field("consumo_p2", data.get("consumption_p2"))
-    await fill_field("consumo_p3", data.get("consumption_p3"))
-    await fill_field("alquiler", data.get("equipment_rental"))
-    await fill_field("importe", data.get("invoice_amount"))
+    # Eni использует ОДНО поле для общего потребления, а не P1/P2/P3
+    # Если есть consumption_p1 — используем его, иначе сумму всех периодов
+    total_consumption = data.get("consumption_p1")
+    if total_consumption is None and (data.get("consumption_p1") or data.get("consumption_p2") or data.get("consumption_p3")):
+        total_consumption = (data.get("consumption_p1") or 0) + (data.get("consumption_p2") or 0) + (data.get("consumption_p3") or 0)
+        if total_consumption == 0:
+            total_consumption = None
+    await fill_field("consumo_actual", total_consumption)
+    await fill_field("alquiler_equipos", data.get("equipment_rental"))
     await fill_field("fecha_inicio", data.get("start_date"))
     await fill_field("fecha_fin", data.get("end_date"))
 

@@ -78,7 +78,7 @@ async def main():
     try:
         print(f"[Job {task_id}] Starting Eni simulation for CUPS={cups}")
 
-        pdf_path = await eni_simulator.run_eni_simulation(
+        result = await eni_simulator.run_eni_simulation(
             cups=cups,
             client_type=os.environ.get("CLIENT_TYPE", "Hogar"),
             access_tariff=os.environ.get("ACCESS_TARIFF") or None,
@@ -94,6 +94,11 @@ async def main():
             end_date=os.environ.get("END_DATE") or None,
             headless=True,
         )
+
+        pdf_path = result.get("pdf_path")
+        extracted_cost = result.get("new_monthly_cost_eur")
+        extracted_savings = result.get("savings_monthly_eur")
+        extracted_percent = result.get("savings_percent")
 
         # Upload PDF to GCS
         today = datetime.utcnow()
@@ -116,13 +121,13 @@ async def main():
             "simulation_name": f"Eni Auto — {cups}",
             "new_provider": "Eni Plenitude",
             "new_tariff": os.environ.get("ACCESS_TARIFF"),
-            "new_monthly_cost_eur": 0.0,
+            "new_monthly_cost_eur": extracted_cost if extracted_cost is not None else 0.0,
             "contract_duration_months": None,
             "bonus_description": None,
             "simulation_file_url": pdf_url,
             "is_selected": False,
-            "savings_monthly_eur": None,
-            "savings_percent": None,
+            "savings_monthly_eur": extracted_savings,
+            "savings_percent": extracted_percent,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
         }

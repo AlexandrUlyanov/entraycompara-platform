@@ -240,7 +240,7 @@ async def run_eni_simulation(
             download_path = await _download_pdf_via_imprimir(page)
             await _take_step_screenshot(page, "10_after_download")
 
-            print(f"[Eni] Simulation completed. PDF saved to: {download_path}")
+            print(f"[Eni] Simulation completed. PDF saved to: {download_path.get('pdf_path')}")
             await context.tracing.stop(path=trace_path)
             await _upload_trace(trace_path)
             await browser.close()
@@ -419,8 +419,11 @@ async def _click_send_simulation(page):
     raise EniSimulationError("Could not find send-simulation button")
 
 
-async def _download_pdf_via_imprimir(page) -> str:
-    """Нажимает CREAR CONTRATO, затем IMPRIMIR и сохраняет скачанный PDF."""
+async def _download_pdf_via_imprimir(page) -> dict:
+    """Нажимает CREAR CONTRATO, затем IMPRIMIR и сохраняет скачанный PDF.
+    
+    Возвращает dict с путём к PDF и извлечёнными данными симуляции (цена, сбережения).
+    """
     # Удаляем overlay'и и баннеры, чтобы клики не блокировались
     await _remove_all_overlays(page)
     await _dismiss_cookie_banner(page)
@@ -447,6 +450,38 @@ async def _download_pdf_via_imprimir(page) -> str:
     await asyncio.sleep(3)
     await _take_step_screenshot(page, "10a_after_crear_contrato")
 
+    # Извлекаем данные симуляции из модалки (до клика IMPRIMIR)
+    sim_data = await page.evaluate(r"""() => {
+        const result = { new_monthly_cost_eur: null, savings_monthly_eur: null, savings_percent: null };
+        const text = document.body.innerText || '';
+        
+        // Ищем "Con Plenitude hubieras pagado" — цена с Plenitude
+        const costMatch = text.match(/Con Plenitude hubieras pagado[\s:]*([\d.,]+)\s*€/i);
+        if (costMatch) {
+            result.new_monthly_cost_eur = parseFloat(costMatch[1].replace('.', '').replace(',', '.'));
+        }
+        
+        // Ищем "Con Plenitude te ahorras: X,XX€ (YY,YY%)"
+        const savingsMatch = text.match(/Con Plenitude te ahorras[\s:]*([\d.,]+)\s*€\s*\(([\d.,]+)%\)/i);
+        if (savingsMatch) {
+            result.savings_monthly_eur = parseFloat(savingsMatch[1].replace('.', '').replace(',', '.'));
+            result.savings_percent = parseFloat(savingsMatch[2].replace('.', '').replace(',', '.'));
+        } else {
+            // Fallback: если процент не найден в скобках, ищем отдельно
+            const savingsOnly = text.match(/te ahorras[\s:]*([\d.,]+)\s*€/i);
+            if (savingsOnly) {
+                result.savings_monthly_eur = parseFloat(savingsOnly[1].replace('.', '').replace(',', '.'));
+            }
+            const percentOnly = text.match(/(\d+[.,]\d+)%/);
+            if (percentOnly) {
+                result.savings_percent = parseFloat(percentOnly[1].replace('.', '').replace(',', '.'));
+            }
+        }
+        
+        return result;
+    }""")
+    print(f"[Eni] Extracted simulation data: {sim_data}")
+
     # Шаг 10b: Нажать IMPRIMIR с ожиданием скачивания
     print("[Eni] Clicking IMPRIMIR and waiting for download...")
     await _remove_all_overlays(page)
@@ -466,7 +501,8 @@ async def _download_pdf_via_imprimir(page) -> str:
         download = await download_info.value
         await download.save_as(local_pdf_path)
         print(f"[Eni] PDF downloaded to: {local_pdf_path}")
-        return local_pdf_path
+        sim_data["pdf_path"] = local_pdf_path
+        return sim_data
 
     except Exception as e:
         print(f"[Eni] Download failed: {e}")
@@ -479,7 +515,8 @@ async def _download_pdf_via_imprimir(page) -> str:
             r = requests.get(page.url, timeout=30)
             with open(local_pdf_path, 'wb') as f:
                 f.write(r.content)
-            return local_pdf_path
+            sim_data["pdf_path"] = local_pdf_path
+            return sim_data
         raise EniSimulationError(f"Failed to download simulation PDF: {e}")
 
 

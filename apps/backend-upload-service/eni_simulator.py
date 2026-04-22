@@ -29,9 +29,14 @@ async def run_eni_simulation(
     start_date: str | None = None,
     end_date: str | None = None,
     headless: bool = True,
-) -> str:
+    interactive: bool = False,
+    on_tariffs_ready=None,
+    get_selected_tariff=None,
+) -> dict:
     """
-    Автоматически проходит симуляцию на Eni Plenitude и возвращает путь к скачанному PDF.
+    Автоматически проходит симуляцию на Eni Plenitude.
+    Возвращает dict с pdf_path и извлечёнными данными симуляции.
+    При interactive=True останавливается на странице тарифов и ждёт выбора менеджера.
     """
     trace_path = "/tmp/eni_trace.zip"
     async with async_playwright() as p:
@@ -228,12 +233,35 @@ async def run_eni_simulation(
             if 'pantalla=2' in page.url:
                 raise EniSimulationError("Still on pantalla=2 after form submission. Check CUPS validity and required fields.")
 
-            # Шаг 9: Выбрать 3-й тариф снизу
-            print("[Eni] Step 9: Selecting tariff (3rd from bottom)...")
-            await _take_step_screenshot(page, "09_before_tariff_selection")
-            await _select_third_tariff_from_bottom(page)
-            await asyncio.sleep(1)
-            await _take_step_screenshot(page, "09_after_tariff_selection")
+            # Шаг 9: Работа с тарифами
+            if interactive and on_tariffs_ready and get_selected_tariff:
+                # Интерактивный режим: парсим тарифы и ждём выбора менеджера
+                print("[Eni] Step 9: Interactive mode — parsing tariffs...")
+                await _take_step_screenshot(page, "09_before_tariff_selection")
+                
+                tariffs = await _parse_tariffs_from_page(page)
+                print(f"[Eni] Found {len(tariffs)} tariffs, awaiting manager selection...")
+                await on_tariffs_ready(tariffs)
+                
+                selected_index = None
+                wait_start = asyncio.get_event_loop().time()
+                while selected_index is None:
+                    if asyncio.get_event_loop().time() - wait_start > 600:
+                        raise EniSimulationError("Timeout: manager did not select a tariff within 10 minutes")
+                    selected_index = await get_selected_tariff()
+                    if selected_index is None:
+                        await asyncio.sleep(5)
+                
+                print(f"[Eni] Manager selected tariff index: {selected_index}")
+                await _select_tariff_by_index(page, selected_index)
+                await _take_step_screenshot(page, "09_after_tariff_selection")
+            else:
+                # Автоматический режим: 3-й тариф снизу
+                print("[Eni] Step 9: Selecting tariff (3rd from bottom)...")
+                await _take_step_screenshot(page, "09_before_tariff_selection")
+                await _select_third_tariff_from_bottom(page)
+                await asyncio.sleep(1)
+                await _take_step_screenshot(page, "09_after_tariff_selection")
 
             # Шаг 10: Скачать PDF симуляции через CREAR CONTRATO → IMPRIMIR
             print("[Eni] Step 10: Downloading simulation PDF...")
@@ -809,6 +837,69 @@ async def _select_third_tariff_from_bottom(page):
     except Exception:
         pass
 
+    await asyncio.sleep(1)
+
+
+async def _parse_tariffs_from_page(page) -> list[dict]:
+    """Парсит список тарифов со страницы Eni Plenitude (pantalla=3)."""
+    return await page.evaluate(r"""() => {
+        const result = [];
+        // Пробуем найти строки таблицы
+        const rows = Array.from(document.querySelectorAll('table tbody tr'));
+        if (rows.length > 0) {
+            rows.forEach((row, idx) => {
+                const cells = Array.from(row.querySelectorAll('td'));
+                if (cells.length < 4) return;
+                const radio = cells[0].querySelector('input[type="radio"]');
+                if (!radio) return;
+                const name = (cells[1]?.innerText || '').trim();
+                const currentPrice = (cells[2]?.innerText || '').trim();
+                const plenitudePrice = (cells[3]?.innerText || '').trim();
+                if (!name) return;
+                result.push({
+                    index: idx,
+                    name: name,
+                    current_price: currentPrice,
+                    plenitude_price: plenitudePrice,
+                });
+            });
+        }
+        // Если таблица не найдена — ищем radio + ближайшие контейнеры с ценами
+        if (result.length === 0) {
+            const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+            radios.forEach((radio, idx) => {
+                const container = radio.closest('div, tr, li, label') || radio.parentElement;
+                if (!container) return;
+                const text = container.innerText || '';
+                const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+                const name = lines.find(l => /tarifa/i.test(l)) || lines[0] || '';
+                const prices = lines.filter(l => /€/.test(l) && /\d/.test(l));
+                const currentPrice = prices[0] || '';
+                const plenitudePrice = prices[1] || '';
+                if (!name) return;
+                result.push({
+                    index: idx,
+                    name: name,
+                    current_price: currentPrice,
+                    plenitude_price: plenitudePrice,
+                });
+            });
+        }
+        return result;
+    }""")
+
+
+async def _select_tariff_by_index(page, index: int):
+    """Выбирает тариф по индексу (0-based) через установку checked на radio."""
+    await page.evaluate(f"""() => {{
+        const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+        const target = radios[{index}];
+        if (target) {{
+            target.checked = true;
+            target.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        }}
+    }}""")
+    print(f"[Eni] Selected tariff by index: {index}")
     await asyncio.sleep(1)
 
 

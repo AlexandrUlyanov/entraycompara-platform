@@ -430,10 +430,23 @@ export const getAutoSimulationStatus = async (applicationId: string, taskId: str
   simulation_id?: string;
   simulation_file_url?: string;
   error?: string;
+  tariffs?: Array<{ index: number; name: string; current_price: string; plenitude_price: string }>;
 }> => {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations/auto-create/${taskId}/status`, {
     method: 'GET',
     headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const selectAutoSimulationTariff = async (applicationId: string, taskId: string, selectedTariffIndex: number): Promise<{
+  success: boolean;
+  message: string;
+}> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations/auto-create/${taskId}/select-tariff`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ selected_tariff_index: selectedTariffIndex }),
   });
   return handleApiError(response);
 };

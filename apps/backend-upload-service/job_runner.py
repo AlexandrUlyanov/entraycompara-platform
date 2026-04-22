@@ -78,6 +78,31 @@ async def main():
     try:
         print(f"[Job {task_id}] Starting Eni simulation for CUPS={cups}")
 
+        async def _on_tariffs_ready(tariffs: list[dict]):
+            _set_task_status(firestore_client, application_id, task_id, {
+                "status": "awaiting_tariff_selection",
+                "message": f"Выберите один из {len(tariffs)} тарифов",
+                "tariffs": tariffs,
+                "updated_at": datetime.utcnow(),
+            })
+            print(f"[Job {task_id}] Awaiting tariff selection from manager ({len(tariffs)} options)")
+
+        async def _get_selected_tariff() -> int | None:
+            doc_ref = (
+                firestore_client.collection(FIRESTORE_COLLECTION)
+                .document(application_id)
+                .collection("auto_simulation_tasks")
+                .document(task_id)
+            )
+            doc = doc_ref.get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                sel = data.get("selected_tariff_index")
+                if sel is not None:
+                    print(f"[Job {task_id}] Manager selected tariff index: {sel}")
+                    return sel
+            return None
+
         result = await eni_simulator.run_eni_simulation(
             cups=cups,
             client_type=os.environ.get("CLIENT_TYPE", "Hogar"),
@@ -93,6 +118,9 @@ async def main():
             start_date=os.environ.get("START_DATE") or None,
             end_date=os.environ.get("END_DATE") or None,
             headless=True,
+            interactive=True,
+            on_tariffs_ready=_on_tariffs_ready,
+            get_selected_tariff=_get_selected_tariff,
         )
 
         pdf_path = result.get("pdf_path")

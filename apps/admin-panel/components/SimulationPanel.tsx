@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   listSimulations, createSimulation, updateSimulation, deleteSimulation, selectSimulation,
-  autoCreateEniSimulation, getAutoSimulationStatus, getExtractedData
+  autoCreateEniSimulation, getAutoSimulationStatus, selectAutoSimulationTariff, getExtractedData
 } from '../services/api';
 import { Simulation } from '../types';
 import Spinner from './Spinner';
@@ -23,7 +23,7 @@ const EMPTY_SIMULATION = {
   is_selected: false,
 };
 
-type AutoTaskStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed';
+type AutoTaskStatus = 'idle' | 'pending' | 'running' | 'awaiting_tariff_selection' | 'completed' | 'failed';
 
 const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
   const { t } = useTranslation();
@@ -36,6 +36,9 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
   const [autoTaskId, setAutoTaskId] = useState<string | null>(null);
   const [autoStatus, setAutoStatus] = useState<AutoTaskStatus>('idle');
   const [autoMessage, setAutoMessage] = useState<string>('');
+  const [autoTariffs, setAutoTariffs] = useState<Array<{ index: number; name: string; current_price: string; plenitude_price: string }> | null>(null);
+  const [selectedTariffIndex, setSelectedTariffIndex] = useState<number | null>(null);
+  const [isSelectingTariff, setIsSelectingTariff] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['simulations', appId],
@@ -61,6 +64,9 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
         const result = await getAutoSimulationStatus(appId, autoTaskId);
         setAutoStatus(result.status as AutoTaskStatus);
         setAutoMessage(result.message || '');
+        if (result.tariffs && result.tariffs.length > 0) {
+          setAutoTariffs(result.tariffs);
+        }
         if (result.status === 'completed' || result.status === 'failed') {
           clearInterval(interval);
           queryClient.invalidateQueries({ queryKey: ['simulations', appId] });
@@ -167,11 +173,27 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
     }
   };
 
+  const handleSelectTariff = async () => {
+    if (selectedTariffIndex === null || !autoTaskId) return;
+    setIsSelectingTariff(true);
+    try {
+      await selectAutoSimulationTariff(appId, autoTaskId, selectedTariffIndex);
+      setAutoStatus('running');
+      setAutoMessage('Тариф выбран, продолжаем симуляцию...');
+      setAutoTariffs(null);
+    } catch (e: any) {
+      setAutoMessage(e.message || 'Ошибка при выборе тарифа');
+    } finally {
+      setIsSelectingTariff(false);
+    }
+  };
+
   const getAutoStatusColor = () => {
     switch (autoStatus) {
       case 'completed': return 'bg-green-50 text-green-600 border-green-200';
       case 'failed': return 'bg-red-50 text-red-600 border-red-200';
       case 'running': return 'bg-blue-50 text-blue-600 border-blue-200';
+      case 'awaiting_tariff_selection': return 'bg-purple-50 text-purple-600 border-purple-200';
       case 'pending': return 'bg-amber-50 text-amber-600 border-amber-200';
       default: return '';
     }
@@ -183,21 +205,21 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
       {!isFormOpen && (
         <button
           onClick={handleAutoCreate}
-          disabled={autoStatus === 'pending' || autoStatus === 'running' || !hasCups}
+          disabled={autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection' || !hasCups}
           className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all disabled:opacity-50 ${
             hasCups
               ? 'bg-secondary text-white hover:bg-secondary/90'
               : 'bg-slate-100 text-slate-400 cursor-not-allowed'
           }`}
         >
-          {(autoStatus === 'pending' || autoStatus === 'running') ? (
+          {(autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection') ? (
             <Spinner size="h-4 w-4" />
           ) : (
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
             </svg>
           )}
-          {autoStatus === 'pending' || autoStatus === 'running'
+          {autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection'
             ? t('proposalBuilder.simulation.autoCreating')
             : t('proposalBuilder.simulation.autoCreateEni')
           }
@@ -211,9 +233,53 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
             {(autoStatus === 'pending' || autoStatus === 'running') && <Spinner size="h-3 w-3" />}
             <span className="font-medium">{autoMessage}</span>
           </div>
+
+          {/* Tariff selection UI */}
+          {autoStatus === 'awaiting_tariff_selection' && autoTariffs && autoTariffs.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs font-semibold text-secondary-light uppercase tracking-wide">Доступные тарифы:</p>
+              <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                {autoTariffs.map((tariff) => (
+                  <label
+                    key={tariff.index}
+                    className={`flex items-center gap-3 p-2.5 rounded-xl cursor-pointer transition-all ${
+                      selectedTariffIndex === tariff.index
+                        ? 'bg-primary/10 border border-primary/30'
+                        : 'bg-white/50 border border-transparent hover:bg-white/80'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="tariff-selection"
+                      value={tariff.index}
+                      checked={selectedTariffIndex === tariff.index}
+                      onChange={() => setSelectedTariffIndex(tariff.index)}
+                      className="w-4 h-4 text-primary focus:ring-primary"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-secondary truncate">{tariff.name}</p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        <span className="text-[10px] text-slate-400">Сейчас: {tariff.current_price}</span>
+                        <span className="text-[10px] text-green-600 font-semibold">Plenitude: {tariff.plenitude_price}</span>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <button
+                onClick={handleSelectTariff}
+                disabled={selectedTariffIndex === null || isSelectingTariff}
+                className="w-full mt-2 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+              >
+                {isSelectingTariff && <Spinner size="h-3 w-3" />}
+                {isSelectingTariff ? 'Отправка...' : 'Подтвердить выбор'}
+              </button>
+            </div>
+          )}
+
           {autoStatus === 'completed' && (
             <button
-              onClick={() => { setAutoStatus('idle'); setAutoTaskId(null); }}
+              onClick={() => { setAutoStatus('idle'); setAutoTaskId(null); setAutoTariffs(null); setSelectedTariffIndex(null); }}
               className="mt-2 text-xs underline"
             >
               Очистить

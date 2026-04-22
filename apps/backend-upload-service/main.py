@@ -1436,6 +1436,37 @@ async def get_auto_simulation_status(application_id: str, task_id: str):
         print(f"Get task status error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении статуса: {str(e)}")
 
+
+@app.post("/api/applications/{application_id}/proposal/simulations/auto-create/{task_id}/select-tariff", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def select_tariff_for_auto_simulation(application_id: str, task_id: str, body: dict = Body(...)):
+    """Менеджер выбирает тариф для продолжения автосимуляции."""
+    try:
+        selected_index = body.get("selected_tariff_index")
+        if selected_index is None:
+            raise HTTPException(status_code=400, detail="selected_tariff_index обязателен.")
+
+        task = _get_task_status(application_id, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Задача не найдена.")
+
+        if task.get("status") != "awaiting_tariff_selection":
+            raise HTTPException(status_code=400, detail=f"Некорректный статус задачи: {task.get('status')}")
+
+        _set_task_status(application_id, task_id, {
+            "selected_tariff_index": selected_index,
+            "message": f"Выбран тариф #{selected_index + 1}. Продолжаем симуляцию...",
+            "updated_at": datetime.datetime.utcnow(),
+        })
+
+        return {"success": True, "message": "Тариф выбран, симуляция продолжается."}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Select tariff error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при выборе тарифа: {str(e)}")
+
+
 # --- 4.87. Proposal Builder: PDF Generation Endpoints ---
 
 # PDF Texts by language

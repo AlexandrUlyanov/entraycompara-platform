@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 from google.cloud import storage
+import requests
 
 REFERRAL_URL = "https://g2e.eniplenitude.es/index.php?refid=60335660J3"
 GCS_BUCKET = os.environ.get("GCP_BUCKET_NAME", "entraycompara-invoices")
@@ -234,20 +235,10 @@ async def run_eni_simulation(
             await asyncio.sleep(1)
             await _take_step_screenshot(page, "09_after_tariff_selection")
 
-            # Шаг 10: Отправить на симуляцию
-            print("[Eni] Step 10: Sending simulation request...")
-            try:
-                await _click_send_simulation(page)
-                await page.wait_for_load_state("networkidle", timeout=30000)
-                await asyncio.sleep(3)
-                print(f"[Eni] URL after Step 10: {page.url}")
-                await _take_step_screenshot(page, "10_after_send")
-            except Exception as e:
-                print(f"[Eni] No send button found or already submitted: {e}")
-
-            # Шаг 11: Ожидать результат (до 5 минут)
-            print("[Eni] Step 11: Waiting for simulation result (up to 5 min)...")
-            download_path = await _wait_for_download(page, timeout_seconds=300)
+            # Шаг 10: Скачать PDF симуляции через CREAR CONTRATO → IMPRIMIR
+            print("[Eni] Step 10: Downloading simulation PDF...")
+            download_path = await _download_pdf_via_imprimir(page)
+            await _take_step_screenshot(page, "10_after_download")
 
             print(f"[Eni] Simulation completed. PDF saved to: {download_path}")
             await context.tracing.stop(path=trace_path)
@@ -426,6 +417,70 @@ async def _click_send_simulation(page):
         print(f"[Eni] Clicked send-simulation via JavaScript fallback: '{clicked}'")
         return
     raise EniSimulationError("Could not find send-simulation button")
+
+
+async def _download_pdf_via_imprimir(page) -> str:
+    """Нажимает CREAR CONTRATO, затем IMPRIMIR и сохраняет скачанный PDF."""
+    # Удаляем overlay'и и баннеры, чтобы клики не блокировались
+    await _remove_all_overlays(page)
+    await _dismiss_cookie_banner(page)
+
+    # Шаг 10a: Нажать CREAR CONTRATO
+    print("[Eni] Clicking CREAR CONTRATO...")
+    try:
+        btn = await page.query_selector('#crear_contrato')
+        if btn:
+            await btn.click(timeout=10000)
+            print("[Eni] CREAR CONTRATO clicked normally")
+        else:
+            # Fallback: ищем по тексту
+            await page.evaluate(r"""() => {
+                const btns = Array.from(document.querySelectorAll('button'));
+                const b = btns.find(x => /crear contrato/i.test((x.innerText || '').trim()));
+                if (b) b.click();
+            }""")
+            print("[Eni] CREAR CONTRATO clicked via JS fallback")
+    except Exception as e:
+        print(f"[Eni] Warning: CREAR CONTRATO click issue: {e}")
+
+    await page.wait_for_load_state("networkidle", timeout=30000)
+    await asyncio.sleep(3)
+    await _take_step_screenshot(page, "10a_after_crear_contrato")
+
+    # Шаг 10b: Нажать IMPRIMIR с ожиданием скачивания
+    print("[Eni] Clicking IMPRIMIR and waiting for download...")
+    await _remove_all_overlays(page)
+    await _dismiss_cookie_banner(page)
+
+    local_pdf_path = f"/tmp/eni_simulation_{uuid.uuid4()}.pdf"
+    try:
+        async with page.expect_download(timeout=30000) as download_info:
+            # Нажимаем кнопку Imprimir через JS (надёжнее, чем селектор)
+            await page.evaluate(r"""() => {
+                const btns = Array.from(document.querySelectorAll('button'));
+                const b = btns.find(x => /^imprimir$/i.test((x.innerText || '').trim()));
+                if (b) b.click();
+            }""")
+            print("[Eni] IMPRIMIR clicked via JS")
+
+        download = await download_info.value
+        await download.save_as(local_pdf_path)
+        print(f"[Eni] PDF downloaded to: {local_pdf_path}")
+        return local_pdf_path
+
+    except Exception as e:
+        print(f"[Eni] Download failed: {e}")
+        # Fallback: если expect_download не сработал, попробуем просто подождать
+        await asyncio.sleep(5)
+        # Проверим, не навигировали ли мы на PDF
+        if page.url.endswith('.pdf'):
+            print(f"[Eni] Browser navigated to PDF: {page.url}")
+            # Скачиваем через requests
+            r = requests.get(page.url, timeout=30)
+            with open(local_pdf_path, 'wb') as f:
+                f.write(r.content)
+            return local_pdf_path
+        raise EniSimulationError(f"Failed to download simulation PDF: {e}")
 
 
 async def _click_continuar(page):
@@ -703,6 +758,19 @@ async def _select_third_tariff_from_bottom(page):
     except Exception:
         # Fallback: JS click на родителе
         await target.evaluate('el => el.click()')
+
+    # Дополнительный fallback: убедиться, что radio действительно выбран через JS
+    try:
+        await page.evaluate(r"""() => {
+            const radios = Array.from(document.querySelectorAll('input[type="radio"]'));
+            if (radios.length === 0) return;
+            const target = radios.length >= 3 ? radios[radios.length - 3] : radios[radios.length - 1];
+            target.checked = true;
+            target.dispatchEvent(new Event('change', { bubbles: true }));
+        }""")
+        print("[Eni] Tariff selection confirmed via JS")
+    except Exception:
+        pass
 
     await asyncio.sleep(1)
 

@@ -555,8 +555,17 @@ async def _fill_simulation_form(page, data: dict):
         print("[Eni] Selected first comercializadora option")
     
     # Fecha inicio/fin — заполняем через JS с trigger, иначе datepicker не обновляет скрытые поля
-    start_date = data.get("start_date")
-    end_date = data.get("end_date")
+    # Важно: backend передаёт даты в ISO YYYY-MM-DD, а Eni ожидает DD/MM/YYYY
+    def _fmt_date(d: str | None) -> str | None:
+        if not d:
+            return None
+        # YYYY-MM-DD → DD/MM/YYYY
+        if len(d) == 10 and d[4] == '-' and d[7] == '-':
+            return f"{d[8:10]}/{d[5:7]}/{d[0:4]}"
+        return d
+
+    start_date = _fmt_date(data.get("start_date"))
+    end_date = _fmt_date(data.get("end_date"))
     if start_date or end_date:
         await page.evaluate(f"""() => {{
             const fi = document.getElementById('fecha_inicio');

@@ -78,44 +78,21 @@ async def run_eni_simulation(
             cups_clean = cups.upper().replace(' ', '').replace('-', '').replace('.', '')
             print(f"[Eni] Step 5: Entering CUPS: {cups_clean} (original: {cups})...")
             await page.fill('input#cups_luz', cups_clean, timeout=10000)
-            await page.keyboard.press('Tab')  # Trigger blur/validation
-            print("[Eni] Waiting for CUPS validation (5s)...")
-            await asyncio.sleep(5)
+            # Явно триггерим change event (Eni валидирует CUPS через JS onchange)
+            await page.evaluate("""() => {
+                const el = document.getElementById('cups_luz');
+                if (el) { el.dispatchEvent(new Event('change', { bubbles: true })); }
+            }""")
+            await asyncio.sleep(3)  # Даём JS-валидации время на AJAX-запрос
             print(f"[Eni] URL after Step 5: {page.url}")
 
             # Удаляем overlay'и ещё раз — они могли появиться после взаимодействия
             await _remove_all_overlays(page)
 
-            # Проверяем статус кнопки И сообщения об ошибке
-            submit_btn = await page.query_selector('button#simulador_submit')
-            is_disabled = await submit_btn.evaluate('el => el.disabled') if submit_btn else True
-
-            # Eni показывает ошибку CUPS в .text-danger даже если кнопка enabled
-            error_msg = await page.evaluate(r"""() => {
-                const el = document.querySelector('.text-danger.h3, .alert-danger, .mensaje-error');
-                return el ? (el.innerText || el.textContent || '').trim() : '';
-            }""")
-            if error_msg or is_disabled:
-                # Fallback: пробуем CUPS без последних 2 символов (20 вместо 22)
-                if len(cups_clean) == 22:
-                    cups_20 = cups_clean[:20]
-                    print(f"[Eni] Trying shortened CUPS (20 chars): {cups_20}")
-                    await page.fill('input#cups_luz', cups_20, timeout=10000)
-                    await page.keyboard.press('Tab')
-                    await asyncio.sleep(5)
-                    error_msg_20 = await page.evaluate(r"""() => {
-                        const el = document.querySelector('.text-danger.h3, .alert-danger, .mensaje-error');
-                        return el ? (el.innerText || el.textContent || '').trim() : '';
-                    }""")
-                    submit_btn_20 = await page.query_selector('button#simulador_submit')
-                    is_disabled_20 = await submit_btn_20.evaluate('el => el.disabled') if submit_btn_20 else True
-                    if not error_msg_20 and not is_disabled_20:
-                        print("[Eni] Shortened CUPS accepted!")
-                        cups_clean = cups_20
-                    else:
-                        raise EniSimulationError(f"CUPS validation failed. Eni message: {error_msg_20 or error_msg or 'No data for this CUPS'}")
-                else:
-                    raise EniSimulationError(f"CUPS validation failed. Eni message: {error_msg or 'No data for this CUPS'}")
+            # НЕ проверяем клиентскую ошибку .text-danger здесь!
+            # Eni JS может ложно показывать "No hay datos" через AJAX,
+            # но сервер при POST принимает тот же CUPS.
+            # Проверим результат после нажатия кнопки (шаг 6).
 
             # Шаг 6: Нажать Comenzar Simulación
             print("[Eni] Step 6: Clicking Comenzar Simulación...")
@@ -124,6 +101,35 @@ async def run_eni_simulation(
             await asyncio.sleep(3)  # Ждём загрузки формы симуляции
             print(f"[Eni] URL after Comenzar: {page.url}")
             await _take_step_screenshot(page, "06_after_comenzar")
+
+            # Проверяем, не вернул ли сервер ошибку CUPS после POST
+            server_error = await page.evaluate(r"""() => {
+                const el = document.querySelector('.text-danger.h3, .alert-danger');
+                return el ? (el.innerText || '').trim() : '';
+            }""")
+            if server_error and 'cups' in server_error.lower():
+                raise EniSimulationError(f"CUPS rejected by Eni server: {server_error}")
+            # Если мы всё ещё на pantalla=2 и есть форма CUPS — значит CUPS не прошёл
+            still_cups_form = await page.query_selector('input#cups_luz')
+            if still_cups_form and 'pantalla=2' in page.url:
+                # Может быть, нужно попробовать 20-символьный CUPS
+                if len(cups_clean) == 22:
+                    cups_20 = cups_clean[:20]
+                    print(f"[Eni] Trying shortened CUPS (20 chars): {cups_20}")
+                    await page.fill('input#cups_luz', cups_20, timeout=10000)
+                    await page.evaluate("""() => {
+                        const el = document.getElementById('cups_luz');
+                        if (el) { el.dispatchEvent(new Event('change', { bubbles: true })); }
+                    }""")
+                    await asyncio.sleep(2)
+                    await _scroll_and_click(page, 'button#simulador_submit')
+                    await page.wait_for_load_state("networkidle", timeout=30000)
+                    await asyncio.sleep(3)
+                    still_cups_form_20 = await page.query_selector('input#cups_luz')
+                    if still_cups_form_20 and 'pantalla=2' in page.url:
+                        raise EniSimulationError(f"CUPS validation failed on server. Tried: {cups_clean} and {cups_20}")
+                else:
+                    raise EniSimulationError(f"CUPS validation failed on server: {cups_clean}")
 
             # Шаг 7: Заполнить форму данными
             print("[Eni] Step 7: Filling simulation form...")

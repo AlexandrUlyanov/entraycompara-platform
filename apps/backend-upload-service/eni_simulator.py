@@ -24,6 +24,7 @@ async def run_eni_simulation(
     consumption_p3: float | None = None,
     equipment_rental: float | None = None,
     invoice_amount_with_vat: float | None = None,
+    retailer: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
     headless: bool = True,
@@ -160,21 +161,35 @@ async def run_eni_simulation(
                 "consumption_p3": consumption_p3,
                 "equipment_rental": equipment_rental,
                 "invoice_amount_with_vat": invoice_amount_with_vat,
+                "retailer": retailer,
                 "start_date": start_date,
                 "end_date": end_date,
             })
             await _take_step_screenshot(page, "07_after_fill")
 
-            # Шаг 8: Отправить #form_simulador через JS form.submit()
-            # Важно: jquery.form.js перехватывает клик на кнопку, поэтому
-            # обычный Playwright click (даже force=True) не срабатывает.
-            # form.submit() напрямую обходит все JS-перехватчики.
-            print("[Eni] Step 8: Submitting simulation form...")
-            await page.evaluate(r"""() => {
-                const form = document.getElementById('form_simulador');
-                if (form) { form.submit(); }
-            }""")
-            await page.wait_for_load_state("networkidle", timeout=30000)
+            # Шаг 8: Нажать "Continuar" внутри #form_simulador
+            # Важно: нужен именно клик на кнопку (не form.submit()), чтобы
+            # сработал jQuery-валидатор и AJAX-отправка формы.
+            # Предварительно удаляем баннер, чтобы он не блокировал клик.
+            print("[Eni] Step 8: Clicking Continuar in simulation form...")
+            await _remove_all_overlays(page)
+            await _dismiss_cookie_banner(page)
+            try:
+                # Нормальный клик с длинным таймаутом на навигацию
+                btn = await page.query_selector('#form_simulador button[type="submit"]')
+                if btn:
+                    await btn.click(timeout=60000)
+                    print("[Eni] Normal click on Continuar succeeded")
+                else:
+                    raise EniSimulationError("Submit button not found in #form_simulador")
+            except Exception as e:
+                print(f"[Eni] Normal click failed: {e}, trying JS fallback")
+                await page.evaluate(r"""() => {
+                    const form = document.getElementById('form_simulador');
+                    const btn = form ? form.querySelector('button[type="submit"]') : null;
+                    if (btn) btn.click();
+                }""")
+            await page.wait_for_load_state("networkidle", timeout=60000)
             await asyncio.sleep(5)
             current_url = page.url
             print(f"[Eni] URL after Step 8: {current_url}")
@@ -512,8 +527,44 @@ async def _fill_simulation_form(page, data: dict):
     await fill_field("energia_p2", data.get("consumption_p2"))
     await fill_field("energia_p3", data.get("consumption_p3"))
     await fill_field("alquiler_equipos", data.get("equipment_rental"))
-    await fill_field("fecha_inicio", data.get("start_date"))
-    await fill_field("fecha_fin", data.get("end_date"))
+    
+    # Comercializadora — обязательна для JS-валидатора
+    retailer = data.get("retailer")
+    if retailer:
+        try:
+            await page.select_option('#comercializadora', label=retailer)
+            print(f"[Eni] Selected comercializadora by label: {retailer}")
+        except Exception:
+            # Fallback: select first non-empty option
+            await page.evaluate('''() => {
+                const sel = document.getElementById('comercializadora');
+                if (sel && sel.options.length > 1) {
+                    sel.selectedIndex = 1;
+                    $(sel).trigger('change');
+                }
+            }''')
+            print("[Eni] Selected first comercializadora option as fallback")
+    else:
+        await page.evaluate('''() => {
+            const sel = document.getElementById('comercializadora');
+            if (sel && sel.options.length > 1) {
+                sel.selectedIndex = 1;
+                $(sel).trigger('change');
+            }
+        }''')
+        print("[Eni] Selected first comercializadora option")
+    
+    # Fecha inicio/fin — заполняем через JS с trigger, иначе datepicker не обновляет скрытые поля
+    start_date = data.get("start_date")
+    end_date = data.get("end_date")
+    if start_date or end_date:
+        await page.evaluate(f"""() => {{
+            const fi = document.getElementById('fecha_inicio');
+            const ff = document.getElementById('fecha_fin');
+            if (fi && '{start_date}') {{ fi.value = '{start_date}'; $(fi).trigger('change'); }}
+            if (ff && '{end_date}') {{ ff.value = '{end_date}'; $(ff).trigger('change'); }}
+        }}""")
+        print(f"[Eni] Set dates via JS trigger: {start_date} - {end_date}")
 
     # Пауза после заполнения
     await asyncio.sleep(0.5)

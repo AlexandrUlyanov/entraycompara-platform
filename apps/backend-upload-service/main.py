@@ -1347,6 +1347,7 @@ def _start_eni_simulation_job(application_id: str, task_id: str, data: AutoCreat
                     {"name": "CONSUMPTION_P3", "value": str(data.consumption_p3 or "")},
                     {"name": "EQUIPMENT_RENTAL", "value": str(data.equipment_rental or "")},
                     {"name": "INVOICE_AMOUNT_WITH_VAT", "value": str(data.invoice_amount_with_vat or "")},
+                    {"name": "RETAILER", "value": data.retailer or ""},
                     {"name": "START_DATE", "value": data.start_date or ""},
                     {"name": "END_DATE", "value": data.end_date or ""},
                 ],

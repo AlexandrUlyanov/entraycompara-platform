@@ -89,6 +89,7 @@ async def main():
             consumption_p3=_get_float_env("CONSUMPTION_P3"),
             equipment_rental=_get_float_env("EQUIPMENT_RENTAL"),
             invoice_amount_with_vat=_get_float_env("INVOICE_AMOUNT_WITH_VAT"),
+            retailer=os.environ.get("RETAILER") or None,
             start_date=os.environ.get("START_DATE") or None,
             end_date=os.environ.get("END_DATE") or None,
             headless=True,

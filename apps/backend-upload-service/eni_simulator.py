@@ -31,9 +31,12 @@ async def run_eni_simulation(
     """
     Автоматически проходит симуляцию на Eni Plenitude и возвращает путь к скачанному PDF.
     """
+    trace_path = "/tmp/eni_trace.zip"
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=headless)
         context = await browser.new_context(accept_downloads=True)
+        # Включаем Playwright Trace — полная запись со скриншотами, DOM, сетью и консолью
+        await context.tracing.start(screenshots=True, snapshots=True, sources=True)
         page = await context.new_page()
         # Увеличиваем viewport, чтобы элементы не "прятались" за пределами экрана
         await page.set_viewport_size({"width": 1920, "height": 1080})
@@ -120,11 +123,23 @@ async def run_eni_simulation(
             print("[Eni] Step 8: Clicking Comenzar Simulación (submit simulation data)...")
             await _scroll_and_click(page, 'button#simulador_submit')
             await page.wait_for_load_state("networkidle", timeout=30000)
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)  # Увеличили ожидание — Eni долго рендерит следующий экран
             print(f"[Eni] URL after Step 8: {page.url}")
+            await _take_step_screenshot(page, "08_after_submit")
+
+            # Возможен промежуточный экран с кнопкой "Continuar" / "Siguiente"
+            try:
+                await _click_continuar(page)
+                await page.wait_for_load_state("networkidle", timeout=30000)
+                await asyncio.sleep(3)
+                print(f"[Eni] URL after Continuar: {page.url}")
+                await _take_step_screenshot(page, "08b_after_continuar")
+            except Exception:
+                print("[Eni] No Continuar button found, proceeding to tariff selection")
 
             # Шаг 9: Выбрать 3-й тариф снизу
             print("[Eni] Step 9: Selecting tariff (3rd from bottom)...")
+            await _take_step_screenshot(page, "09_before_tariff_selection")
             await _select_third_tariff_from_bottom(page)
 
             # Шаг 10: Подтвердить выбор (если есть дополнительная кнопка)
@@ -140,13 +155,19 @@ async def run_eni_simulation(
             download_path = await _wait_for_download(page, timeout_seconds=180)
 
             print(f"[Eni] Simulation completed. PDF saved to: {download_path}")
+            await context.tracing.stop(path=trace_path)
+            await _upload_trace(trace_path)
             await browser.close()
             return download_path
 
         except PlaywrightTimeout as e:
+            await context.tracing.stop(path=trace_path)
+            await _upload_trace(trace_path)
             await _save_debug_snapshot(page, browser, "timeout")
             raise EniSimulationError(f"Timeout during Eni simulation: {str(e)}")
         except Exception as e:
+            await context.tracing.stop(path=trace_path)
+            await _upload_trace(trace_path)
             await _save_debug_snapshot(page, browser, "error")
             raise EniSimulationError(f"Eni simulation failed: {str(e)}")
 
@@ -356,8 +377,12 @@ async def _fill_simulation_form(page, data: dict):
 
 
 async def _select_third_tariff_from_bottom(page):
-    """Выбирает 3-й тариф снизу из списка."""
-    # Возможные селекторы для строк тарифов
+    """Выбирает 3-й тариф снизу из списка с множеством fallback'ов."""
+    title = await page.title()
+    print(f"[Eni] Page title: {title}")
+    print(f"[Eni] Page URL: {page.url}")
+
+    # Сначала пробуем классические селекторы
     tariff_selectors = [
         '.tarifa-row',
         '.tarifa',
@@ -365,19 +390,100 @@ async def _select_third_tariff_from_bottom(page):
         '[class*="tarifa"]',
         'tr.tarifa',
         '.panel-tarifa',
+        '.oferta-row',
+        '.oferta',
+        '[class*="oferta"]',
+        '.plan-row',
+        '.plan',
+        '.producto-row',
+        '.producto',
+        # Табличные варианты
+        'table tbody tr',
+        'table tr',
+        '.table tbody tr',
     ]
 
     tariffs = []
+    used_selector = None
     for sel in tariff_selectors:
         tariffs = await page.query_selector_all(sel)
         if len(tariffs) >= 3:
+            used_selector = sel
             break
+        # Если нашли хоть что-то — запоминаем, но продолжаем искать лучший селектор
+        if len(tariffs) > 0 and used_selector is None:
+            used_selector = sel
+
+    # Fallback: если не нашли по классам — ищем ВСЕ radio buttons на странице
+    # и считаем, что каждый относится к отдельному тарифу
+    if len(tariffs) == 0:
+        print("[Eni] No tariffs by class selectors, trying radio buttons...")
+        radios = await page.query_selector_all('input[type="radio"]')
+        if len(radios) >= 1:
+            tariffs = radios
+            used_selector = "input[type='radio']"
+            print(f"[Eni] Found {len(radios)} radio buttons, treating as tariffs")
+
+    # Ещё fallback: ищем label'ы, связанные с radio, или div'ы с текстом "€"
+    if len(tariffs) == 0:
+        print("[Eni] Trying JavaScript fallback to find tariff containers...")
+        js_tariffs = await page.evaluate(r"""() => {
+            // Ищем элементы, которые содержат цену (€) и radio/click
+            const all = Array.from(document.querySelectorAll('*'));
+            const candidates = all.filter(el => {
+                const text = el.innerText || '';
+                const hasPrice = text.includes('€') && /\d+[,.]\d+/.test(text);
+                const hasRadio = el.querySelector('input[type="radio"]') !== null;
+                const isContainer = el.children.length >= 2;
+                return hasPrice && hasRadio && isContainer;
+            });
+            // Возвращаем уникальные ближайшие родители
+            const parents = [];
+            candidates.forEach(el => {
+                const parent = el.closest('div, tr, li, article, section');
+                if (parent && !parents.includes(parent)) parents.push(parent);
+            });
+            return parents.length;
+        }""")
+        print(f"[Eni] JS fallback found {js_tariffs} tariff-like containers")
+
+        # Если JS нашёл контейнеры — пробуем кликнуть на 3-й снизу через JS
+        if js_tariffs >= 1:
+            clicked = await page.evaluate(r"""() => {
+                const all = Array.from(document.querySelectorAll('*'));
+                const candidates = all.filter(el => {
+                    const text = el.innerText || '';
+                    const hasPrice = text.includes('€') && /\d+[,.]\d+/.test(text);
+                    const hasRadio = el.querySelector('input[type="radio"]') !== null;
+                    const isContainer = el.children.length >= 2;
+                    return hasPrice && hasRadio && isContainer;
+                });
+                const parents = [];
+                candidates.forEach(el => {
+                    const parent = el.closest('div, tr, li, article, section');
+                    if (parent && !parents.includes(parent)) parents.push(parent);
+                });
+                if (parents.length === 0) return false;
+                const target = parents.length < 3 ? parents[parents.length - 1] : parents[parents.length - 3];
+                const radio = target.querySelector('input[type="radio"]');
+                if (radio) radio.click();
+                else target.click();
+                return true;
+            }""")
+            if clicked:
+                print("[Eni] Selected tariff via JavaScript fallback")
+                await asyncio.sleep(1)
+                return
 
     if len(tariffs) == 0:
+        # Последняя попытка: сохраняем HTML для анализа и падаем
+        html_snippet = await page.evaluate("() => document.body.innerHTML.substring(0, 2000)")
+        print(f"[Eni] Page HTML snippet:\n{html_snippet}\n...")
         raise EniSimulationError("No tariffs found on the page")
 
+    print(f"[Eni] Found {len(tariffs)} tariffs via selector: {used_selector}")
+
     if len(tariffs) < 3:
-        # Если меньше 3 тарифов — выбираем последний
         target = tariffs[-1]
         print(f"[Eni] Only {len(tariffs)} tariffs found, selecting last one")
     else:
@@ -395,7 +501,7 @@ async def _select_third_tariff_from_bottom(page):
         # Fallback: JS click на родителе
         await target.evaluate('el => el.click()')
 
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1)
 
 
 async def _wait_for_download(page, timeout_seconds: int = 180) -> str:
@@ -435,6 +541,47 @@ async def _wait_for_download(page, timeout_seconds: int = 180) -> str:
         await asyncio.sleep(5)
 
     raise EniSimulationError(f"Download did not appear within {timeout_seconds} seconds")
+
+
+async def _take_step_screenshot(page, step_name: str):
+    """Сохраняет скриншот шага в GCS для визуальной отладки."""
+    try:
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        local_path = f"/tmp/eni_step_{step_name}_{timestamp}.png"
+        await page.screenshot(path=local_path, full_page=True)
+
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET)
+        blob_path = f"eni_debug/{timestamp}_step_{step_name}.png"
+        blob = bucket.blob(blob_path)
+        blob.upload_from_filename(local_path)
+        blob.acl.all().grant_read()
+        blob.acl.save()
+
+        url = f"https://storage.googleapis.com/{GCS_BUCKET}/{blob_path}"
+        print(f"[Eni] Step screenshot [{step_name}]: {url}")
+    except Exception as e:
+        print(f"[Eni] Failed to save step screenshot: {e}")
+
+
+async def _upload_trace(trace_path: str):
+    """Загружает Playwright Trace в GCS."""
+    try:
+        if not os.path.exists(trace_path):
+            return
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET)
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        blob_path = f"eni_debug/{timestamp}_trace.zip"
+        blob = bucket.blob(blob_path)
+        blob.upload_from_filename(trace_path)
+        blob.acl.all().grant_read()
+        blob.acl.save()
+        url = f"https://storage.googleapis.com/{GCS_BUCKET}/{blob_path}"
+        print(f"[Eni] Playwright Trace uploaded: {url}")
+        print(f"[Eni] Open in viewer: https://trace.playwright.dev/?trace={url}")
+    except Exception as e:
+        print(f"[Eni] Failed to upload trace: {e}")
 
 
 async def _save_debug_snapshot(page, browser, prefix: str):

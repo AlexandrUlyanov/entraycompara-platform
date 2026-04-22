@@ -102,18 +102,31 @@ async def run_eni_simulation(
             print(f"[Eni] URL after Comenzar: {page.url}")
             await _take_step_screenshot(page, "06_after_comenzar")
 
-            # Проверяем, не вернул ли сервер ошибку CUPS после POST
-            server_error = await page.evaluate(r"""() => {
-                const el = document.querySelector('.text-danger.h3, .alert-danger');
-                return el ? (el.innerText || '').trim() : '';
+            # Проверяем успешность CUPS: ищем видимую форму симуляции (#form_simulador)
+            # Важно: .text-danger.h3 может существовать в скрытом #form_cups — это ложный сигнал
+            sim_form_visible = await page.evaluate(r"""() => {
+                const form = document.getElementById('form_simulador');
+                if (!form) return false;
+                const style = window.getComputedStyle(form);
+                return style.display !== 'none' && style.visibility !== 'hidden';
             }""")
-            if server_error and 'cups' in server_error.lower():
-                raise EniSimulationError(f"CUPS rejected by Eni server: {server_error}")
-            # Если мы всё ещё на pantalla=2 и есть форма CUPS — значит CUPS не прошёл
-            still_cups_form = await page.query_selector('input#cups_luz')
-            if still_cups_form and 'pantalla=2' in page.url:
+            print(f"[Eni] Simulation form visible: {sim_form_visible}")
+
+            if not sim_form_visible:
+                # Проверяем, не показана ли реальная ошибка сервера (видимая)
+                visible_error = await page.evaluate(r"""() => {
+                    const msg = document.getElementById('mensaje_error');
+                    if (!msg) return '';
+                    const style = window.getComputedStyle(msg);
+                    if (style.display === 'none') return '';
+                    const err = msg.querySelector('.text-danger.h3, .alert-danger');
+                    return err ? (err.innerText || '').trim() : '';
+                }""")
+                if visible_error:
+                    raise EniSimulationError(f"CUPS rejected by Eni server: {visible_error}")
                 # Может быть, нужно попробовать 20-символьный CUPS
-                if len(cups_clean) == 22:
+                still_cups_form = await page.query_selector('input#cups_luz')
+                if still_cups_form and 'pantalla=2' in page.url and len(cups_clean) == 22:
                     cups_20 = cups_clean[:20]
                     print(f"[Eni] Trying shortened CUPS (20 chars): {cups_20}")
                     await page.fill('input#cups_luz', cups_20, timeout=10000)
@@ -125,8 +138,13 @@ async def run_eni_simulation(
                     await _scroll_and_click(page, 'button#simulador_submit')
                     await page.wait_for_load_state("networkidle", timeout=30000)
                     await asyncio.sleep(3)
-                    still_cups_form_20 = await page.query_selector('input#cups_luz')
-                    if still_cups_form_20 and 'pantalla=2' in page.url:
+                    sim_form_visible_20 = await page.evaluate(r"""() => {
+                        const form = document.getElementById('form_simulador');
+                        if (!form) return false;
+                        const style = window.getComputedStyle(form);
+                        return style.display !== 'none' && style.visibility !== 'hidden';
+                    }""")
+                    if not sim_form_visible_20:
                         raise EniSimulationError(f"CUPS validation failed on server. Tried: {cups_clean} and {cups_20}")
                 else:
                     raise EniSimulationError(f"CUPS validation failed on server: {cups_clean}")
@@ -141,14 +159,21 @@ async def run_eni_simulation(
                 "consumption_p2": consumption_p2,
                 "consumption_p3": consumption_p3,
                 "equipment_rental": equipment_rental,
+                "invoice_amount_with_vat": invoice_amount_with_vat,
                 "start_date": start_date,
                 "end_date": end_date,
             })
             await _take_step_screenshot(page, "07_after_fill")
 
-            # Шаг 8: Нажать Comenzar Simulación повторно для отправки данных
-            print("[Eni] Step 8: Clicking Comenzar Simulación (submit simulation data)...")
-            await _scroll_and_click(page, 'button#simulador_submit')
+            # Шаг 8: Отправить #form_simulador через JS form.submit()
+            # Важно: jquery.form.js перехватывает клик на кнопку, поэтому
+            # обычный Playwright click (даже force=True) не срабатывает.
+            # form.submit() напрямую обходит все JS-перехватчики.
+            print("[Eni] Step 8: Submitting simulation form...")
+            await page.evaluate(r"""() => {
+                const form = document.getElementById('form_simulador');
+                if (form) { form.submit(); }
+            }""")
             await page.wait_for_load_state("networkidle", timeout=30000)
             await asyncio.sleep(5)
             current_url = page.url
@@ -156,15 +181,23 @@ async def run_eni_simulation(
             await _take_step_screenshot(page, "08_after_submit")
 
             # КРИТИЧНАЯ ПРОВЕРКА: если мы всё ещё на pantalla=2 — форма не принята
-            if 'pantalla=2' in current_url or 'option=simulador' in current_url and 'pantalla=' not in current_url:
-                # Проверяем, нет ли ошибки на странице
-                page_error = await page.evaluate(r"""() => {
+            if 'pantalla=2' in current_url:
+                # Проверяем, нет ли ВИДИМОЙ ошибки на странице
+                visible_error = await page.evaluate(r"""() => {
+                    const msg = document.getElementById('mensaje_error');
+                    if (msg && window.getComputedStyle(msg).display !== 'none') {
+                        const el = msg.querySelector('.text-danger.h3, .alert-danger');
+                        return el ? (el.innerText || '').trim() : '';
+                    }
                     const el = document.querySelector('.text-danger.h3, .alert-danger');
-                    return el ? (el.innerText || '').trim() : '';
+                    if (el && window.getComputedStyle(el).display !== 'none') {
+                        return (el.innerText || '').trim();
+                    }
+                    return '';
                 }""")
-                if page_error:
-                    raise EniSimulationError(f"Form submission failed. Eni says: {page_error}")
-                # Возможно, нужно нажать "Continuar" для перехода к тарифам
+                if visible_error:
+                    raise EniSimulationError(f"Form submission failed. Eni says: {visible_error}")
+                # Пробуем найти и кликнуть "Continuar" как fallback
                 try:
                     await _click_continuar(page)
                     await page.wait_for_load_state("networkidle", timeout=30000)
@@ -414,11 +447,16 @@ async def _click_continuar(page):
 async def _fill_simulation_form(page, data: dict):
     """Заполняет форму симуляции данными из счета."""
     # Реальные селекторы Eni Plenitude (g2e.eniplenitude.es)
+    # Важно: consumo_actual = Importe Factura Actual (con iva), а НЕ kWh потребления
+    # Потребление по периодам = energia_p1/p2/p3
     field_map = {
         "tarifa": ['select[name="tarifa_acceso"]', '#tarifa_acceso', 'select#tarifa_acceso', '[name="tarifa_acceso"]'],
         "potencia_p1": ['input[name="potencia_p1"]', '#potencia_p1', '[name="potencia_p1"]'],
         "potencia_p2": ['input[name="potencia_p2"]', '#potencia_p2', '[name="potencia_p2"]'],
         "consumo_actual": ['input[name="consumo_actual"]', '#consumo_actual', '[name="consumo_actual"]'],
+        "energia_p1": ['input[name="energia_p1"]', '#energia_p1', '[name="energia_p1"]'],
+        "energia_p2": ['input[name="energia_p2"]', '#energia_p2', '[name="energia_p2"]'],
+        "energia_p3": ['input[name="energia_p3"]', '#energia_p3', '[name="energia_p3"]'],
         "alquiler_equipos": ['input[name="alquiler_equipos"]', '#alquiler_equipos', '[name="alquiler_equipos"]'],
         "fecha_inicio": ['input[name="fecha_inicio"]', '#fecha_inicio', '[name="fecha_inicio"]'],
         "fecha_fin": ['input[name="fecha_fin"]', '#fecha_fin', '[name="fecha_fin"]'],
@@ -453,14 +491,15 @@ async def _fill_simulation_form(page, data: dict):
     # Заполняем поля согласно реальной вёрстке Eni
     # Tarifa de acceso обычно readonly (выбирается автоматически по CUPS)
     await fill_field("tarifa", data.get("access_tariff"))
+    # Potencia: сервер предзаполняет из SIPS, но можем переопределить если есть данные
     await fill_field("potencia_p1", data.get("billed_power_p1"))
     await fill_field("potencia_p2", data.get("billed_power_p2"))
-    # Eni использует ОДНО поле consumo_actual для общего потребления
-    p1 = data.get("consumption_p1") or 0
-    p2 = data.get("consumption_p2") or 0
-    p3 = data.get("consumption_p3") or 0
-    total_consumption = p1 + p2 + p3
-    await fill_field("consumo_actual", total_consumption if total_consumption > 0 else None)
+    # consumo_actual = Importe Factura Actual (con iva) — сумма счёта, НЕ kWh
+    await fill_field("consumo_actual", data.get("invoice_amount_with_vat"))
+    # Потребление по периодам (kWh) — отдельные поля
+    await fill_field("energia_p1", data.get("consumption_p1"))
+    await fill_field("energia_p2", data.get("consumption_p2"))
+    await fill_field("energia_p3", data.get("consumption_p3"))
     await fill_field("alquiler_equipos", data.get("equipment_rental"))
     await fill_field("fecha_inicio", data.get("start_date"))
     await fill_field("fecha_fin", data.get("end_date"))

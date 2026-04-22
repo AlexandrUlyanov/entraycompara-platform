@@ -35,18 +35,21 @@ async def run_eni_simulation(
         browser = await p.chromium.launch(headless=headless)
         context = await browser.new_context(accept_downloads=True)
         page = await context.new_page()
+        # Увеличиваем viewport, чтобы элементы не "прятались" за пределами экрана
+        await page.set_viewport_size({"width": 1920, "height": 1080})
 
         try:
             # Шаг 1: Открыть реферальную ссылку
             print("[Eni] Step 1: Opening referral URL...")
             await page.goto(REFERRAL_URL, wait_until="networkidle", timeout=30000)
 
-            # Закрыть cookie banner если есть
+            # Закрыть cookie banner и все overlay/modal-backdrop'ы
             await _dismiss_cookie_banner(page)
+            await _remove_all_overlays(page)
 
             # Шаг 2: Нажать Simulador
             print("[Eni] Step 2: Clicking Simulador...")
-            await page.click('button[name="option"][value="simulador"]', timeout=10000)
+            await _scroll_and_click(page, 'button[name="option"][value="simulador"]')
             await page.wait_for_load_state("networkidle", timeout=30000)
             await asyncio.sleep(1)
             print(f"[Eni] URL after Step 2: {page.url}")
@@ -54,16 +57,16 @@ async def run_eni_simulation(
             # Шаг 3: Выбрать Hogar / Empresa
             print(f"[Eni] Step 3: Selecting client type: {client_type}...")
             if client_type == "Empresa":
-                await page.click('button[name="tipo_cliente"][value="2"]', timeout=10000)
+                await _scroll_and_click(page, 'button[name="tipo_cliente"][value="2"]')
             else:
-                await page.click('button[name="tipo_cliente"][value="1"]', timeout=10000)
+                await _scroll_and_click(page, 'button[name="tipo_cliente"][value="1"]')
             await page.wait_for_load_state("networkidle", timeout=30000)
             await asyncio.sleep(1)
             print(f"[Eni] URL after Step 3: {page.url}")
 
             # Шаг 4: Выбрать Factura de Electricidad
             print("[Eni] Step 4: Selecting Factura de Electricidad...")
-            await page.click('button[name="tipo_suministro"][value="suministro_luz"]', timeout=10000)
+            await _scroll_and_click(page, 'button[name="tipo_suministro"][value="suministro_luz"]')
             await page.wait_for_load_state("networkidle", timeout=30000)
             await asyncio.sleep(1)
             print(f"[Eni] URL after Step 4: {page.url}")
@@ -75,6 +78,9 @@ async def run_eni_simulation(
             print("[Eni] Waiting for CUPS validation (5s)...")
             await asyncio.sleep(5)
             print(f"[Eni] URL after Step 5: {page.url}")
+
+            # Удаляем overlay'и ещё раз — они могли появиться после взаимодействия
+            await _remove_all_overlays(page)
 
             # Проверяем статус кнопки
             submit_btn = await page.query_selector('button#simulador_submit')
@@ -89,7 +95,8 @@ async def run_eni_simulation(
 
             # Шаг 6: Нажать Comenzar Simulación
             print("[Eni] Step 6: Clicking Comenzar Simulación...")
-            await page.click('button#simulador_submit', timeout=10000)
+            # Кнопка часто перекрыта баннером или вне viewport — используем JS fallback
+            await _scroll_and_click(page, 'button#simulador_submit')
             await page.wait_for_load_state("networkidle", timeout=30000)
             await asyncio.sleep(3)  # Ждём загрузки формы симуляции
             print(f"[Eni] URL after Comenzar: {page.url}")
@@ -111,7 +118,7 @@ async def run_eni_simulation(
 
             # Шаг 8: Нажать Comenzar Simulación повторно для отправки данных
             print("[Eni] Step 8: Clicking Comenzar Simulación (submit simulation data)...")
-            await page.click('button#simulador_submit', timeout=10000)
+            await _scroll_and_click(page, 'button#simulador_submit')
             await page.wait_for_load_state("networkidle", timeout=30000)
             await asyncio.sleep(3)
             print(f"[Eni] URL after Step 8: {page.url}")
@@ -121,10 +128,12 @@ async def run_eni_simulation(
             await _select_third_tariff_from_bottom(page)
 
             # Шаг 10: Подтвердить выбор (если есть дополнительная кнопка)
-            submit_btn = await page.query_selector('button[type="submit"], button.btn-app')
-            if submit_btn:
-                await submit_btn.click()
+            try:
+                await _scroll_and_click(page, 'button[type="submit"], button.btn-app')
                 await page.wait_for_load_state("networkidle", timeout=30000)
+            except Exception:
+                # Если кнопки нет — возможно, она уже нажата автоматически
+                pass
 
             # Шаг 11: Ожидать результат (до 3 минут)
             print("[Eni] Step 11: Waiting for simulation result (up to 3 min)...")
@@ -147,7 +156,7 @@ async def _dismiss_cookie_banner(page):
     try:
         # Пробуем кликнуть на кнопку принятия cookies
         accept_btn = await page.query_selector(
-            '#div_banner button, .contCookie button, #cookiescript_accept, .btn-accept-cookies, [class*="cookie"] button'
+            '#div_banner button, .contCookie button, #cookiescript_accept, .btn-accept-cookies, [class*="cookie"] button, #onetrust-accept-btn-handler, .accept-cookies-btn'
         )
         if accept_btn:
             await accept_btn.click()
@@ -160,7 +169,7 @@ async def _dismiss_cookie_banner(page):
     # Если кнопка не сработала — удаляем баннер из DOM
     try:
         await page.evaluate("""() => {
-            const selectors = ['#div_banner', '.contCookie', '#cookie-banner', '.cookie-banner', '.cookies-banner'];
+            const selectors = ['#div_banner', '.contCookie', '#cookie-banner', '.cookie-banner', '.cookies-banner', '#onetrust-banner-sdk', '.cookie-consent', '.gdpr-banner'];
             for (const sel of selectors) {
                 const el = document.querySelector(sel);
                 if (el) { el.remove(); }
@@ -170,6 +179,80 @@ async def _dismiss_cookie_banner(page):
         await asyncio.sleep(0.3)
     except Exception:
         pass
+
+
+async def _remove_all_overlays(page):
+    """Удаляет modal-backdrop, overlay'ы и разблокирует скролл страницы."""
+    try:
+        await page.evaluate("""() => {
+            // Удаляем backdrop'ы модалок
+            const backdrops = document.querySelectorAll('.modal-backdrop, .overlay, .modal-overlay, .backdrop, .loading-overlay, .spinner-overlay');
+            backdrops.forEach(el => el.remove());
+
+            // Удаляем фиксированные элементы с высоким z-index, которые часто перекрывают контент
+            document.querySelectorAll('*').forEach(el => {
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                // Если элемент фиксированный/стики и занимает почти всю ширину/высоту — возможно это overlay
+                if ((style.position === 'fixed' || style.position === 'sticky') &&
+                    rect.width > window.innerWidth * 0.8 &&
+                    rect.height > window.innerHeight * 0.3 &&
+                    parseInt(style.zIndex) > 100) {
+                    // Не удаляем если это явно header/footer/nav
+                    const tag = el.tagName.toLowerCase();
+                    const role = el.getAttribute('role') || '';
+                    if (!['header', 'nav', 'footer'].includes(tag) && !role.includes('navigation')) {
+                        el.remove();
+                    }
+                }
+            });
+
+            // Разблокируем скролл body
+            document.body.style.overflow = 'auto';
+            document.body.style.position = 'static';
+            document.documentElement.style.overflow = 'auto';
+        }""")
+        print("[Eni] Overlays removed")
+        await asyncio.sleep(0.3)
+    except Exception:
+        pass
+
+
+async def _scroll_and_click(page, selector: str, timeout: int = 10000):
+    """Скроллит к элементу и кликает. Если обычный клик не сработал (overlay/visibility) — использует JavaScript click."""
+    # Ждём появления элемента
+    await page.wait_for_selector(selector, state="attached", timeout=timeout)
+
+    # Скроллим к элементу
+    try:
+        await page.evaluate(f"""() => {{
+            const el = document.querySelector('{selector}');
+            if (el) el.scrollIntoView({{block: 'center', inline: 'center'}});
+        }}""")
+        await asyncio.sleep(0.3)
+    except Exception:
+        pass
+
+    # Пробуем обычный клик с force=True (игнорирует проверку actionability, но не перекрытие)
+    try:
+        await page.locator(selector).click(force=True, timeout=timeout)
+        print(f"[Eni] Clicked {selector} (force)")
+        return
+    except Exception as e:
+        print(f"[Eni] Force click failed for {selector}: {e}")
+
+    # Fallback: JavaScript click — работает даже если элемент перекрыт
+    try:
+        await page.evaluate(f"""() => {{
+            const el = document.querySelector('{selector}');
+            if (!el) throw new Error('Element not found: {selector}');
+            el.click();
+            el.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, view: window }}));
+        }}""")
+        print(f"[Eni] Clicked {selector} (JavaScript fallback)")
+        await asyncio.sleep(0.5)
+    except Exception as e:
+        raise EniSimulationError(f"Failed to click {selector}: {e}")
 
 
 async def _click_continuar(page):
@@ -302,11 +385,15 @@ async def _select_third_tariff_from_bottom(page):
         print(f"[Eni] Selecting 3rd tariff from bottom (index {len(tariffs)-3} of {len(tariffs)})")
 
     # Пытаемся кликнуть radio внутри строки тарифа
-    radio = await target.query_selector('input[type="radio"]')
-    if radio:
-        await radio.click()
-    else:
-        await target.click()
+    try:
+        radio = await target.query_selector('input[type="radio"]')
+        if radio:
+            await radio.click(force=True)
+        else:
+            await target.click(force=True)
+    except Exception:
+        # Fallback: JS click на родителе
+        await target.evaluate('el => el.click()')
 
     await asyncio.sleep(0.5)
 
@@ -330,7 +417,10 @@ async def _wait_for_download(page, timeout_seconds: int = 180) -> str:
                 print(f"[Eni] Download link found: {sel}")
                 # Ждём скачивание
                 async with page.expect_download(timeout=30000) as download_info:
-                    await link.click()
+                    try:
+                        await link.click(force=True)
+                    except Exception:
+                        await link.evaluate('el => el.click()')
                 download = await download_info.value
                 path = await download.path()
                 return str(path)

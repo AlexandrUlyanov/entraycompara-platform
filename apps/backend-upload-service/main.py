@@ -1428,6 +1428,7 @@ async def get_auto_simulation_status(application_id: str, task_id: str):
             "simulation_id": task.get("simulation_id"),
             "simulation_file_url": task.get("simulation_file_url"),
             "error": task.get("error"),
+            "tariffs": task.get("tariffs"),
         }
 
     except HTTPException:

@@ -357,8 +357,14 @@ async def _scroll_and_click(page, selector: str, timeout: int = 10000):
 
 
 async def _click_send_simulation(page):
-    """Нажимает кнопку отправки симуляции после выбора тарифа."""
+    """Нажимает кнопку отправки симуляции после выбора тарифа.
+    
+    Важно: на странице могут быть кнопки меню (Activaciones, Simulador, Documentación),
+    которые НЕ должны быть нажаты. Мы ищем только кнопки внутри контекста симуляции.
+    """
     await asyncio.sleep(1)
+    
+    # Сначала ищем кнопки с конкретным текстом, исключая кнопки меню
     send_selectors = [
         'button:has-text("Continuar")',
         'button:has-text("SIGUIENTE")',
@@ -366,38 +372,43 @@ async def _click_send_simulation(page):
         'button:has-text("Simular")',
         'button:has-text("Enviar")',
         'button:has-text("Confirmar")',
-        'button:has-text("Aceptar")',
         'button:has-text("Generar")',
         'button:has-text("Solicitar")',
-        'input[type="submit"]',
-        'button[type="submit"]',
-        '.btn-primary',
-        '.btn-app',
-        '.btn-success',
         '#btn-enviar',
         '#btn-simular',
         '#btn-continuar',
     ]
     for sel in send_selectors:
         try:
-            el = await page.query_selector(sel)
-            if el:
+            els = await page.query_selector_all(sel)
+            for el in els:
                 visible = await el.evaluate('el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)')
-                if visible:
-                    await _scroll_and_click(page, sel)
-                    print(f"[Eni] Clicked send-simulation via selector: {sel}")
-                    return
+                if not visible:
+                    continue
+                # Проверяем, что это не кнопка меню
+                text = await el.evaluate('el => (el.innerText || el.value || "").trim().toLowerCase()')
+                if any(menu in text for menu in ['activaciones', 'simulador', 'documentación', 'renovaciones', 'cola de trabajo']):
+                    continue
+                await _scroll_and_click(page, sel)
+                print(f"[Eni] Clicked send-simulation via selector: {sel} (text: {text})")
+                return
         except Exception:
             continue
-    # Fallback: JS click на любую кнопку с текстом Continuar/Simular/Enviar/Confirmar/Generar
+    
+    # Fallback: JS click на кнопку внутри формы симуляции или с правильным текстом
     clicked = await page.evaluate(r"""() => {
         const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a'));
-        const target = buttons.find(b => /continuar|siguiente|simular|enviar|confirmar|aceptar|generar|solicitar/i.test(b.innerText || b.value || ''));
-        if (target) { target.click(); return true; }
-        return false;
+        const target = buttons.find(b => {
+            const text = (b.innerText || b.value || '').trim().toLowerCase();
+            const isMenu = /activaciones|simulador|documentaci[oó]n|renovaciones|cola de trabajo|cambio de titular|alta nueva/i.test(text);
+            const isSend = /continuar|siguiente|simular|enviar|confirmar|generar|solicitar/i.test(text);
+            return isSend && !isMenu && !!(b.offsetWidth || b.offsetHeight || b.getClientRects().length);
+        });
+        if (target) { target.click(); return (target.innerText || target.value || '').trim(); }
+        return null;
     }""")
     if clicked:
-        print("[Eni] Clicked send-simulation via JavaScript fallback")
+        print(f"[Eni] Clicked send-simulation via JavaScript fallback: '{clicked}'")
         return
     raise EniSimulationError("Could not find send-simulation button")
 
@@ -659,31 +670,49 @@ async def _wait_for_download(page, timeout_seconds: int = 300) -> str:
     start_time = asyncio.get_event_loop().time()
     last_screenshot = start_time
     iteration = 0
+    last_url = page.url
+    same_url_count = 0
 
     while (asyncio.get_event_loop().time() - start_time) < timeout_seconds:
         iteration += 1
-        print(f"[Eni] Waiting for download... iteration {iteration}, elapsed {int(asyncio.get_event_loop().time() - start_time)}s")
+        elapsed = int(asyncio.get_event_loop().time() - start_time)
+        print(f"[Eni] Waiting for download... iteration {iteration}, elapsed {elapsed}s, URL: {page.url}")
 
         # Скриншот каждые 30 секунд для понимания, что происходит на экране
-        if (asyncio.get_event_loop().time() - last_screenshot) >= 30:
-            await _take_step_screenshot(page, f"11_wait_{int(asyncio.get_event_loop().time() - start_time)}s")
+        if elapsed - int(last_screenshot - start_time) >= 30:
+            await _take_step_screenshot(page, f"11_wait_{elapsed}s")
             last_screenshot = asyncio.get_event_loop().time()
+
+        # Проверяем, не застряли ли мы на одном URL (возможно, загрузка/обработка)
+        current_url = page.url
+        if current_url == last_url:
+            same_url_count += 1
+        else:
+            same_url_count = 0
+            last_url = current_url
+            print(f"[Eni] URL changed to: {current_url}")
+        
+        # Если URL не меняется долго и нет загрузочного спиннера — возможно, PDF уже сгенерирован
+        # и нужно просто найти кнопку скачивания
 
         # 1. Пробуем классические селекторы
         for sel in download_selectors:
-            link = await page.query_selector(sel)
-            if link:
+            links = await page.query_selector_all(sel)
+            for link in links:
                 visible = await link.evaluate('el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)')
                 if visible:
-                    print(f"[Eni] Download link found: {sel}")
-                    async with page.expect_download(timeout=30000) as download_info:
-                        try:
+                    text = await link.evaluate('el => (el.innerText || el.value || "").trim()')
+                    print(f"[Eni] Download link found: {sel} (text: {text})")
+                    try:
+                        async with page.expect_download(timeout=30000) as download_info:
                             await link.click(force=True)
-                        except Exception:
-                            await link.evaluate('el => el.click()')
-                    download = await download_info.value
-                    path = await download.path()
-                    return str(path)
+                        download = await download_info.value
+                        path = await download.path()
+                        return str(path)
+                    except Exception as e:
+                        print(f"[Eni] Download click failed: {e}, trying JS fallback")
+                        await link.evaluate('el => el.click()')
+                        await asyncio.sleep(10)
 
         # 2. JS fallback: ищем любую ссылку, содержащую .pdf в href или тексте "descargar"
         js_link = await page.evaluate(r"""() => {
@@ -697,7 +726,6 @@ async def _wait_for_download(page, timeout_seconds: int = 300) -> str:
         }""")
         if js_link:
             print(f"[Eni] JS fallback found download element: {js_link}")
-            # Пробуем кликнуть по найденному элементу
             clicked = await page.evaluate(r"""() => {
                 const links = Array.from(document.querySelectorAll('a, button'));
                 const found = links.find(el => {
@@ -709,12 +737,7 @@ async def _wait_for_download(page, timeout_seconds: int = 300) -> str:
                 return false;
             }""")
             if clicked:
-                # Ждём скачивание без expect_download (т.к. клик был через evaluate)
                 await asyncio.sleep(10)
-                # Проверим, не появился ли файл в downloads
-                # Playwright не отследит этот клик, но мы можем проверить default download path
-                # Пока просто продолжим цикл — если файл скачался, он появится в следующей итерации
-                pass
 
         # 3. Проверяем iframe'ы — возможно, PDF загружается во фрейме
         frames = page.frames
@@ -724,12 +747,10 @@ async def _wait_for_download(page, timeout_seconds: int = 300) -> str:
                     frame_url = frame.url
                     if '.pdf' in frame_url:
                         print(f"[Eni] PDF detected in iframe: {frame_url}")
-                        # Скачиваем через requests? Или просто возвращаем URL?
-                        # Пока сохраняем URL как результат
                         return frame_url
                     for sel in download_selectors:
-                        link = await frame.query_selector(sel)
-                        if link:
+                        links = await frame.query_selector_all(sel)
+                        for link in links:
                             print(f"[Eni] Download link found in iframe: {sel}")
                             async with frame.page.expect_download(timeout=30000) as download_info:
                                 await link.click(force=True)
@@ -740,20 +761,37 @@ async def _wait_for_download(page, timeout_seconds: int = 300) -> str:
                     continue
 
         # 4. Проверяем, не появилась ли кнопка "Continuar", "Finalizar" или "Generar PDF"
-        next_btn = await page.query_selector('button:has-text("Continuar"), button:has-text("Finalizar"), button:has-text("Generar"), button:has-text("Aceptar")')
-        if next_btn:
-            print("[Eni] Found intermediate button (Continuar/Finalizar/Generar), clicking...")
-            try:
-                await next_btn.click()
-            except Exception:
-                await next_btn.evaluate('el => el.click()')
+        # Исключаем кнопки меню
+        next_btn_text = await page.evaluate(r"""() => {
+            const buttons = Array.from(document.querySelectorAll('button, input[type="submit"], a'));
+            const btn = buttons.find(b => {
+                const text = (b.innerText || b.value || '').trim().toLowerCase();
+                const isMenu = /activaciones|simulador|documentaci[oó]n|renovaciones|cola de trabajo/i.test(text);
+                const isNext = /continuar|finalizar|generar|aceptar/i.test(text);
+                return isNext && !isMenu && !!(b.offsetWidth || b.offsetHeight || b.getClientRects().length);
+            });
+            if (btn) { btn.click(); return (btn.innerText || btn.value || '').trim(); }
+            return null;
+        }""")
+        if next_btn_text:
+            print(f"[Eni] Clicked intermediate button: '{next_btn_text}'")
             await page.wait_for_load_state("networkidle", timeout=15000)
+            await asyncio.sleep(3)
+            continue
 
         # 5. Проверяем, не сменился ли URL на прямую ссылку к PDF
-        current_url = page.url
         if current_url.endswith('.pdf'):
             print(f"[Eni] Browser navigated directly to PDF: {current_url}")
             return current_url
+
+        # 6. Если URL давно не меняется и мы на Activaciones или другой странице,
+        # возможно симуляция уже завершена и нужно искать результаты
+        if same_url_count > 6 and 'pantalla=3' not in current_url and 'simulador' not in current_url:
+            print(f"[Eni] WARNING: Stuck on non-simulation page: {current_url}")
+            # Пробуем вернуться к симулятору
+            await page.goto('https://g2e.eniplenitude.es/index.php?option=simulador&pantalla=3', wait_until='networkidle')
+            await asyncio.sleep(3)
+            same_url_count = 0
 
         await asyncio.sleep(5)
 

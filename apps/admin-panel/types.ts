@@ -119,6 +119,11 @@ export interface ExtractionTaskStatus {
   error?: string;
 }
 
+export interface RetailerOption {
+  value: string;
+  label: string;
+}
+
 export interface Simulation {
   id: string;
   simulation_name: string;

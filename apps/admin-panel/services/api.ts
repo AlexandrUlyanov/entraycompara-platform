@@ -1,5 +1,5 @@
 
-import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus } from '../types';
+import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption } from '../types';
 
 const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
@@ -337,6 +337,14 @@ export const updateExtractedData = async (applicationId: string, extractedData: 
 
 export const getExtractedData = async (applicationId: string): Promise<ProposalData> => {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/extracted-data`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const listRetailers = async (): Promise<{ success: boolean; retailers: RetailerOption[] }> => {
+  const response = await fetch(`${API_BASE_URL}/reference/retailers`, {
     method: 'GET',
     headers: getHeaders(),
   });

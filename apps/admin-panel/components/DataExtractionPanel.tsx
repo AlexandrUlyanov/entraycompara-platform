@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { extractDataWithAI, updateExtractedData, getExtractedData, getExtractionTaskStatus } from '../services/api';
+import { extractDataWithAI, updateExtractedData, getExtractedData, getExtractionTaskStatus, listRetailers } from '../services/api';
 import { ExtractedData } from '../types';
 import Spinner from './Spinner';
 import { useTranslation } from '../i18n';
@@ -54,6 +54,12 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
     queryKey: ['proposal-data', appId],
     queryFn: () => getExtractedData(appId),
     retry: false,
+  });
+
+  const { data: retailerOptionsData } = useQuery({
+    queryKey: ['reference-retailers'],
+    queryFn: () => listRetailers(),
+    staleTime: 1000 * 60 * 60,
   });
 
   useEffect(() => {
@@ -177,6 +183,8 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
   const currentStepIndex = extractStepKey
     ? EXTRACTION_STEPS.findIndex((step) => step.key === extractStepKey)
     : -1;
+  const retailerOptions = retailerOptionsData?.retailers || [];
+  const retailerInCatalog = retailerOptions.some((item) => item.label === (formData.retailer || ''));
 
   return (
     <div className="space-y-5">
@@ -437,12 +445,21 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide">{t('proposalBuilder.extractData.retailer')}</label>
                 {renderFieldStatus('retailer')}
               </div>
-              <input
-                type="text"
-                value={formData.retailer || ''}
+              <select
+                value={retailerInCatalog ? (formData.retailer || '') : ''}
                 onChange={e => updateField('retailer', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
-              />
+              >
+                {!retailerInCatalog && formData.retailer ? (
+                  <option value={formData.retailer}>{formData.retailer}</option>
+                ) : null}
+                <option value="">—</option>
+                {retailerOptions.map((item) => (
+                  <option key={item.value || item.label} value={item.label}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
               {renderFieldReasons('retailer')}
             </div>
             <div>

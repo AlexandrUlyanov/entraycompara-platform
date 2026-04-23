@@ -9,6 +9,8 @@ import json
 import mimetypes
 import asyncio
 import threading
+import difflib
+import unicodedata
 from typing import List, Optional, Dict, Any 
 from enum import Enum 
 from email.mime.multipart import MIMEMultipart
@@ -105,6 +107,36 @@ RETAILER_ALIAS_RULES = {
     "total energies": "TotalEnergies",
     "edp": "EDP",
 }
+
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+ENI_RETAILERS_PATH = os.path.join(DATA_DIR, "eni_retailers.json")
+
+
+def _load_known_retailers() -> list[dict[str, str]]:
+    try:
+        with open(ENI_RETAILERS_PATH, "r", encoding="utf-8") as f:
+            raw_items = json.load(f)
+    except Exception as exc:
+        print(f"Failed to load retailer catalog: {exc}")
+        return []
+
+    seen: set[str] = set()
+    items: list[dict[str, str]] = []
+    for item in raw_items:
+        label = re.sub(r"\s+", " ", str(item.get("label") or "")).strip()
+        value = str(item.get("value") or "").strip()
+        if not label:
+            continue
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({"value": value, "label": label})
+    return items
+
+
+KNOWN_RETAILER_ITEMS = _load_known_retailers()
+KNOWN_RETAILER_LABELS = [item["label"] for item in KNOWN_RETAILER_ITEMS]
 
 DISTRIBUTOR_HINTS = [
     "edistribucion",
@@ -666,6 +698,49 @@ def _normalize_retailer_name(value: str | None) -> tuple[str | None, list[str]]:
             if normalized != canonical:
                 rule_hits.append(f"retailer_alias:{alias}->{canonical}")
             return canonical, rule_hits
+
+    def simplify(text: str) -> str:
+        text = unicodedata.normalize("NFKD", text)
+        text = "".join(ch for ch in text if not unicodedata.combining(ch))
+        text = text.casefold()
+        text = re.sub(r"[^a-z0-9]+", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    simplified_input = simplify(normalized)
+    if not simplified_input:
+        return normalized, rule_hits
+
+    exact_map = {
+        simplify(label): label
+        for label in KNOWN_RETAILER_LABELS
+    }
+    exact_canonical = exact_map.get(simplified_input)
+    if exact_canonical:
+        if normalized != exact_canonical:
+            rule_hits.append(f"retailer_catalog_exact:{normalized}->{exact_canonical}")
+        return exact_canonical, rule_hits
+
+    catalog_pairs = [(simplify(label), label) for label in KNOWN_RETAILER_LABELS]
+    for simple_label, label in catalog_pairs:
+        if simplified_input in simple_label or simple_label in simplified_input:
+            if normalized != label:
+                rule_hits.append(f"retailer_catalog_contains:{normalized}->{label}")
+            return label, rule_hits
+
+    close_matches = difflib.get_close_matches(
+        simplified_input,
+        [pair[0] for pair in catalog_pairs],
+        n=1,
+        cutoff=0.72,
+    )
+    if close_matches:
+        matched_simple = close_matches[0]
+        matched_label = next((label for simple_label, label in catalog_pairs if simple_label == matched_simple), None)
+        if matched_label:
+            if normalized != matched_label:
+                rule_hits.append(f"retailer_catalog_fuzzy:{normalized}->{matched_label}")
+            return matched_label, rule_hits
+
     return normalized, rule_hits
 
 
@@ -813,6 +888,9 @@ def _assess_field(field: str, value: Any, extracted: dict) -> dict:
             confidence = 0.3
             needs_review = True
             reasons.append("looks_like_distributor_not_retailer")
+        elif normalized_value in KNOWN_RETAILER_LABELS:
+            confidence = 0.95
+            reasons.append("retailer_catalog_match")
         elif len(str(normalized_value).strip()) >= 3:
             confidence = 0.78
         else:
@@ -1600,6 +1678,13 @@ async def upload_application_files(application_id: str, files: list[UploadFile] 
         raise HTTPException(status_code=500, detail="Ошибка при загрузке файлов.")
 
 # --- 4.85. Proposal Builder: Extracted Data Endpoints ---
+
+@app.get("/api/reference/retailers", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def list_reference_retailers():
+    return {
+        "success": True,
+        "retailers": KNOWN_RETAILER_ITEMS,
+    }
 
 @app.post("/api/applications/{application_id}/proposal/extract-data", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
 async def proposal_extract_data(application_id: str, request: ExtractDataRequest):

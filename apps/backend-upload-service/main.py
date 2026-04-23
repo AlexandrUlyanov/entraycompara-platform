@@ -1857,6 +1857,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 6.6)
             self.cell(46, 3.5, cta_text, align="C", ln=False, link=cta_link)
+            self.set_y(42)
         
         def footer(self):
             self.set_y(-16)

@@ -378,6 +378,116 @@ def create_timeline_event_internal(application_id: str, content: str, event_type
     # Добавление документа в под-коллекцию
     doc_ref.collection("timeline").add(new_event_data)
 
+
+def _extract_filename_from_url(file_url: str) -> str:
+    try:
+        return file_url.split("/")[-1].split("?")[0]
+    except Exception:
+        return file_url
+
+
+def _format_file_links(file_urls: list[str] | None, max_items: int = 10) -> str:
+    if not file_urls:
+        return "Нет файлов."
+    lines: list[str] = []
+    for index, file_url in enumerate(file_urls[:max_items], start=1):
+        file_name = _extract_filename_from_url(file_url)
+        lines.append(f"{index}. {file_name} — {file_url}")
+    if len(file_urls) > max_items:
+        lines.append(f"... и ещё {len(file_urls) - max_items} файл(ов).")
+    return "\n".join(lines)
+
+
+def _format_simulation_summary(simulation: dict) -> str:
+    parts = [
+        f"Название: {simulation.get('simulation_name', 'Без названия')}",
+        f"Поставщик: {simulation.get('new_provider', 'Не указан')}",
+    ]
+    if simulation.get("new_tariff"):
+        parts.append(f"Тариф: {simulation['new_tariff']}")
+    if simulation.get("new_monthly_cost_eur") is not None:
+        parts.append(f"Новый ежемесячный платёж: €{simulation['new_monthly_cost_eur']}")
+    if simulation.get("savings_monthly_eur") is not None:
+        parts.append(f"Экономия в месяц: €{simulation['savings_monthly_eur']}")
+    if simulation.get("savings_percent") is not None:
+        parts.append(f"Экономия: {simulation['savings_percent']}%")
+    if simulation.get("simulation_file_url"):
+        parts.append(f"PDF симуляции: {simulation['simulation_file_url']}")
+    return "\n".join(parts)
+
+
+def _build_interaction_history_context(doc_ref, app_data: dict, max_events: int = 40) -> str:
+    timeline_docs = (
+        doc_ref.collection("timeline")
+        .order_by("created_at", direction=firestore.Query.ASCENDING)
+        .limit(max_events)
+        .stream()
+    )
+
+    lines: list[str] = []
+    for tdoc in timeline_docs:
+        tdata = tdoc.to_dict() or {}
+        created_at = tdata.get("created_at")
+        try:
+            created_label = created_at.strftime("%Y-%m-%d %H:%M") if created_at else "Без даты"
+        except Exception:
+            created_label = str(created_at or "Без даты")
+
+        event_type = tdata.get("type", EventType.NOTE.value)
+        if event_type == EventType.WHATSAPP.value:
+            actor = "Клиент" if tdata.get("direction") == "incoming" or tdata.get("created_by") == "Client" else "Менеджер"
+            lines.append(f"[{created_label}] WhatsApp / {actor}: {tdata.get('content', '')}")
+            continue
+
+        actor = tdata.get("created_by", "System")
+        lines.append(f"[{created_label}] {event_type} / {actor}: {tdata.get('content', '')}")
+
+    current_files = app_data.get("uploaded_files", []) or []
+    if current_files:
+        lines.append("[Актуальные документы в карточке]")
+        lines.append(_format_file_links(current_files, max_items=12))
+
+    proposal_url = app_data.get("proposal_file_url")
+    if proposal_url:
+        lines.append(f"[Текущее коммерческое предложение]\n{proposal_url}")
+
+    try:
+        proposal_data_doc = doc_ref.collection("proposal_data").document("data").get()
+        if proposal_data_doc.exists:
+            proposal_data = proposal_data_doc.to_dict() or {}
+            extracted = proposal_data.get("extracted_data") or {}
+            if extracted:
+                extracted_lines = [
+                    "[Извлечённые данные по счёту]",
+                    f"CUPS: {extracted.get('cups', 'Не найден')}",
+                    f"Коммерциализатор: {extracted.get('retailer', 'Не найден')}",
+                    f"Тариф доступа: {extracted.get('access_tariff', 'Не найден')}",
+                    f"Сумма счёта: {extracted.get('invoice_amount_with_vat', 'Не найдена')}",
+                ]
+                lines.extend(extracted_lines)
+    except Exception as exc:
+        print(f"[AI Context] Failed to read proposal_data: {exc}")
+
+    try:
+        sims = (
+            doc_ref.collection("proposal_simulations")
+            .order_by("created_at", direction=firestore.Query.DESCENDING)
+            .limit(3)
+            .stream()
+        )
+        sim_summaries = []
+        for sim_doc in sims:
+            sim_data = sim_doc.to_dict() or {}
+            sim_data["id"] = sim_doc.id
+            prefix = "[Выбранная симуляция]" if sim_data.get("is_selected") else "[Симуляция]"
+            sim_summaries.append(f"{prefix}\n{_format_simulation_summary(sim_data)}")
+        if sim_summaries:
+            lines.extend(sim_summaries)
+    except Exception as exc:
+        print(f"[AI Context] Failed to read simulations: {exc}")
+
+    return "\n\n".join(lines) if lines else "История взаимодействия пока пуста."
+
 def download_gcs_file(gcs_path: str) -> tuple[bytes, str]:
     """Скачивает файл из GCS по пути вида gs://bucket/path, https://storage.googleapis.com/... или path внутри bucket."""
     # Публичный URL вида https://storage.googleapis.com/bucket/path
@@ -587,9 +697,18 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             "provider_rule_hits": provider_rule_hits,
         })
 
+        extracted_files = extracted.get("source_files") or request_payload.get("file_urls") or []
         create_timeline_event_internal(
             application_id=application_id,
-            content=f"Данные счетов извлечены ИИ. Confidence: {overall_confidence}. Review fields: {len(needs_review_fields)}.",
+            content=(
+                f"Данные счетов извлечены ИИ.\n"
+                f"Confidence: {overall_confidence}.\n"
+                f"Полей на проверку: {len(needs_review_fields)}.\n"
+                f"Коммерциализатор: {extracted.get('retailer', 'Не найден')}.\n"
+                f"Тариф доступа: {extracted.get('access_tariff', 'Не найден')}.\n"
+                f"CUPS: {extracted.get('cups', 'Не найден')}.\n"
+                f"Исходные документы:\n{_format_file_links(extracted_files)}"
+            ),
             event_type=EventType.NOTE,
             created_by="System"
         )
@@ -1401,8 +1520,11 @@ async def submit_application(
         application_id = doc_ref.id 
 
         # 2. АВТОМАТИЗАЦИЯ: Создание первой записи в Timeline
-        file_names = ", ".join([path.split('/')[-1] for path in uploaded_paths])
-        timeline_content = f"Заявка создана клиентом. Статус: '{Status.NEW_LEAD.value}'. Загружено файлов: {len(uploaded_paths)}. Файлы: {file_names}."
+        timeline_content = (
+            f"Заявка создана клиентом. Статус: '{Status.NEW_LEAD.value}'. "
+            f"Загружено файлов: {len(uploaded_paths)}.\n"
+            f"Документы:\n{_format_file_links(uploaded_paths)}"
+        )
         
         # Используем внутреннюю функцию, не требующую авторизации оператора
         create_timeline_event_internal(
@@ -1604,6 +1726,13 @@ async def update_application_service_type(application_id: str, update_data: Appl
             "service_type": update_data.service_type.value,
             "updated_at": datetime.datetime.utcnow()
         })
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"Тип услуги изменён на '{update_data.service_type.value}'.",
+            event_type=EventType.NOTE,
+            created_by="Operator"
+        )
         
         return {
             "success": True,
@@ -1630,8 +1759,15 @@ async def update_application(application_id: str, update_data: ApplicationUpdate
         
         update_dict = update_data.model_dump(exclude_unset=True)
         if update_dict:
+            changed_fields = list(update_dict.keys())
             update_dict["updated_at"] = datetime.datetime.utcnow()
             doc_ref.update(update_dict)
+            create_timeline_event_internal(
+                application_id=application_id,
+                content=f"Карточка лида обновлена. Поля: {', '.join(changed_fields)}.",
+                event_type=EventType.NOTE,
+                created_by="Operator"
+            )
         
         return {
             "success": True,
@@ -1683,6 +1819,16 @@ async def upload_application_files(application_id: str, files: list[UploadFile] 
         existing_files = doc.to_dict().get("uploaded_files", [])
         updated_files = existing_files + uploaded_paths
         doc_ref.update({"uploaded_files": updated_files, "updated_at": today})
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                f"Оператор добавил документы к заявке. Загружено новых файлов: {len(uploaded_paths)}.\n"
+                f"Новые документы:\n{_format_file_links(uploaded_paths)}"
+            ),
+            event_type=EventType.NOTE,
+            created_by="Operator"
+        )
         
         return {
             "success": True,
@@ -1731,6 +1877,16 @@ async def proposal_extract_data(application_id: str, request: ExtractDataRequest
             "created_at": datetime.datetime.utcnow(),
             "updated_at": datetime.datetime.utcnow(),
         })
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Запущено извлечение данных по документам.\n"
+                f"Документы для анализа:\n{_format_file_links(request.file_urls)}"
+            ),
+            event_type=EventType.NOTE,
+            created_by="Operator"
+        )
 
         worker = threading.Thread(
             target=run_proposal_extraction_task,
@@ -1874,7 +2030,10 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
         # Запись в Timeline
         create_timeline_event_internal(
             application_id=application_id,
-            content=f"Данные скорректированы оператором. Изменено полей: {len(changed_fields)}.",
+            content=(
+                f"Данные скорректированы оператором. Изменено полей: {len(changed_fields)}.\n"
+                f"Изменённые поля: {', '.join(changed_fields) if changed_fields else 'не указаны'}."
+            ),
             event_type=EventType.NOTE,
             created_by="System"
         )
@@ -1961,7 +2120,7 @@ async def create_simulation(application_id: str, input_data: SimulationInput):
         
         create_timeline_event_internal(
             application_id=application_id,
-            content=f"Создана симуляция '{input_data.simulation_name}'. Экономия: {savings_percent or 'N/A'}%",
+            content=f"Создана симуляция.\n{_format_simulation_summary(sim_data)}",
             event_type=EventType.NOTE,
             created_by="System"
         )
@@ -2033,6 +2192,16 @@ async def update_simulation(application_id: str, simulation_id: str, update_data
         
         updates["updated_at"] = datetime.datetime.utcnow()
         sim_ref.update(updates)
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Симуляция обновлена.\n"
+                f"{_format_simulation_summary({**sim_data, **updates})}"
+            ),
+            event_type=EventType.NOTE,
+            created_by="Operator"
+        )
         
         return {"success": True, "message": "Симуляция обновлена."}
         
@@ -2057,7 +2226,18 @@ async def delete_simulation(application_id: str, simulation_id: str):
         if not sim.exists:
             raise HTTPException(status_code=404, detail="Симуляция не найдена.")
         
+        sim_data = sim.to_dict() or {}
         sim_ref.delete()
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Симуляция удалена.\n"
+                f"{_format_simulation_summary(sim_data)}"
+            ),
+            event_type=EventType.NOTE,
+            created_by="Operator"
+        )
         
         return {"success": True, "message": "Симуляция удалена."}
         
@@ -2095,7 +2275,7 @@ async def select_simulation(application_id: str, simulation_id: str):
         
         create_timeline_event_internal(
             application_id=application_id,
-            content=f"Выбрана симуляция '{sim_name}' для КП.",
+            content=f"Выбрана симуляция для КП.\n{_format_simulation_summary(sim_data)}",
             event_type=EventType.NOTE,
             created_by="System"
         )
@@ -2219,6 +2399,18 @@ async def auto_create_simulation(application_id: str, request: AutoCreateSimulat
 
         # Запускаем Cloud Run Job
         _start_eni_simulation_job(application_id, task_id, request)
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Запущена автоматическая симуляция Eni.\n"
+                f"CUPS: {request.cups}\n"
+                f"Коммерциализатор: {request.retailer or 'Не указан'}\n"
+                f"Тариф доступа: {request.access_tariff or 'Не указан'}"
+            ),
+            event_type=EventType.NOTE,
+            created_by="Operator"
+        )
 
         return {
             "success": True,
@@ -3162,7 +3354,11 @@ async def generate_proposal(application_id: str, payload: ProposalGenerateReques
         # Timeline
         create_timeline_event_internal(
             application_id=application_id,
-            content="Коммерческое предложение сгенерировано.",
+            content=(
+                "Коммерческое предложение сгенерировано.\n"
+                f"Ссылка на КП: {proposal_url}\n"
+                f"Выбранная симуляция:\n{_format_simulation_summary(selected_sim)}"
+            ),
             event_type=EventType.NOTE,
             created_by="System"
         )
@@ -3234,6 +3430,17 @@ async def upload_proposal(application_id: str, file: UploadFile = File(...)):
             "proposal_uploaded": True,
             "updated_at": today
         })
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Коммерческое предложение загружено оператором.\n"
+                f"Файл: {_extract_filename_from_url(path)}\n"
+                f"Ссылка на КП: {path}"
+            ),
+            event_type=EventType.NOTE,
+            created_by="Operator"
+        )
         
         return {
             "success": True,
@@ -3531,7 +3738,7 @@ async def api_generate_ai_response(data: AIGenerateRequest):
         
         app_data = doc.to_dict()
         
-        # 2. Получаем историю WhatsApp-переписки
+        # 2. Получаем историю WhatsApp-переписки и полную историю взаимодействия
         timeline_docs = doc_ref.collection("timeline") \
             .order_by("created_at", direction=firestore.Query.ASCENDING) \
             .stream()
@@ -3544,6 +3751,7 @@ async def api_generate_ai_response(data: AIGenerateRequest):
                 chat_lines.append(f"{sender}: {tdata.get('content', '')}")
         
         chat_history = "\n".join(chat_lines) if chat_lines else "Переписка только началась."
+        interaction_history = _build_interaction_history_context(doc_ref, app_data)
         
         # 3. Формируем промпт
         uploaded_files = app_data.get("uploaded_files", [])
@@ -3586,6 +3794,9 @@ Email: {app_data.get('client_email', 'Не указан')}
 Загруженные файлы: {files}
 Язык клиента на сайте: {language_name}
 
+[ИСТОРИЯ ВЗАИМОДЕЙСТВИЯ ПО ЛИДУ]
+{interaction_history}
+
 [ИСТОРИЯ ПЕРЕПИСКИ В WHATSAPP]
 {chat_history}
 
@@ -3598,6 +3809,8 @@ Email: {app_data.get('client_email', 'Не указан')}
 Ты не споришь.
 Ты не манипулируешь грубо.
 Ты ведёшь клиента мягко, но уверенно.
+Для принятия решения в первую очередь опирайся на историю взаимодействия по лиду: документы, этапы анализа, симуляции, КП, прошлые обещания менеджера и реальные следующие шаги.
+Если история взаимодействия и WhatsApp-переписка расходятся, считай историю взаимодействия главным источником фактов о текущем статусе работы.
 
 Главная цель каждого сообщения:
 1. Понять, что сейчас мешает клиенту двигаться дальше.
@@ -3801,7 +4014,7 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
         event_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).collection("timeline").document()
         event_ref.set({
             "application_id": data.application_id,
-            "content": "📎 Коммерческое предложение",
+            "content": f"📎 Коммерческое предложение\nСсылка: {proposal_url}",
             "type": EventType.WHATSAPP.value,
             "created_by": "Operator",
             "created_at": datetime.datetime.utcnow(),

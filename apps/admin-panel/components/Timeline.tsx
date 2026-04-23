@@ -114,13 +114,34 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
     }).format(date);
   };
 
+  const renderTextWithLinks = (text: string) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    return parts.map((part, index) => {
+      if (/^https?:\/\/[^\s]+$/.test(part)) {
+        return (
+          <a
+            key={`${part}-${index}`}
+            href={part}
+            target="_blank"
+            rel="noreferrer"
+            className="text-primary-600 underline decoration-primary-300 underline-offset-2 break-all hover:text-primary-700"
+          >
+            {part}
+          </a>
+        );
+      }
+      return <React.Fragment key={`${index}-${part}`}>{part}</React.Fragment>;
+    });
+  };
+
   // Helper function to parse and render note content
   const renderNoteContent = (note: ApplicationNote) => {
     if (note.content.startsWith('SYSTEM_STATUS_CHANGE:')) {
         const statusKey = note.content.split(':')[1];
         // Translate the status key
         const translatedStatus = t(`status.${statusKey.replace(' ', '')}`);
-        return t('timeline.system.statusChange', { status: translatedStatus });
+        return renderTextWithLinks(t('timeline.system.statusChange', { status: translatedStatus }));
     }
     
     // Localize statuses in plain text notes
@@ -131,7 +152,7 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
             content = content.split(statusEng).join(translated);
         }
     });
-    return content;
+    return renderTextWithLinks(content);
   };
 
   return (

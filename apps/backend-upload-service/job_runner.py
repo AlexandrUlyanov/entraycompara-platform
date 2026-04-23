@@ -49,7 +49,7 @@ def _create_timeline_event_sync(firestore_client, application_id: str, content: 
         )
         doc_ref.set({
             "content": content,
-            "event_type": "NOTE",
+            "type": "NOTE",
             "created_by": "System",
             "created_at": datetime.utcnow(),
         })
@@ -223,7 +223,15 @@ async def main():
             _create_timeline_event_sync,
             firestore_client,
             application_id,
-            f"Автоматическая симуляция Eni создана для CUPS {cups}.",
+            (
+                "Автоматическая симуляция Eni завершена.\n"
+                f"CUPS: {cups}\n"
+                f"Поставщик: Eni Plenitude\n"
+                f"PDF симуляции: {pdf_url}\n"
+                f"Новый ежемесячный платёж: €{extracted_cost if extracted_cost is not None else 0.0}\n"
+                f"Экономия в месяц: €{extracted_savings if extracted_savings is not None else 'N/A'}\n"
+                f"Экономия: {extracted_percent if extracted_percent is not None else 'N/A'}%"
+            ),
         )
 
         # Cleanup local file

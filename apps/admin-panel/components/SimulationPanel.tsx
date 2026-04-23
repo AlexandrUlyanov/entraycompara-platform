@@ -6,6 +6,7 @@ import {
 } from '../services/api';
 import { Simulation } from '../types';
 import Spinner from './Spinner';
+import { ProcessMotionStyles, WorkingDots } from './ProcessMotion';
 import { useTranslation } from '../i18n';
 
 interface SimulationPanelProps {
@@ -300,6 +301,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
 
   return (
     <div className="space-y-4">
+      <ProcessMotionStyles />
       {/* Auto-create Eni Simulation */}
       {!isFormOpen && (
         <button
@@ -307,12 +309,17 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
           disabled={autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection' || !hasCups}
           className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-medium transition-all disabled:opacity-50 ${
             hasCups
-              ? 'bg-secondary text-white hover:bg-secondary/90'
+              ? (autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection'
+                  ? 'bg-gradient-to-r from-secondary via-emerald-500 to-teal-500 text-white entray-process-live shadow-[0_14px_34px_rgba(0,200,83,0.22)]'
+                  : 'bg-secondary text-white hover:bg-secondary/90')
               : 'bg-slate-100 text-slate-400 cursor-not-allowed'
           }`}
         >
           {(autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection') ? (
-            <Spinner size="h-4 w-4" />
+            <>
+              <Spinner size="h-4 w-4" />
+              <WorkingDots className="opacity-80" />
+            </>
           ) : (
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
@@ -330,6 +337,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
         <div className={`p-3 rounded-xl text-sm border ${getAutoStatusColor()}`}>
           <div className="flex items-center gap-2">
             {(autoStatus === 'pending' || autoStatus === 'running') && <Spinner size="h-3 w-3" />}
+            {(autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection') && <WorkingDots className="opacity-80" />}
             <span className="font-medium">{autoMessage}</span>
           </div>
 
@@ -340,9 +348,9 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                   <span>{autoStepLabel || 'Выполняем симуляцию'}</span>
                   <span>{autoProgressPercent}%</span>
                 </div>
-                <div className="h-2 rounded-full bg-white/60 overflow-hidden">
+                <div className="entray-progress-track h-2 rounded-full bg-white/60 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-current transition-all duration-500"
+                    className="h-full rounded-full bg-current transition-all duration-500 shadow-[0_0_24px_rgba(16,185,129,0.26)]"
                     style={{ width: `${Math.max(4, autoProgressPercent)}%` }}
                   />
                 </div>
@@ -358,8 +366,8 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                   return (
                     <div
                       key={step.key}
-                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${
-                        isCurrent ? 'bg-white/60' : ''
+                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-all ${
+                        isCurrent ? 'bg-white/70 shadow-[0_10px_25px_rgba(16,185,129,0.08)]' : ''
                       }`}
                     >
                       <div
@@ -367,7 +375,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                           isDone
                             ? 'bg-current text-white border-current'
                             : isCurrent
-                              ? 'border-current'
+                              ? 'border-current entray-step-current'
                               : 'border-current/40 opacity-60'
                         }`}
                       >

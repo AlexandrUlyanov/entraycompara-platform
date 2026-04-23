@@ -1,0 +1,93 @@
+import React from 'react';
+
+export const ProcessMotionStyles: React.FC = () => (
+  <style>{`
+    @keyframes entray-process-sheen {
+      0% { transform: translateX(-130%); opacity: 0; }
+      20% { opacity: .28; }
+      100% { transform: translateX(130%); opacity: 0; }
+    }
+
+    @keyframes entray-process-breathe {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(59,130,246,.18); }
+      50% { transform: scale(1.015); box-shadow: 0 0 0 8px rgba(59,130,246,0); }
+    }
+
+    @keyframes entray-process-dot {
+      0%, 80%, 100% { opacity: .35; transform: translateY(0); }
+      40% { opacity: 1; transform: translateY(-1px); }
+    }
+
+    @keyframes entray-process-ring {
+      0% { transform: scale(.8); opacity: .5; }
+      100% { transform: scale(1.9); opacity: 0; }
+    }
+
+    .entray-process-live {
+      animation: entray-process-breathe 2.4s ease-in-out infinite;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .entray-process-live::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,.14) 35%, rgba(255,255,255,.34) 50%, transparent 70%);
+      animation: entray-process-sheen 2.6s linear infinite;
+      pointer-events: none;
+    }
+
+    .entray-progress-track {
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .entray-progress-track::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      width: 42%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
+      animation: entray-process-sheen 2.2s linear infinite;
+      pointer-events: none;
+    }
+
+    .entray-working-dot {
+      animation: entray-process-dot 1s ease-in-out infinite;
+    }
+
+    .entray-working-dot:nth-child(2) {
+      animation-delay: .15s;
+    }
+
+    .entray-working-dot:nth-child(3) {
+      animation-delay: .3s;
+    }
+
+    .entray-step-current {
+      position: relative;
+      overflow: visible;
+    }
+
+    .entray-step-current::after {
+      content: "";
+      position: absolute;
+      inset: -2px;
+      border-radius: 9999px;
+      border: 2px solid currentColor;
+      animation: entray-process-ring 1.6s ease-out infinite;
+      pointer-events: none;
+    }
+  `}</style>
+);
+
+export const WorkingDots: React.FC<{ className?: string }> = ({ className = '' }) => (
+  <span className={`inline-flex items-center gap-1 ${className}`}>
+    <span className="entray-working-dot h-1.5 w-1.5 rounded-full bg-current" />
+    <span className="entray-working-dot h-1.5 w-1.5 rounded-full bg-current" />
+    <span className="entray-working-dot h-1.5 w-1.5 rounded-full bg-current" />
+  </span>
+);
+

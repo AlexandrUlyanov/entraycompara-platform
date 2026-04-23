@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { extractDataWithAI, updateExtractedData, getExtractedData, getExtractionTaskStatus, getLatestExtractionTask, listRetailers } from '../services/api';
 import { ExtractedData } from '../types';
 import Spinner from './Spinner';
+import { ProcessMotionStyles, WorkingDots } from './ProcessMotion';
 import { useTranslation } from '../i18n';
 
 interface DataExtractionPanelProps {
@@ -241,6 +242,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
 
   return (
     <div className="space-y-5">
+      <ProcessMotionStyles />
       {/* Files Selection */}
       <div>
         <h4 className="text-xs font-bold text-secondary-light uppercase tracking-widest mb-3">{t('proposalBuilder.extractData.filesLabel')}</h4>
@@ -274,11 +276,16 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
         <button
           onClick={handleExtract}
           disabled={extractMutation.isPending || uploadedFiles.length === 0 || extractStatus === 'pending' || extractStatus === 'running'}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary-600 disabled:opacity-50 transition-all"
+          className={`w-full flex items-center justify-center gap-2 px-4 py-3 text-white rounded-xl font-medium transition-all disabled:opacity-50 ${
+            extractMutation.isPending || extractStatus === 'pending' || extractStatus === 'running'
+              ? 'bg-gradient-to-r from-primary via-blue-500 to-cyan-500 entray-process-live shadow-[0_14px_34px_rgba(11,95,255,0.28)]'
+              : 'bg-primary hover:bg-primary-600'
+          }`}
         >
           {extractMutation.isPending || extractStatus === 'pending' || extractStatus === 'running' ? (
             <>
               <Spinner size="h-4 w-4" />
+              <WorkingDots className="opacity-80" />
               {t('proposalBuilder.extractData.extracting')}
             </>
           ) : (
@@ -306,6 +313,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
         }`}>
           <div className="flex items-center gap-2">
             {(extractStatus === 'pending' || extractStatus === 'running') && <Spinner size="h-3 w-3" />}
+            {(extractStatus === 'pending' || extractStatus === 'running') && <WorkingDots className="opacity-80" />}
             <span className="font-medium">{extractMessage || t('proposalBuilder.extractData.task.inProgress')}</span>
           </div>
 
@@ -316,9 +324,9 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                   <span>{extractStepKey ? t(`proposalBuilder.extractData.step.${extractStepKey}`) : t('proposalBuilder.extractData.task.inProgress')}</span>
                   <span>{extractProgressPercent}%</span>
                 </div>
-                <div className="h-2 rounded-full bg-white/60 overflow-hidden">
+                <div className="entray-progress-track h-2 rounded-full bg-white/60 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-current transition-all duration-500"
+                    className="h-full rounded-full bg-current transition-all duration-500 shadow-[0_0_24px_rgba(59,130,246,0.35)]"
                     style={{ width: `${Math.max(4, extractProgressPercent)}%` }}
                   />
                 </div>
@@ -331,14 +339,14 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                   return (
                     <div
                       key={step.key}
-                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${isCurrent ? 'bg-white/60' : ''}`}
+                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-all ${isCurrent ? 'bg-white/70 shadow-[0_10px_25px_rgba(59,130,246,0.08)]' : ''}`}
                     >
                       <div
                         className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] font-bold ${
                           isDone
                             ? 'bg-current text-white border-current'
                             : isCurrent
-                              ? 'border-current'
+                              ? 'border-current entray-step-current'
                               : 'border-current/40 opacity-60'
                         }`}
                       >

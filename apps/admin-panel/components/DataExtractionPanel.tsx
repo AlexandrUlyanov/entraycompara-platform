@@ -279,7 +279,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
           className={`w-full flex items-center justify-center gap-2 px-4 py-3 text-white rounded-xl font-medium transition-all disabled:opacity-50 ${
             extractMutation.isPending || extractStatus === 'pending' || extractStatus === 'running'
               ? 'bg-gradient-to-r from-primary via-blue-500 to-cyan-500 entray-process-live shadow-[0_14px_34px_rgba(11,95,255,0.28)]'
-              : 'bg-primary hover:bg-primary-600'
+              : 'bg-primary hover:bg-primary-600 entray-action-idle'
           }`}
         >
           {extractMutation.isPending || extractStatus === 'pending' || extractStatus === 'running' ? (
@@ -314,6 +314,9 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
           <div className="flex items-center gap-2">
             {(extractStatus === 'pending' || extractStatus === 'running') && <Spinner size="h-3 w-3" />}
             {(extractStatus === 'pending' || extractStatus === 'running') && <WorkingDots className="opacity-80" />}
+            {extractStatus === 'completed' && (
+              <span className="entray-success-check inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-white text-[11px] font-bold">✓</span>
+            )}
             <span className="font-medium">{extractMessage || t('proposalBuilder.extractData.task.inProgress')}</span>
           </div>
 
@@ -336,25 +339,30 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 {EXTRACTION_STEPS.map((step, index) => {
                   const isDone = currentStepIndex > index || extractStatus === 'completed';
                   const isCurrent = extractStepKey === step.key;
+                  const showLine = index < EXTRACTION_STEPS.length - 1;
                   return (
-                    <div
-                      key={step.key}
-                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-all entray-step-enter ${isCurrent ? 'bg-white/70 shadow-[0_10px_25px_rgba(59,130,246,0.08)]' : ''}`}
-                    >
+                    <div key={step.key} className="relative">
                       <div
-                        className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] font-bold ${
-                          isDone
-                            ? 'bg-current text-white border-current'
-                            : isCurrent
-                              ? 'border-current entray-step-current'
-                              : 'border-current/40 opacity-60'
-                        }`}
+                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-all entray-step-enter ${isCurrent ? 'bg-white/70 shadow-[0_10px_25px_rgba(59,130,246,0.08)]' : ''}`}
                       >
-                        {isDone ? '✓' : index + 1}
+                        <div
+                          className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] font-bold ${
+                            isDone
+                              ? 'bg-current text-white border-current'
+                              : isCurrent
+                                ? 'border-current entray-step-current'
+                                : 'border-current/40 opacity-60'
+                          }`}
+                        >
+                          {isDone ? '✓' : index + 1}
+                        </div>
+                        <span className={`text-xs ${isCurrent ? 'font-semibold' : ''}`}>
+                          {t(`proposalBuilder.extractData.step.${step.key}`)}
+                        </span>
                       </div>
-                      <span className={`text-xs ${isCurrent ? 'font-semibold' : ''}`}>
-                        {t(`proposalBuilder.extractData.step.${step.key}`)}
-                      </span>
+                      {showLine && (isDone || isCurrent) && (
+                        <div className={`ml-4 mt-1 h-3 w-[2px] ${isCurrent ? 'entray-progress-line text-blue-400' : 'bg-current/25'}`} />
+                      )}
                     </div>
                   );
                 })}
@@ -578,14 +586,23 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
           <button
             onClick={handleSave}
             disabled={saveMutation.isPending}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-secondary text-white rounded-xl font-medium hover:bg-secondary/90 disabled:opacity-50 transition-all"
+            className={`w-full flex items-center justify-center gap-2 px-4 py-3 text-white rounded-xl font-medium disabled:opacity-50 transition-all ${
+              saveMutation.isPending
+                ? 'bg-gradient-to-r from-secondary via-emerald-500 to-teal-500 entray-process-live shadow-[0_14px_34px_rgba(0,200,83,0.22)]'
+                : 'bg-secondary hover:bg-secondary/90 entray-action-idle'
+            }`}
           >
-            {saveMutation.isPending ? <Spinner size="h-4 w-4" /> : null}
+            {saveMutation.isPending ? (
+              <>
+                <Spinner size="h-4 w-4" />
+                <WorkingDots className="opacity-80" />
+              </>
+            ) : null}
             {t('proposalBuilder.extractData.saveBtn')}
           </button>
 
           {saveMutation.isSuccess && (
-            <p className="text-xs text-green-600 text-center">{t('proposalBuilder.extractData.saved')}</p>
+            <p className="entray-success-check text-xs text-green-600 text-center">{t('proposalBuilder.extractData.saved')}</p>
           )}
           {saveMutation.isError && (
             <p className="text-xs text-red-500">{(saveMutation.error as Error)?.message}</p>

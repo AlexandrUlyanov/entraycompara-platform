@@ -311,7 +311,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
             hasCups
               ? (autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection'
                   ? 'bg-gradient-to-r from-secondary via-emerald-500 to-teal-500 text-white entray-process-live shadow-[0_14px_34px_rgba(0,200,83,0.22)]'
-                  : 'bg-secondary text-white hover:bg-secondary/90')
+                  : 'bg-secondary text-white hover:bg-secondary/90 entray-action-idle')
               : 'bg-slate-100 text-slate-400 cursor-not-allowed'
           }`}
         >
@@ -338,6 +338,9 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
           <div className="flex items-center gap-2">
             {(autoStatus === 'pending' || autoStatus === 'running') && <Spinner size="h-3 w-3" />}
             {(autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection') && <WorkingDots className="opacity-80" />}
+            {autoStatus === 'completed' && (
+              <span className="entray-success-check inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-white text-[11px] font-bold">✓</span>
+            )}
             <span className="font-medium">{autoMessage}</span>
           </div>
 
@@ -363,25 +366,30 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                 {AUTO_SIMULATION_STEPS.map((step, index) => {
                   const isDone = currentStepIndex > index || autoStatus === 'completed';
                   const isCurrent = autoStepKey === step.key;
+                  const showLine = index < AUTO_SIMULATION_STEPS.length - 1;
                   return (
-                    <div
-                      key={step.key}
-                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-all ${
-                        isCurrent ? 'bg-white/70 shadow-[0_10px_25px_rgba(16,185,129,0.08)] entray-step-enter' : ''
-                      }`}
-                    >
+                    <div key={step.key} className="relative">
                       <div
-                        className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] font-bold ${
-                          isDone
-                            ? 'bg-current text-white border-current'
-                            : isCurrent
-                              ? 'border-current entray-step-current'
-                              : 'border-current/40 opacity-60'
+                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-all ${
+                          isCurrent ? 'bg-white/70 shadow-[0_10px_25px_rgba(16,185,129,0.08)] entray-step-enter' : ''
                         }`}
                       >
-                        {isDone ? '✓' : index + 1}
+                        <div
+                          className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] font-bold ${
+                            isDone
+                              ? 'bg-current text-white border-current'
+                              : isCurrent
+                                ? 'border-current entray-step-current'
+                                : 'border-current/40 opacity-60'
+                          }`}
+                        >
+                          {isDone ? '✓' : index + 1}
+                        </div>
+                        <span className={`text-xs ${isCurrent ? 'font-semibold' : ''}`}>{step.label}</span>
                       </div>
-                      <span className={`text-xs ${isCurrent ? 'font-semibold' : ''}`}>{step.label}</span>
+                      {showLine && (isDone || isCurrent) && (
+                        <div className={`ml-4 mt-1 h-3 w-[2px] ${isCurrent ? 'entray-progress-line text-emerald-400' : 'bg-current/25'}`} />
+                      )}
                     </div>
                   );
                 })}

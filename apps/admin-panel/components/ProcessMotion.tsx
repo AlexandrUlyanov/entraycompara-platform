@@ -45,6 +45,18 @@ export const ProcessMotionStyles: React.FC = () => (
       100% { transform: translateX(120%); opacity: 0; }
     }
 
+    @keyframes entray-check-draw {
+      0% { transform: scale(.65) rotate(-8deg); opacity: 0; }
+      55% { transform: scale(1.08) rotate(0deg); opacity: 1; }
+      100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+
+    @keyframes entray-progress-line {
+      0% { transform: scaleX(.35); opacity: .35; }
+      50% { transform: scaleX(1); opacity: .95; }
+      100% { transform: scaleX(.35); opacity: .35; }
+    }
+
     .entray-process-live {
       animation: entray-process-breathe 2.4s ease-in-out infinite;
       position: relative;
@@ -124,6 +136,40 @@ export const ProcessMotionStyles: React.FC = () => (
       background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,.18) 42%, rgba(255,255,255,.38) 52%, transparent 72%);
       animation: entray-success-sheen 2.8s linear infinite;
       pointer-events: none;
+    }
+
+    .entray-success-check {
+      animation: entray-check-draw .42s cubic-bezier(.22,1,.36,1);
+      transform-origin: center;
+    }
+
+    .entray-progress-line {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .entray-progress-line::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 50%;
+      width: 100%;
+      height: 2px;
+      transform: translateY(-50%);
+      transform-origin: left center;
+      background: linear-gradient(90deg, currentColor, rgba(255,255,255,.2), currentColor);
+      opacity: .4;
+      animation: entray-progress-line 2.2s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    .entray-action-idle {
+      transition: transform .22s ease, box-shadow .22s ease, background-color .22s ease;
+    }
+
+    .entray-action-idle:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 26px rgba(15,23,42,.10);
     }
   `}</style>
 );

@@ -95,8 +95,11 @@ KNOWN_ACCESS_TARIFFS = {
 }
 
 RETAILER_ALIAS_RULES = {
-    "endesa": "Endesa",
-    "energia xxi": "Energía XXI",
+    "endesa energia xxi": "ENDESA ENERGÍA XXI",
+    "energía xxi": "ENDESA ENERGÍA XXI",
+    "energia xxi": "ENDESA ENERGÍA XXI",
+    "endesa energia": "ENDESA ENERGÍA",
+    "endesa": "ENDESA ENERGÍA",
     "iberdrola": "Iberdrola",
     "naturgy": "Naturgy",
     "plenitude": "Eni Plenitude",

@@ -38,6 +38,14 @@ const EXTRACTION_STEPS = [
   { key: 'completed', progress: 100 },
 ] as const;
 
+const normalizeRetailerText = (value: string) =>
+  value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
 const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, uploadedFiles }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -184,7 +192,22 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
     ? EXTRACTION_STEPS.findIndex((step) => step.key === extractStepKey)
     : -1;
   const retailerOptions = retailerOptionsData?.retailers || [];
-  const retailerInCatalog = retailerOptions.some((item) => item.label === (formData.retailer || ''));
+  const resolvedRetailerOption = (() => {
+    const current = formData.retailer || '';
+    if (!current) return '';
+    const exact = retailerOptions.find((item) => item.label === current);
+    if (exact) return exact.label;
+
+    const normalizedCurrent = normalizeRetailerText(current);
+    const startsWithMatch = retailerOptions.find((item) => normalizeRetailerText(item.label).startsWith(normalizedCurrent));
+    if (startsWithMatch) return startsWithMatch.label;
+
+    const containsMatch = retailerOptions.find((item) => normalizeRetailerText(item.label).includes(normalizedCurrent));
+    if (containsMatch) return containsMatch.label;
+
+    return '';
+  })();
+  const retailerInCatalog = !!resolvedRetailerOption;
 
   return (
     <div className="space-y-5">
@@ -446,7 +469,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 {renderFieldStatus('retailer')}
               </div>
               <select
-                value={retailerInCatalog ? (formData.retailer || '') : ''}
+                value={retailerInCatalog ? resolvedRetailerOption : ''}
                 onChange={e => updateField('retailer', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               >

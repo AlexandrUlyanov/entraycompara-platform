@@ -1826,12 +1826,10 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.set_xy(15, 14)
             self.cell(0, 8, "compara", ln=False)
 
-            self.set_fill_color(0, 200, 83)
-            self.rounded_rect(15, 23, 56, 5.5, 2, style="F")
-            self.set_xy(18, 23.2)
-            self.set_text_color(255, 255, 255)
+            self.set_xy(18, 24)
+            self.set_text_color(219, 234, 254)
             self.set_font("DejaVu", font_style("B"), 7)
-            self.cell(50, 4, texts["free_service"], ln=False)
+            self.cell(56, 4, texts["free_service"], ln=False)
 
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style(), 8)
@@ -1853,6 +1851,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             cta_link = application.get("proposal_whatsapp_link", "")
             self.set_fill_color(37, 211, 102)
             self.rounded_rect(143, 24.8, 52, 8, 2.5, style="F")
+            self.link(143, 24.8, 52, 8, cta_link)
             self.set_xy(143, 26.5)
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 7)
@@ -2037,7 +2036,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     def draw_savings_panel(x: float, y: float, w: float, h: float, value: str, percent_text: str, monthly_text: str):
         pdf.set_fill_color(*brand_blue)
         pdf.rounded_rect(x, y, w, h, 4, style="F")
-        pdf.set_fill_color(*brand_green)
+        pdf.set_fill_color(*brand_blue_light)
         pdf.rounded_rect(x + 6, y + 6, 40, 7, 2, style="F")
         pdf.set_xy(x + 10, y + 8)
         pdf.set_text_color(255, 255, 255)
@@ -2180,9 +2179,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     # Page 1: cover + summary
     title_y = 48
     banner_y = 60
-    intro_y = 82
+    intro_y = 84
     savings_x = 127
-    savings_y = 74
+    savings_y = 80
     summary_y = 120
     metrics_y = 134
     current_card_y = 164
@@ -2217,7 +2216,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     draw_section_title(texts["summary_title"], texts["summary_subtitle"])
     draw_metric_card(page_left, metrics_y, 56, 21, texts["current_plan"], fmt_money(current_cost), brand_blue)
     draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green)
-    draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light, f"PERCENT::{texts['savings_percentage']}::{f'{savings_percent}%' if savings_percent is not None else '—'}")
+    draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light)
 
     current_rows = [
         (texts["current_provider_label"], current_provider),

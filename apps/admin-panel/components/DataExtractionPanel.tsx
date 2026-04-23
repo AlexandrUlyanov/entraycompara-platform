@@ -65,9 +65,43 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
     },
   });
 
+  const getFieldAssessment = (field: string) => existingData?.field_assessments?.[field];
   const cupsAssessment = existingData?.field_assessments?.cups;
   const cupsLooksValid = !!cupsAssessment && !cupsAssessment.needs_review && (cupsAssessment.confidence || 0) >= 0.9;
   const cupsNeedsReview = !!cupsAssessment?.needs_review;
+
+  const renderFieldStatus = (field: string) => {
+    const assessment = getFieldAssessment(field);
+    if (!assessment) return null;
+
+    const confidence = assessment.confidence || 0;
+    const looksValid = !assessment.needs_review && confidence >= 0.8;
+    const needsReview = !!assessment.needs_review;
+
+    return (
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold ${
+            looksValid
+              ? 'bg-emerald-50 text-emerald-700'
+              : needsReview
+                ? 'bg-red-50 text-red-600'
+                : 'bg-amber-50 text-amber-700'
+          }`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-current" />
+          {looksValid ? 'Validado' : needsReview ? 'Revisar' : 'Pendiente'}
+        </span>
+        <span className="text-[10px] text-slate-400">{Math.round(confidence * 100)}%</span>
+      </div>
+    );
+  };
+
+  const renderFieldReasons = (field: string) => {
+    const reasons = getFieldAssessment(field)?.reasons;
+    if (!reasons || reasons.length === 0) return null;
+    return <p className="mt-1 text-[11px] text-slate-500">{reasons.join(', ')}</p>;
+  };
 
   const handleExtract = () => {
     const urls = selectedFiles.length > 0 ? selectedFiles : uploadedFiles;
@@ -226,12 +260,14 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.accessTariff')}</label>
+              {renderFieldStatus('access_tariff')}
               <input
                 type="text"
                 value={formData.access_tariff || ''}
                 onChange={e => updateField('access_tariff', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldReasons('access_tariff')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.startDate')}</label>
@@ -263,6 +299,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.invoiceAmount')}</label>
+              {renderFieldStatus('invoice_amount_with_vat')}
               <input
                 type="number"
                 step="0.01"
@@ -270,15 +307,18 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 onChange={e => updateField('invoice_amount_with_vat', e.target.value ? parseFloat(e.target.value) : undefined)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldReasons('invoice_amount_with_vat')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.retailer')}</label>
+              {renderFieldStatus('retailer')}
               <input
                 type="text"
                 value={formData.retailer || ''}
                 onChange={e => updateField('retailer', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldReasons('retailer')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.billedPowerP1')}</label>

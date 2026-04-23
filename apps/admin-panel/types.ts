@@ -153,6 +153,7 @@ export interface AutoSimulationTaskStatus {
   step_label?: string;
   step_details?: string;
   progress_percent?: number;
+  tariff_selection_deadline?: string;
   simulation_id?: string;
   simulation_file_url?: string;
   error?: string;

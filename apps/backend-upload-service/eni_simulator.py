@@ -12,6 +12,7 @@ TRACE_ENABLED = os.environ.get("ENI_TRACE_ENABLED", "").lower() in {"1", "true",
 SHORT_UI_WAIT_SECONDS = float(os.environ.get("ENI_SHORT_UI_WAIT_SECONDS", "0.2"))
 FORM_VALIDATION_WAIT_SECONDS = float(os.environ.get("ENI_FORM_VALIDATION_WAIT_SECONDS", "1.5"))
 DOWNLOAD_FALLBACK_WAIT_SECONDS = float(os.environ.get("ENI_DOWNLOAD_FALLBACK_WAIT_SECONDS", "2.0"))
+MANAGER_SELECTION_TIMEOUT_SECONDS = int(os.environ.get("ENI_MANAGER_SELECTION_TIMEOUT_SECONDS", "180"))
 
 
 class EniSimulationError(Exception):
@@ -255,22 +256,38 @@ async def run_eni_simulation(
                 
                 tariffs = await _parse_tariffs_from_page(page)
                 print(f"[Eni] Found {len(tariffs)} tariffs, awaiting manager selection...")
-                await _report_progress("await_manager_choice", "Ждём выбор тарифа", 82, f"Найдено тарифов: {len(tariffs)}.")
+                await _report_progress(
+                    "await_manager_choice",
+                    "Ждём выбор тарифа",
+                    82,
+                    f"Найдено тарифов: {len(tariffs)}. Ожидаем выбор менеджера до {MANAGER_SELECTION_TIMEOUT_SECONDS} секунд.",
+                )
                 await on_tariffs_ready(tariffs)
                 
                 selected_index = None
                 wait_start = asyncio.get_event_loop().time()
                 while selected_index is None:
-                    if asyncio.get_event_loop().time() - wait_start > 600:
-                        raise EniSimulationError("Timeout: manager did not select a tariff within 10 minutes")
+                    if asyncio.get_event_loop().time() - wait_start > MANAGER_SELECTION_TIMEOUT_SECONDS:
+                        print(f"[Eni] Manager did not select tariff within {MANAGER_SELECTION_TIMEOUT_SECONDS}s, using automatic fallback")
+                        await _report_progress(
+                            "auto_select_tariff",
+                            "Выбираем тариф автоматически",
+                            88,
+                            f"Менеджер не выбрал тариф за {MANAGER_SELECTION_TIMEOUT_SECONDS} секунд. Берём 3-й снизу по fallback-правилу.",
+                        )
+                        await _select_third_tariff_from_bottom(page)
+                        await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
+                        await _take_step_screenshot(page, "09_after_auto_fallback_selection")
+                        break
                     selected_index = await get_selected_tariff()
                     if selected_index is None:
                         await asyncio.sleep(1)
                 
-                print(f"[Eni] Manager selected tariff index: {selected_index}")
-                await _report_progress("apply_selected_tariff", "Применяем выбранный тариф", 88, f"Выбран тариф #{selected_index + 1}.")
-                await _select_tariff_by_index(page, selected_index)
-                await _take_step_screenshot(page, "09_after_tariff_selection")
+                if selected_index is not None:
+                    print(f"[Eni] Manager selected tariff index: {selected_index}")
+                    await _report_progress("apply_selected_tariff", "Применяем выбранный тариф", 88, f"Выбран тариф #{selected_index + 1}.")
+                    await _select_tariff_by_index(page, selected_index)
+                    await _take_step_screenshot(page, "09_after_tariff_selection")
             else:
                 # Автоматический режим: 3-й тариф снизу
                 await _report_progress("auto_select_tariff", "Выбираем тариф автоматически", 88, "Выбираем подходящий тариф по бизнес-правилу.")

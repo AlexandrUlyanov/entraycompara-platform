@@ -2255,6 +2255,7 @@ async def get_auto_simulation_status(application_id: str, task_id: str):
             "step_label": task.get("step_label"),
             "step_details": task.get("step_details"),
             "progress_percent": task.get("progress_percent"),
+            "tariff_selection_deadline": task.get("tariff_selection_deadline"),
             "simulation_id": task.get("simulation_id"),
             "simulation_file_url": task.get("simulation_file_url"),
             "error": task.get("error"),
@@ -2289,6 +2290,7 @@ async def get_latest_auto_simulation_status(application_id: str):
                 "step_label": task.get("step_label"),
                 "step_details": task.get("step_details"),
                 "progress_percent": task.get("progress_percent"),
+                "tariff_selection_deadline": task.get("tariff_selection_deadline"),
                 "simulation_id": task.get("simulation_id"),
                 "simulation_file_url": task.get("simulation_file_url"),
                 "error": task.get("error"),
@@ -2325,6 +2327,7 @@ async def select_tariff_for_auto_simulation(application_id: str, task_id: str, b
             "step_label": "Применяем выбранный тариф",
             "step_details": f"Передали в Eni тариф #{selected_index + 1}.",
             "progress_percent": 88,
+            "tariff_selection_deadline": firestore.DELETE_FIELD,
             "tariffs": firestore.DELETE_FIELD,
             "updated_at": datetime.datetime.utcnow(),
         })

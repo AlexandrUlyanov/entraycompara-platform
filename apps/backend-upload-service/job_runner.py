@@ -7,7 +7,7 @@ import os
 import sys
 import uuid
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from google.cloud import firestore, storage
 import eni_simulator
@@ -85,6 +85,9 @@ async def main():
             payload["message"] = details
         else:
             payload["message"] = step_label
+        if step_key in {"apply_selected_tariff", "auto_select_tariff", "download_pdf", "completed"}:
+            payload["tariffs"] = firestore.DELETE_FIELD
+            payload["tariff_selection_deadline"] = firestore.DELETE_FIELD
         await _set_task(payload)
 
     await _set_task({
@@ -103,6 +106,7 @@ async def main():
         print(f"[Job {task_id}] Starting Eni simulation for CUPS={cups}")
 
         async def _on_tariffs_ready(tariffs: list[dict]):
+            selection_deadline = datetime.utcnow() + timedelta(seconds=180)
             await _set_task({
                 "status": "awaiting_tariff_selection",
                 "message": f"Выберите один из {len(tariffs)} тарифов",
@@ -110,6 +114,7 @@ async def main():
                 "step_label": "Ждём выбор тарифа",
                 "step_details": f"Найдено тарифов: {len(tariffs)}. Нужен выбор менеджера.",
                 "progress_percent": 82,
+                "tariff_selection_deadline": selection_deadline,
                 "tariffs": tariffs,
                 "updated_at": datetime.utcnow(),
             })

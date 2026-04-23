@@ -1979,7 +1979,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         circle_x = 16
         card_x = 30
         card_w = 165
-        card_h = 18
+        card_h = 16
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*brand_blue)
         pdf.ellipse(circle_x, y + 2, 12, 12, style="D")
@@ -1991,19 +1991,19 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.set_draw_color(*card_border)
         pdf.rect(card_x, y, card_w, card_h, style="DF")
         pdf.set_fill_color(236, 253, 245)
-        pdf.rect(card_x + 6, y + 4, 18, 4.5, style="F")
-        pdf.set_xy(card_x + 9, y + 4.8)
+        pdf.rect(card_x + 6, y + 3.5, 18, 4, style="F")
+        pdf.set_xy(card_x + 9, y + 4.1)
         pdf.set_text_color(*brand_green_dark)
         pdf.set_font("DejaVu", font_style("B"), 6)
         pdf.cell(12, 2, "STEP", ln=False)
-        pdf.set_xy(card_x + 28, y + 4.2)
+        pdf.set_xy(card_x + 28, y + 3.8)
         pdf.set_text_color(*brand_dark)
-        pdf.set_font("DejaVu", font_style("B"), 8.5)
-        pdf.cell(56, 4, title, ln=False)
-        pdf.set_x(card_x + 88)
+        pdf.set_font("DejaVu", font_style("B"), 8)
+        pdf.cell(52, 3.8, title, ln=False)
+        pdf.set_x(card_x + 82)
         pdf.set_text_color(*brand_secondary)
-        pdf.set_font("DejaVu", font_style(), 7.4)
-        pdf.multi_cell(card_w - 94, 3.8, description)
+        pdf.set_font("DejaVu", font_style(), 6.9)
+        pdf.multi_cell(card_w - 88, 3.4, description)
 
     def format_long_date(value: str | None) -> str:
         if not value or value == "N/A":
@@ -2118,19 +2118,20 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["contract_end"], "—" if not duration else str(duration)),
     ]
     proposal_y = pdf.get_y()
-    draw_info_card(15, proposal_y, 86, 64, texts["recommended_plan"], proposal_rows_left)
-    draw_info_card(109, proposal_y, 86, 64, texts["estimated_savings"], proposal_rows_right)
+    draw_info_card(15, proposal_y, 86, 54, texts["recommended_plan"], proposal_rows_left)
+    draw_info_card(109, proposal_y, 86, 54, texts["estimated_savings"], proposal_rows_right)
 
-    draw_contact_band(15, proposal_y + 72, 180, 22, contact_rows)
-    pdf.set_y(proposal_y + 102)
+    draw_contact_band(15, proposal_y + 60, 180, 18, contact_rows)
+    pdf.set_y(proposal_y + 84)
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])
-    draw_step_row(pdf.get_y(), "1", texts["step1_title"], texts["step1_desc"])
-    draw_step_row(pdf.get_y() + 22, "2", texts["step2_title"], texts["step2_desc"])
-    draw_step_row(pdf.get_y() + 44, "3", texts["step3_title"], texts["step3_desc"])
-    pdf.set_xy(15, 198)
+    steps_y = pdf.get_y()
+    draw_step_row(steps_y, "1", texts["step1_title"], texts["step1_desc"])
+    draw_step_row(steps_y + 18, "2", texts["step2_title"], texts["step2_desc"])
+    draw_step_row(steps_y + 36, "3", texts["step3_title"], texts["step3_desc"])
+    pdf.set_xy(15, steps_y + 56)
     pdf.set_text_color(*brand_secondary)
-    pdf.set_font("DejaVu", font_style(), 7.5)
-    pdf.multi_cell(180, 4.1, texts["proposal_disclaimer"])
+    pdf.set_font("DejaVu", font_style(), 6.8)
+    pdf.multi_cell(180, 3.6, texts["proposal_disclaimer"])
     
     return bytes(pdf.output(dest="S"))
 

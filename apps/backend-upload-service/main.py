@@ -1780,7 +1780,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     pdf.cell(0, 6, texts["step2"], ln=True)
     pdf.cell(0, 6, texts["step3"], ln=True)
     
-    return pdf.output(dest="S")
+    return bytes(pdf.output(dest="S"))
 
 
 @app.post("/api/applications/{application_id}/proposal/generate", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])

@@ -76,6 +76,27 @@ export interface ProposalData {
   extracted_at?: string;
   extracted_by?: string;
   manually_corrected?: boolean;
+  raw_extraction?: {
+    primary_response_text?: string;
+    primary_extracted_data?: ExtractedData;
+    second_pass_attempted?: boolean;
+    second_pass_response_text?: string | null;
+    second_pass_updates?: Partial<ExtractedData>;
+  };
+  field_assessments?: Record<string, {
+    value?: string | number | null;
+    confidence?: number;
+    needs_review?: boolean;
+    reasons?: string[];
+  }>;
+  overall_confidence?: number;
+  needs_review?: boolean;
+  needs_review_fields?: string[];
+  provider_rule_hits?: string[];
+  last_manual_correction?: {
+    changed_fields?: string[];
+    corrected_at?: string;
+  };
 }
 
 export interface Simulation {

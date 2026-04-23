@@ -66,6 +66,51 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
 GEMINI_INVOICE_EXTRACTION_MODEL = os.environ.get("GEMINI_INVOICE_EXTRACTION_MODEL", "gemini-2.5-pro")
 # -------------------------
 
+INVOICE_EXTRACTION_FIELDS = [
+    "cups",
+    "client_type",
+    "access_tariff",
+    "start_date",
+    "end_date",
+    "equipment_rental",
+    "invoice_amount_with_vat",
+    "retailer",
+    "billed_power_p1",
+    "billed_power_p2",
+    "consumption_p1",
+    "consumption_p2",
+    "consumption_p3",
+]
+
+KNOWN_ACCESS_TARIFFS = {
+    "2.0A", "2.0DHA", "2.0DHS", "2.0TD", "3.0A", "3.0TD", "3.1A", "6.1TD", "6.2TD", "6.3TD", "6.4TD"
+}
+
+RETAILER_ALIAS_RULES = {
+    "endesa": "Endesa",
+    "energia xxi": "Energía XXI",
+    "iberdrola": "Iberdrola",
+    "naturgy": "Naturgy",
+    "plenitude": "Eni Plenitude",
+    "eni": "Eni Plenitude",
+    "repsol": "Repsol",
+    "holaluz": "Holaluz",
+    "totalenergies": "TotalEnergies",
+    "total energies": "TotalEnergies",
+    "edp": "EDP",
+}
+
+DISTRIBUTOR_HINTS = [
+    "edistribucion",
+    "e-distribucion",
+    "i-de redes",
+    "redes electricas inteligentes",
+    "union fenosa distribucion",
+    "ufd",
+    "e-redes",
+    "distribucion electrica",
+]
+
 # --- Настройки Email (Gmail SMTP) ---
 OPERATOR_EMAIL = "ulyanov.ht@gmail.com"
 SMTP_USER = os.environ.get("GMAIL_USER")
@@ -312,6 +357,23 @@ def download_gcs_file(gcs_path: str) -> tuple[bytes, str]:
     mime_type = mimetypes.guess_type(blob_name)[0] or "application/octet-stream"
     return file_bytes, mime_type
 
+
+def append_proposal_data_revision(application_id: str, revision_type: str, payload: dict):
+    """Сохраняет историю extraction/correction как основу для golden dataset."""
+    history_ref = (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("proposal_data")
+        .document("data")
+        .collection("revision_history")
+        .document()
+    )
+    history_ref.set({
+        "revision_type": revision_type,
+        "created_at": datetime.datetime.utcnow(),
+        **payload,
+    })
+
 def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
     """Отправляет файлы в Gemini с промптом для извлечения данных счета."""
     if not GEMINI_API_KEY:
@@ -354,24 +416,26 @@ def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
 
 Отвечай ТОЛЬКО JSON, без пояснений и без markdown."""
     
-    model = genai.GenerativeModel(GEMINI_INVOICE_EXTRACTION_MODEL)
-    
-    # Формируем контент: промпт + файлы
+    return _call_gemini_json(prompt, file_bytes_list, GEMINI_INVOICE_EXTRACTION_MODEL)
+
+
+def _call_gemini_json(prompt: str, file_bytes_list: list[tuple[bytes, str]], model_name: str) -> tuple[dict, str]:
+    """Вызывает Gemini, нормализует markdown-обёртки и возвращает (json_obj, raw_text)."""
+    model = genai.GenerativeModel(model_name)
+
     content_parts = [prompt]
     for file_bytes, mime_type in file_bytes_list:
         content_parts.append({
             "mime_type": mime_type,
             "data": file_bytes
         })
-    
+
     response = model.generate_content(content_parts)
-    
     if not response.text:
         raise HTTPException(status_code=500, detail="Gemini вернул пустой ответ.")
-    
-    # Пытаемся извлечь JSON из ответа
-    response_text = response.text.strip()
-    # Убираем markdown code blocks если есть
+
+    raw_text = response.text.strip()
+    response_text = raw_text
     if response_text.startswith("```json"):
         response_text = response_text[7:]
     if response_text.startswith("```"):
@@ -379,23 +443,288 @@ def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
     if response_text.endswith("```"):
         response_text = response_text[:-3]
     response_text = response_text.strip()
-    
+
     try:
         extracted = json.loads(response_text)
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"Gemini вернул невалидный JSON: {str(e)}")
-    
-    # Gemini иногда возвращает JSON-массив вместо объекта
+
     if isinstance(extracted, list):
         if len(extracted) > 0 and isinstance(extracted[0], dict):
             extracted = extracted[0]
         else:
             raise HTTPException(status_code=500, detail="Gemini вернул JSON-массив вместо объекта.")
-    
+
     if not isinstance(extracted, dict):
         raise HTTPException(status_code=500, detail=f"Gemini вернул неожиданный тип данных: {type(extracted).__name__}")
-    
-    return extracted
+
+    return extracted, raw_text
+
+
+def _normalize_retailer_name(value: str | None) -> tuple[str | None, list[str]]:
+    if not value:
+        return None, []
+    normalized = re.sub(r"\s+", " ", str(value)).strip()
+    lowered = normalized.lower()
+    rule_hits: list[str] = []
+    for alias, canonical in RETAILER_ALIAS_RULES.items():
+        if alias in lowered:
+            if normalized != canonical:
+                rule_hits.append(f"retailer_alias:{alias}->{canonical}")
+            return canonical, rule_hits
+    return normalized, rule_hits
+
+
+def _normalize_extracted_value(field: str, value: Any) -> Any:
+    if value in ("", [], {}, None):
+        return None
+
+    if field == "client_type":
+        value_str = str(value).strip().lower()
+        if value_str in {"hogar", "residencial", "particular"}:
+            return "Hogar"
+        if value_str in {"empresa", "negocio", "business"}:
+            return "Empresa"
+        return str(value).strip()
+
+    if field in {"cups", "access_tariff"}:
+        return str(value).strip().upper()
+
+    if field == "retailer":
+        normalized, _ = _normalize_retailer_name(str(value))
+        return normalized
+
+    if field in {"start_date", "end_date"}:
+        value_str = str(value).strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value_str):
+            return value_str
+        match = re.fullmatch(r"(\d{2})/(\d{2})/(\d{4})", value_str)
+        if match:
+            dd, mm, yyyy = match.groups()
+            return f"{yyyy}-{mm}-{dd}"
+        return value_str
+
+    if field in {
+        "equipment_rental", "invoice_amount_with_vat", "billed_power_p1", "billed_power_p2",
+        "consumption_p1", "consumption_p2", "consumption_p3"
+    }:
+        if isinstance(value, (int, float)):
+            return round(float(value), 4)
+        value_str = str(value).strip().replace("€", "").replace("kWh", "").replace("kW", "").replace("%", "")
+        value_str = value_str.replace(" ", "")
+        if "," in value_str and "." in value_str:
+            value_str = value_str.replace(".", "").replace(",", ".")
+        else:
+            value_str = value_str.replace(",", ".")
+        try:
+            return round(float(value_str), 4)
+        except ValueError:
+            return value
+
+    return value
+
+
+def _apply_provider_specific_rules(extracted: dict) -> tuple[dict, list[str]]:
+    normalized = dict(extracted)
+    rule_hits: list[str] = []
+    retailer, retailer_hits = _normalize_retailer_name(normalized.get("retailer"))
+    if retailer is not None:
+        normalized["retailer"] = retailer
+    rule_hits.extend(retailer_hits)
+    return normalized, rule_hits
+
+
+def _assess_field(field: str, value: Any, extracted: dict) -> dict:
+    normalized_value = _normalize_extracted_value(field, value)
+    reasons: list[str] = []
+    confidence = 0.0
+    needs_review = False
+
+    if normalized_value in (None, "", []):
+        return {
+            "value": None,
+            "confidence": 0.1,
+            "needs_review": True,
+            "reasons": ["missing_value"],
+        }
+
+    if field == "cups":
+        cups = str(normalized_value).upper()
+        if re.fullmatch(r"ES[0-9A-Z]{18,20}", cups):
+            confidence = 0.97
+        else:
+            confidence = 0.2
+            needs_review = True
+            reasons.append("invalid_cups_format")
+        normalized_value = cups
+    elif field == "client_type":
+        if normalized_value in {"Hogar", "Empresa"}:
+            confidence = 0.85
+        else:
+            confidence = 0.3
+            needs_review = True
+            reasons.append("unknown_client_type")
+    elif field == "access_tariff":
+        tariff = str(normalized_value).upper()
+        if tariff in KNOWN_ACCESS_TARIFFS or re.fullmatch(r"\d\.\d[A-Z]{1,3}", tariff):
+            confidence = 0.88
+        else:
+            confidence = 0.4
+            needs_review = True
+            reasons.append("unknown_access_tariff")
+        normalized_value = tariff
+    elif field in {"start_date", "end_date"}:
+        try:
+            datetime.date.fromisoformat(str(normalized_value))
+            confidence = 0.82
+        except ValueError:
+            confidence = 0.25
+            needs_review = True
+            reasons.append("invalid_date_format")
+    elif field == "retailer":
+        retailer_text = str(normalized_value).lower()
+        if any(hint in retailer_text for hint in DISTRIBUTOR_HINTS):
+            confidence = 0.3
+            needs_review = True
+            reasons.append("looks_like_distributor_not_retailer")
+        elif len(str(normalized_value).strip()) >= 3:
+            confidence = 0.78
+        else:
+            confidence = 0.25
+            needs_review = True
+            reasons.append("retailer_too_short")
+    else:
+        try:
+            numeric = float(normalized_value)
+            confidence = 0.8
+            if numeric < 0:
+                confidence = 0.2
+                needs_review = True
+                reasons.append("negative_numeric_value")
+            if field == "invoice_amount_with_vat" and (numeric <= 0 or numeric > 50000):
+                confidence = 0.35
+                needs_review = True
+                reasons.append("invoice_amount_out_of_range")
+            if field == "equipment_rental" and numeric > 500:
+                confidence = 0.35
+                needs_review = True
+                reasons.append("equipment_rental_out_of_range")
+            if field in {"billed_power_p1", "billed_power_p2"} and numeric > 100:
+                confidence = 0.35
+                needs_review = True
+                reasons.append("power_out_of_range")
+            if field in {"consumption_p1", "consumption_p2", "consumption_p3"} and numeric > 100000:
+                confidence = 0.35
+                needs_review = True
+                reasons.append("consumption_out_of_range")
+        except (TypeError, ValueError):
+            confidence = 0.25
+            needs_review = True
+            reasons.append("invalid_numeric_value")
+
+    if field == "end_date" and extracted.get("start_date") and normalized_value and not needs_review:
+        try:
+            start_dt = datetime.date.fromisoformat(str(_normalize_extracted_value("start_date", extracted.get("start_date"))))
+            end_dt = datetime.date.fromisoformat(str(normalized_value))
+            if end_dt < start_dt:
+                confidence = min(confidence, 0.2)
+                needs_review = True
+                reasons.append("end_date_before_start_date")
+        except ValueError:
+            pass
+
+    return {
+        "value": normalized_value,
+        "confidence": round(confidence, 2),
+        "needs_review": needs_review,
+        "reasons": reasons,
+    }
+
+
+def validate_invoice_extraction(extracted: dict) -> dict:
+    normalized, provider_rule_hits = _apply_provider_specific_rules(extracted)
+    field_assessments: dict[str, dict] = {}
+    normalized_data: dict[str, Any] = {}
+    needs_review_fields: list[str] = []
+
+    for field in INVOICE_EXTRACTION_FIELDS:
+        assessment = _assess_field(field, normalized.get(field), normalized)
+        field_assessments[field] = assessment
+        normalized_data[field] = assessment["value"]
+        if assessment["needs_review"]:
+            needs_review_fields.append(field)
+
+    confidence_values = [field_assessments[field]["confidence"] for field in INVOICE_EXTRACTION_FIELDS]
+    overall_confidence = round(sum(confidence_values) / len(confidence_values), 2) if confidence_values else 0.0
+
+    return {
+        "normalized_data": normalized_data,
+        "field_assessments": field_assessments,
+        "needs_review": len(needs_review_fields) > 0,
+        "needs_review_fields": needs_review_fields,
+        "overall_confidence": overall_confidence,
+        "provider_rule_hits": provider_rule_hits,
+    }
+
+
+def extract_suspicious_fields_with_gemini(file_bytes_list: list[tuple[bytes, str]], current_data: dict, suspicious_fields: list[str]) -> tuple[dict, str]:
+    if not suspicious_fields:
+        return {}, ""
+
+    field_lines = "\n".join(f'- "{field}"' for field in suspicious_fields)
+    current_json = json.dumps(current_data, ensure_ascii=False)
+    prompt = f"""Ты перепроверяешь только сомнительные поля испанской фактуры света.
+Нужно вернуть JSON-объект только с перечисленными ниже ключами. Если поле не удаётся уверенно уточнить, верни null.
+Нельзя возвращать дополнительные ключи.
+
+Сомнительные поля:
+{field_lines}
+
+Текущий результат первого прохода:
+{current_json}
+
+Правила:
+- Не выдумывай значения.
+- Для retailer верни comercializadora, а не distribuidora.
+- Для dates используй YYYY-MM-DD.
+- Для чисел верни только number.
+- Ответ только JSON без markdown."""
+
+    return _call_gemini_json(prompt, file_bytes_list, GEMINI_INVOICE_EXTRACTION_MODEL)
+
+
+def apply_second_pass_if_needed(file_bytes_list: list[tuple[bytes, str]], extracted: dict, validation: dict) -> dict:
+    suspicious_fields = [
+        field for field in validation["needs_review_fields"]
+        if field in {"cups", "retailer", "access_tariff", "invoice_amount_with_vat", "billed_power_p1", "billed_power_p2", "consumption_p1", "consumption_p2", "consumption_p3", "start_date", "end_date"}
+    ]
+    if not suspicious_fields:
+        return {
+            "final_data": validation["normalized_data"],
+            "final_validation": validation,
+            "second_pass_attempted": False,
+            "second_pass_raw": None,
+            "second_pass_updates": {},
+        }
+
+    second_pass_updates, second_pass_raw = extract_suspicious_fields_with_gemini(file_bytes_list, validation["normalized_data"], suspicious_fields)
+    merged = dict(validation["normalized_data"])
+    for field in suspicious_fields:
+        candidate_validation = _assess_field(field, second_pass_updates.get(field), merged)
+        current_validation = validation["field_assessments"].get(field, {"confidence": 0, "needs_review": True})
+        if candidate_validation["confidence"] > current_validation["confidence"] or (
+            current_validation.get("needs_review") and not candidate_validation.get("needs_review")
+        ):
+            merged[field] = candidate_validation["value"]
+
+    final_validation = validate_invoice_extraction(merged)
+    return {
+        "final_data": final_validation["normalized_data"],
+        "final_validation": final_validation,
+        "second_pass_attempted": True,
+        "second_pass_raw": second_pass_raw,
+        "second_pass_updates": second_pass_updates,
+    }
 
 def upload_to_gcs(file_obj: UploadFile, destination_blob_name: str):
     """Загружает файл в Google Cloud Storage и делает его публично доступным для чтения."""
@@ -1079,30 +1408,70 @@ async def proposal_extract_data(application_id: str, request: ExtractDataRequest
                 print(f"Ошибка скачивания файла {url}: {e}")
                 raise HTTPException(status_code=400, detail=f"Не удалось скачать файл: {url}")
         
-        # Отправляем в Gemini
-        extracted = extract_data_with_gemini(file_contents)
-        
-        # Добавляем source_files
+        # Отправляем в Gemini и прогоняем через валидацию / second pass
+        primary_extracted, primary_raw = extract_data_with_gemini(file_contents)
+        primary_validation = validate_invoice_extraction(primary_extracted)
+        pipeline_result = apply_second_pass_if_needed(file_contents, primary_extracted, primary_validation)
+
+        extracted = dict(pipeline_result["final_data"])
         extracted["source_files"] = request.file_urls
-        
+
+        field_assessments = pipeline_result["final_validation"]["field_assessments"]
+        overall_confidence = pipeline_result["final_validation"]["overall_confidence"]
+        needs_review = pipeline_result["final_validation"]["needs_review"]
+        needs_review_fields = pipeline_result["final_validation"]["needs_review_fields"]
+        provider_rule_hits = pipeline_result["final_validation"]["provider_rule_hits"]
+
+        raw_extraction = {
+            "primary_response_text": primary_raw,
+            "primary_extracted_data": primary_extracted,
+            "second_pass_attempted": pipeline_result["second_pass_attempted"],
+            "second_pass_response_text": pipeline_result["second_pass_raw"],
+            "second_pass_updates": pipeline_result["second_pass_updates"],
+        }
+
         # Сохраняем в Firestore
         proposal_data_ref = doc_ref.collection("proposal_data").document("data")
         proposal_data_ref.set({
             "extracted_data": extracted,
+            "ai_extracted_data": extracted,
+            "raw_extraction": raw_extraction,
+            "field_assessments": field_assessments,
+            "overall_confidence": overall_confidence,
+            "needs_review": needs_review,
+            "needs_review_fields": needs_review_fields,
+            "provider_rule_hits": provider_rule_hits,
             "extracted_at": datetime.datetime.utcnow(),
             "extracted_by": "Operator",
             "manually_corrected": False,
+        })
+
+        append_proposal_data_revision(application_id, "ai_extraction", {
+            "raw_extraction": raw_extraction,
+            "extracted_data": extracted,
+            "field_assessments": field_assessments,
+            "overall_confidence": overall_confidence,
+            "needs_review": needs_review,
+            "needs_review_fields": needs_review_fields,
+            "provider_rule_hits": provider_rule_hits,
         })
         
         # Запись в Timeline
         create_timeline_event_internal(
             application_id=application_id,
-            content="Данные счетов извлечены ИИ.",
+            content=f"Данные счетов извлечены ИИ. Confidence: {overall_confidence}. Review fields: {len(needs_review_fields)}.",
             event_type=EventType.NOTE,
             created_by="System"
         )
         
-        return {"success": True, "extracted_data": extracted}
+        return {
+            "success": True,
+            "extracted_data": extracted,
+            "field_assessments": field_assessments,
+            "overall_confidence": overall_confidence,
+            "needs_review": needs_review,
+            "needs_review_fields": needs_review_fields,
+        }
         
     except HTTPException:
         raise
@@ -1121,16 +1490,49 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
             raise HTTPException(status_code=404, detail="Заявка не найдена.")
         
         proposal_data_ref = doc_ref.collection("proposal_data").document("data")
+        previous_snapshot = proposal_data_ref.get()
+        previous_data = previous_snapshot.to_dict() if previous_snapshot.exists else {}
+        corrected = update_data.extracted_data.model_dump()
+        manual_assessments = {
+            field: {
+                "value": corrected.get(field),
+                "confidence": 1.0 if corrected.get(field) not in (None, "", []) else 0.5,
+                "needs_review": False,
+                "reasons": ["manual_correction"],
+            }
+            for field in INVOICE_EXTRACTION_FIELDS
+        }
+        changed_fields = [
+            field for field in INVOICE_EXTRACTION_FIELDS
+            if previous_data.get("extracted_data", {}).get(field) != corrected.get(field)
+        ]
         proposal_data_ref.set({
-            "extracted_data": update_data.extracted_data.model_dump(),
+            "extracted_data": corrected,
+            "manual_corrected_data": corrected,
+            "field_assessments": manual_assessments,
+            "overall_confidence": 1.0,
+            "needs_review": False,
+            "needs_review_fields": [],
             "updated_at": datetime.datetime.utcnow(),
             "manually_corrected": True,
+            "last_manual_correction": {
+                "changed_fields": changed_fields,
+                "corrected_at": datetime.datetime.utcnow(),
+            },
         }, merge=True)
+
+        append_proposal_data_revision(application_id, "manual_correction", {
+            "previous_extracted_data": previous_data.get("extracted_data"),
+            "corrected_extracted_data": corrected,
+            "changed_fields": changed_fields,
+            "raw_extraction": previous_data.get("raw_extraction"),
+            "provider_rule_hits": previous_data.get("provider_rule_hits", []),
+        })
         
         # Запись в Timeline
         create_timeline_event_internal(
             application_id=application_id,
-            content="Данные скорректированы оператором.",
+            content=f"Данные скорректированы оператором. Изменено полей: {len(changed_fields)}.",
             event_type=EventType.NOTE,
             created_by="System"
         )
@@ -1164,6 +1566,13 @@ async def proposal_get_extracted_data(application_id: str):
             "extracted_data": data.get("extracted_data"),
             "extracted_at": data.get("extracted_at"),
             "manually_corrected": data.get("manually_corrected", False),
+            "raw_extraction": data.get("raw_extraction"),
+            "field_assessments": data.get("field_assessments"),
+            "overall_confidence": data.get("overall_confidence"),
+            "needs_review": data.get("needs_review", False),
+            "needs_review_fields": data.get("needs_review_fields", []),
+            "provider_rule_hits": data.get("provider_rule_hits", []),
+            "last_manual_correction": data.get("last_manual_correction"),
         }
         
     except HTTPException:

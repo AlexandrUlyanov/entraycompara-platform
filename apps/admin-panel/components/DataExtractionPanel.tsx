@@ -145,6 +145,29 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
       {/* Data Form */}
       {isEditing && (
         <div className="space-y-4 pt-2 border-t border-slate-100">
+          {(existingData?.overall_confidence !== undefined || existingData?.needs_review) && (
+            <div className={`rounded-2xl border px-4 py-3 text-sm ${
+              existingData?.needs_review
+                ? 'bg-amber-50 border-amber-200 text-amber-700'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+            }`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold">AI confidence:</span>
+                <span>{Math.round((existingData?.overall_confidence || 0) * 100)}%</span>
+                {existingData?.raw_extraction?.second_pass_attempted && (
+                  <span className="px-2 py-0.5 rounded-full bg-white/70 text-[10px] font-semibold uppercase tracking-wide">
+                    second pass used
+                  </span>
+                )}
+              </div>
+              {existingData?.needs_review && existingData?.needs_review_fields && existingData.needs_review_fields.length > 0 && (
+                <p className="mt-2 text-xs">
+                  Нужна проверка полей: {existingData.needs_review_fields.join(', ')}
+                </p>
+              )}
+            </div>
+          )}
+
           {existingData?.manually_corrected && (
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 text-amber-600 text-[10px] font-semibold">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">

@@ -22,6 +22,7 @@ const ProposalPreviewPanel: React.FC<ProposalPreviewPanelProps> = ({
   const [showPreview, setShowPreview] = useState(false);
   const [showCommentField, setShowCommentField] = useState(false);
   const [proposalComment, setProposalComment] = useState('');
+  const [sendSuccessMessage, setSendSuccessMessage] = useState('');
 
   const { data: previewData } = useQuery({
     queryKey: ['proposal-preview', appId],
@@ -41,9 +42,10 @@ const ProposalPreviewPanel: React.FC<ProposalPreviewPanelProps> = ({
 
   const sendMutation = useMutation({
     mutationFn: () => sendProposalViaWhatsApp(appId),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
       queryClient.invalidateQueries({ queryKey: ['application', appId] });
+      setSendSuccessMessage(data.message || t('proposalBuilder.proposal.submitted'));
     },
   });
 
@@ -148,7 +150,10 @@ const ProposalPreviewPanel: React.FC<ProposalPreviewPanelProps> = ({
 
           {/* Send via WhatsApp */}
           <button
-            onClick={() => sendMutation.mutate()}
+            onClick={() => {
+              setSendSuccessMessage('');
+              sendMutation.mutate();
+            }}
             disabled={sendMutation.isPending}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-green-500 text-white rounded-xl font-medium hover:bg-green-600 disabled:opacity-50 transition-all"
           >
@@ -166,7 +171,7 @@ const ProposalPreviewPanel: React.FC<ProposalPreviewPanelProps> = ({
             <p className="text-xs text-red-500">{(sendMutation.error as Error)?.message}</p>
           )}
           {sendMutation.isSuccess && (
-            <p className="text-xs text-green-600 text-center">{t('proposalBuilder.proposal.sent')}</p>
+            <p className="text-xs text-green-600 text-center">{sendSuccessMessage || t('proposalBuilder.proposal.submitted')}</p>
           )}
         </div>
       )}

@@ -280,7 +280,7 @@ export const uploadProposal = async (applicationId: string, file: File): Promise
   return handleApiError(response);
 };
 
-export const sendProposalViaWhatsApp = async (applicationId: string): Promise<{ success: boolean; wa_message_id?: string }> => {
+export const sendProposalViaWhatsApp = async (applicationId: string): Promise<{ success: boolean; wa_message_id?: string; message?: string }> => {
   const response = await fetch(`${API_BASE_URL}/whatsapp/send-proposal`, {
     method: 'POST',
     headers: getHeaders(),

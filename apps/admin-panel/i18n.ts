@@ -190,7 +190,8 @@ const translations: Record<Language, Record<string, string>> = {
     "proposalBuilder.proposal.uploadFallback": "Загрузить свой PDF",
     "proposalBuilder.proposal.noData": "Сначала заполните данные и выберите симуляцию.",
     "proposalBuilder.proposal.generated": "КП сгенерировано",
-    "proposalBuilder.proposal.sent": "КП отправлено"
+    "proposalBuilder.proposal.sent": "КП отправлено",
+    "proposalBuilder.proposal.submitted": "КП передано в WhatsApp API. Ожидаем подтверждение доставки."
   },
   es: {
     "header.title": "Entraycompara Panel",
@@ -378,7 +379,8 @@ const translations: Record<Language, Record<string, string>> = {
     "proposalBuilder.proposal.uploadFallback": "Subir PDF propio",
     "proposalBuilder.proposal.noData": "Primero complete los datos y seleccione una simulación.",
     "proposalBuilder.proposal.generated": "Propuesta generada",
-    "proposalBuilder.proposal.sent": "Propuesta enviada"
+    "proposalBuilder.proposal.sent": "Propuesta enviada",
+    "proposalBuilder.proposal.submitted": "La propuesta se ha enviado a la API de WhatsApp. Esperando confirmación de entrega."
   }
 };
 

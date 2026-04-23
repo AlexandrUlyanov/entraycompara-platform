@@ -3681,6 +3681,8 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
         
         result = send_whatsapp_document(phone, proposal_url, "Коммерческое предложение")
         wa_message_id = result.get("messages", [{}])[0].get("id")
+        if not wa_message_id:
+            raise HTTPException(status_code=502, detail="Meta API не вернул идентификатор сообщения для КП.")
         
         event_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).collection("timeline").document()
         event_ref.set({
@@ -3691,7 +3693,7 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
             "created_at": datetime.datetime.utcnow(),
             "direction": "outgoing",
             "wa_message_id": wa_message_id,
-            "wa_status": "sent",
+            "wa_status": "submitted",
         })
         
         # Автоматически переводим заявку в статус Proposal
@@ -3700,7 +3702,11 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
             "updated_at": datetime.datetime.utcnow(),
         })
         
-        return {"success": True, "wa_message_id": wa_message_id}
+        return {
+            "success": True,
+            "wa_message_id": wa_message_id,
+            "message": "КП передано в WhatsApp API. Ожидаем подтверждение доставки.",
+        }
         
     except HTTPException:
         raise

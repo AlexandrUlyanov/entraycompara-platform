@@ -20,6 +20,8 @@ const ProposalPreviewPanel: React.FC<ProposalPreviewPanelProps> = ({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [showPreview, setShowPreview] = useState(false);
+  const [showCommentField, setShowCommentField] = useState(false);
+  const [proposalComment, setProposalComment] = useState('');
 
   const { data: previewData } = useQuery({
     queryKey: ['proposal-preview', appId],
@@ -29,7 +31,7 @@ const ProposalPreviewPanel: React.FC<ProposalPreviewPanelProps> = ({
   });
 
   const generateMutation = useMutation({
-    mutationFn: () => generateProposal(appId),
+    mutationFn: () => generateProposal(appId, proposalComment),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['application', appId] });
       queryClient.invalidateQueries({ queryKey: ['proposal-preview', appId] });
@@ -60,6 +62,32 @@ const ProposalPreviewPanel: React.FC<ProposalPreviewPanelProps> = ({
       )}
 
       {/* Generate / Regenerate */}
+      <button
+        type="button"
+        onClick={() => setShowCommentField(prev => !prev)}
+        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-secondary rounded-xl text-sm font-medium hover:bg-slate-50 transition-all"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+          <path d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.496 12.804 2 11.45 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7z" />
+        </svg>
+        {t('proposalBuilder.proposal.addComment')}
+      </button>
+
+      {showCommentField && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2">
+          <label className="block text-sm font-medium text-slate-700">
+            {t('proposalBuilder.proposal.commentLabel')}
+          </label>
+          <textarea
+            value={proposalComment}
+            onChange={(e) => setProposalComment(e.target.value)}
+            rows={4}
+            placeholder={t('proposalBuilder.proposal.commentPlaceholder')}
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-secondary/20 focus:border-secondary resize-y"
+          />
+        </div>
+      )}
+
       <button
         onClick={() => generateMutation.mutate()}
         disabled={generateMutation.isPending || !canGenerate}

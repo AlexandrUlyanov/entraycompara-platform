@@ -218,6 +218,9 @@ class SimulationResponse(BaseModel):
     savings_percent: float | None = None
     created_at: datetime.datetime
 
+class ProposalGenerateRequest(BaseModel):
+    comment: str | None = None
+
 # 1.8. Модель для автоматического создания симуляции (Eni)
 class AutoCreateSimulationRequest(BaseModel):
     cups: str
@@ -1746,6 +1749,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     import fpdf
     
     texts = PROPOSAL_PDF_TEXTS.get(language, PROPOSAL_PDF_TEXTS["es"])
+    proposal_comment = (application.get("proposal_comment") or "").strip()
     
     # Находим шрифты fpdf2 / локальные fallback-шрифты проекта
     fpdf_dir = os.path.dirname(fpdf.__file__)
@@ -1774,6 +1778,31 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         return style
     
     class ProposalPDF(FPDF):
+        def rounded_rect(self, x, y, w, h, r, style=""):
+            op = {"F": "f", "FD": "B", "DF": "B"}.get(style, "S")
+            k = self.k
+            hp = self.h
+            my_arc = 4 / 3 * (2**0.5 - 1) * r
+            self._out(f"{(x + r) * k:.2f} {(hp - y) * k:.2f} m")
+            self._out(f"{(x + w - r) * k:.2f} {(hp - y) * k:.2f} l")
+            self._arc(x + w - r + my_arc, y, x + w, y + r - my_arc, x + w, y + r)
+            self._out(f"{(x + w) * k:.2f} {(hp - (y + h - r)) * k:.2f} l")
+            self._arc(x + w, y + h - r + my_arc, x + w - r + my_arc, y + h, x + w - r, y + h)
+            self._out(f"{(x + r) * k:.2f} {(hp - (y + h)) * k:.2f} l")
+            self._arc(x + r - my_arc, y + h, x, y + h - r + my_arc, x, y + h - r)
+            self._out(f"{x * k:.2f} {(hp - (y + r)) * k:.2f} l")
+            self._arc(x, y + r - my_arc, x + r - my_arc, y, x + r, y)
+            self._out(op)
+
+        def _arc(self, x1, y1, x2, y2, x3, y3):
+            h = self.h
+            k = self.k
+            self._out(
+                f"{x1 * k:.2f} {(h - y1) * k:.2f} "
+                f"{x2 * k:.2f} {(h - y2) * k:.2f} "
+                f"{x3 * k:.2f} {(h - y3) * k:.2f} c"
+            )
+
         def header(self):
             self.set_fill_color(11, 95, 255)
             self.rect(0, 0, 210, 32, style="F")
@@ -1786,7 +1815,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.cell(0, 8, "compara", ln=False)
 
             self.set_fill_color(0, 200, 83)
-            self.rect(15, 23, 56, 5.5, style="F")
+            self.rounded_rect(15, 23, 56, 5.5, 2, style="F")
             self.set_xy(18, 23.2)
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 7)
@@ -1795,10 +1824,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style(), 8)
             today = datetime.datetime.now().strftime("%d.%m.%Y")
-            self.set_xy(138, 9)
+            self.set_xy(138, 11.5)
             self.cell(57, 4, f"{texts['date']}: {today}", align="R", ln=True)
-            self.set_x(138)
-            self.cell(57, 4, f"{texts['proposal_id']}: #{application.get('id', 'N/A')[:6]}", align="R", ln=True)
 
             self.set_text_color(219, 234, 254)
             self.set_xy(138, 22)
@@ -1842,6 +1869,12 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         "uk": "КОНФІДЕНЦІЙНО ДЛЯ",
         "eu": "KONFIDENTZIALA HONENTZAT",
     }
+    comment_labels = {
+        "es": "COMENTARIO DEL ASESOR",
+        "ru": "КОММЕНТАРИЙ МЕНЕДЖЕРА",
+        "uk": "КОМЕНТАР МЕНЕДЖЕРА",
+        "eu": "AHOLKULARIAREN OHARRA",
+    }
 
     def to_float(value):
         try:
@@ -1875,9 +1908,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     def draw_info_card(x: float, y: float, w: float, h: float, title: str, rows: list[tuple[str, str]], columns: int = 1):
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*card_border)
-        pdf.rect(x, y, w, h, style="DF")
+        pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
         pdf.set_fill_color(*brand_blue)
-        pdf.rect(x + 4, y + 4, w - 8, 10, style="F")
+        pdf.rounded_rect(x + 4, y + 4, w - 8, 10, 2.4, style="F")
         pdf.set_xy(x + 8, y + 7)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("DejaVu", font_style("B"), 9)
@@ -1908,9 +1941,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     def draw_metric_card(x: float, y: float, w: float, h: float, title: str, value: str, accent: tuple[int, int, int], subtitle: str | None = None):
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*card_border)
-        pdf.rect(x, y, w, h, style="DF")
+        pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
         pdf.set_fill_color(*accent)
-        pdf.rect(x + 5, y + 5, 8, 8, style="F")
+        pdf.rounded_rect(x + 5, y + 5, 8, 8, 1.8, style="F")
         pdf.set_xy(x + 16, y + 4.5)
         pdf.set_text_color(*brand_secondary)
         pdf.set_font("DejaVu", font_style("B"), 6.5)
@@ -1927,9 +1960,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     def draw_savings_panel(x: float, y: float, w: float, h: float, value: str, percent_text: str, monthly_text: str):
         pdf.set_fill_color(*brand_blue)
-        pdf.rect(x, y, w, h, style="F")
+        pdf.rounded_rect(x, y, w, h, 4, style="F")
         pdf.set_fill_color(*brand_green)
-        pdf.rect(x + 6, y + 6, 40, 7, style="F")
+        pdf.rounded_rect(x + 6, y + 6, 40, 7, 2, style="F")
         pdf.set_xy(x + 10, y + 8)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("DejaVu", font_style("B"), 6.5)
@@ -1948,7 +1981,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     def draw_client_banner(x: float, y: float, w: float, client_value: str):
         pdf.set_fill_color(239, 246, 255)
         pdf.set_draw_color(191, 219, 254)
-        pdf.rect(x, y, w, 18, style="DF")
+        pdf.rounded_rect(x, y, w, 18, 3.2, style="DF")
         pdf.set_xy(x + 6, y + 4)
         pdf.set_text_color(*brand_blue)
         pdf.set_font("DejaVu", font_style("B"), 7)
@@ -1961,7 +1994,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     def draw_contact_band(x: float, y: float, w: float, h: float, rows: list[tuple[str, str]]):
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*card_border)
-        pdf.rect(x, y, w, h, style="DF")
+        pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
         col_gap = 6
         col_w = (w - 16 - col_gap * 3) / 4
         for idx, (label, value) in enumerate(rows):
@@ -1974,6 +2007,19 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             pdf.set_text_color(*brand_dark)
             pdf.set_font("DejaVu", font_style(), 8)
             pdf.multi_cell(col_w, 4, fmt_value(value))
+
+    def draw_comment_band(x: float, y: float, w: float, text: str):
+        pdf.set_fill_color(248, 250, 252)
+        pdf.set_draw_color(*card_border)
+        pdf.rounded_rect(x, y, w, 20, 3.2, style="DF")
+        pdf.set_xy(x + 6, y + 4)
+        pdf.set_text_color(*brand_blue)
+        pdf.set_font("DejaVu", font_style("B"), 6.5)
+        pdf.cell(w - 12, 3, comment_labels.get(language, comment_labels["es"]), ln=True)
+        pdf.set_x(x + 6)
+        pdf.set_text_color(*brand_dark)
+        pdf.set_font("DejaVu", font_style(), 7.4)
+        pdf.multi_cell(w - 12, 3.8, text[:220])
 
     def draw_step_row(y: float, number: str, title: str, description: str):
         circle_x = 16
@@ -1989,9 +2035,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.cell(12, 4, number, align="C")
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*card_border)
-        pdf.rect(card_x, y, card_w, card_h, style="DF")
+        pdf.rounded_rect(card_x, y, card_w, card_h, 3, style="DF")
         pdf.set_fill_color(236, 253, 245)
-        pdf.rect(card_x + 6, y + 3.5, 18, 4, style="F")
+        pdf.rounded_rect(card_x + 6, y + 3.5, 18, 4, 1.5, style="F")
         pdf.set_xy(card_x + 9, y + 4.1)
         pdf.set_text_color(*brand_green_dark)
         pdf.set_font("DejaVu", font_style("B"), 6)
@@ -2122,7 +2168,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     draw_info_card(109, proposal_y, 86, 54, texts["estimated_savings"], proposal_rows_right)
 
     draw_contact_band(15, proposal_y + 60, 180, 18, contact_rows)
-    pdf.set_y(proposal_y + 84)
+    next_steps_y = proposal_y + 84
+    if proposal_comment:
+        draw_comment_band(15, proposal_y + 84, 180, proposal_comment)
+        next_steps_y = proposal_y + 108
+    pdf.set_y(next_steps_y)
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])
     steps_y = pdf.get_y()
     draw_step_row(steps_y, "1", texts["step1_title"], texts["step1_desc"])
@@ -2137,7 +2187,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
 
 @app.post("/api/applications/{application_id}/proposal/generate", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
-async def generate_proposal(application_id: str):
+async def generate_proposal(application_id: str, payload: ProposalGenerateRequest | None = Body(default=None)):
     """Генерация PDF коммерческого предложения на фирменном бланке."""
     try:
         doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
@@ -2147,6 +2197,7 @@ async def generate_proposal(application_id: str):
         
         app_data = doc.to_dict()
         app_data["id"] = application_id
+        app_data["proposal_comment"] = (payload.comment.strip() if payload and payload.comment else "")
         
         # Проверяем extracted_data
         proposal_data_ref = doc_ref.collection("proposal_data").document("data")

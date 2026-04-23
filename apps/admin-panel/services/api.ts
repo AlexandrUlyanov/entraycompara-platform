@@ -381,10 +381,11 @@ export const selectSimulation = async (applicationId: string, simulationId: stri
 
 // --- Proposal Generation API ---
 
-export const generateProposal = async (applicationId: string): Promise<{ success: boolean; proposal_file_url: string; message: string }> => {
+export const generateProposal = async (applicationId: string, comment: string = ""): Promise<{ success: boolean; proposal_file_url: string; message: string }> => {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/generate`, {
     method: 'POST',
     headers: getHeaders(),
+    body: JSON.stringify({ comment }),
   });
   return handleApiError(response);
 };

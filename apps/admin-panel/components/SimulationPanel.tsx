@@ -61,16 +61,18 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
 
     const interval = setInterval(async () => {
       try {
-        const result = await getAutoSimulationStatus(appId, autoTaskId);
-        setAutoStatus(result.status as AutoTaskStatus);
-        setAutoMessage(result.message || '');
-        if (result.tariffs && result.tariffs.length > 0) {
-          setAutoTariffs(result.tariffs);
-        }
-        if (result.status === 'completed' || result.status === 'failed') {
-          clearInterval(interval);
-          queryClient.invalidateQueries({ queryKey: ['simulations', appId] });
-        }
+      const result = await getAutoSimulationStatus(appId, autoTaskId);
+      setAutoStatus(result.status as AutoTaskStatus);
+      setAutoMessage(result.message || '');
+      if (result.status === 'awaiting_tariff_selection' && result.tariffs && result.tariffs.length > 0) {
+        setAutoTariffs(result.tariffs);
+      } else {
+        setAutoTariffs(null);
+      }
+      if (result.status === 'completed' || result.status === 'failed') {
+        clearInterval(interval);
+        queryClient.invalidateQueries({ queryKey: ['simulations', appId] });
+      }
       } catch (e) {
         console.error('Polling error:', e);
       }
@@ -181,6 +183,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
       setAutoStatus('running');
       setAutoMessage('Тариф выбран, продолжаем симуляцию...');
       setAutoTariffs(null);
+      setSelectedTariffIndex(null);
     } catch (e: any) {
       setAutoMessage(e.message || 'Ошибка при выборе тарифа');
     } finally {

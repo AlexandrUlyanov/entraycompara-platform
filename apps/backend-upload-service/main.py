@@ -1500,8 +1500,10 @@ async def select_tariff_for_auto_simulation(application_id: str, task_id: str, b
             raise HTTPException(status_code=400, detail=f"Некорректный статус задачи: {task.get('status')}")
 
         _set_task_status(application_id, task_id, {
+            "status": "running",
             "selected_tariff_index": selected_index,
             "message": f"Выбран тариф #{selected_index + 1}. Продолжаем симуляцию...",
+            "tariffs": firestore.DELETE_FIELD,
             "updated_at": datetime.datetime.utcnow(),
         })
 

@@ -10,7 +10,7 @@ REFERRAL_URL = "https://g2e.eniplenitude.es/index.php?refid=60335660J3"
 GCS_BUCKET = os.environ.get("GCP_BUCKET_NAME", "entraycompara-invoices")
 TRACE_ENABLED = os.environ.get("ENI_TRACE_ENABLED", "").lower() in {"1", "true", "yes", "on"}
 SHORT_UI_WAIT_SECONDS = float(os.environ.get("ENI_SHORT_UI_WAIT_SECONDS", "0.2"))
-FORM_VALIDATION_WAIT_SECONDS = float(os.environ.get("ENI_FORM_VALIDATION_WAIT_SECONDS", "1.0"))
+FORM_VALIDATION_WAIT_SECONDS = float(os.environ.get("ENI_FORM_VALIDATION_WAIT_SECONDS", "1.5"))
 DOWNLOAD_FALLBACK_WAIT_SECONDS = float(os.environ.get("ENI_DOWNLOAD_FALLBACK_WAIT_SECONDS", "2.0"))
 
 
@@ -106,7 +106,7 @@ async def run_eni_simulation(
             # Шаг 6: Нажать Comenzar Simulación
             print("[Eni] Step 6: Clicking Comenzar Simulación...")
             await _scroll_and_click(page, 'button#simulador_submit')
-            await _wait_for_simulation_form(page, timeout=15000)
+            await _wait_for_simulation_form(page, timeout=30000)
             print(f"[Eni] URL after Comenzar: {page.url}")
             await _take_step_screenshot(page, "06_after_comenzar")
 
@@ -144,7 +144,7 @@ async def run_eni_simulation(
                     }""")
                     await asyncio.sleep(FORM_VALIDATION_WAIT_SECONDS)
                     await _scroll_and_click(page, 'button#simulador_submit')
-                    await _wait_for_simulation_form(page, timeout=15000)
+                    await _wait_for_simulation_form(page, timeout=30000)
                     sim_form_visible_20 = await page.evaluate(r"""() => {
                         const form = document.getElementById('form_simulador');
                         if (!form) return false;
@@ -287,17 +287,33 @@ async def run_eni_simulation(
             raise EniSimulationError(f"Eni simulation failed: {str(e)}")
 
 
-async def _wait_for_simulation_form(page, timeout: int = 15000):
-    """Ждёт появления видимой формы симуляции вместо грубых sleep/networkidle."""
-    await page.wait_for_function(
-        """() => {
-            const form = document.getElementById('form_simulador');
-            if (!form) return false;
-            const style = window.getComputedStyle(form);
-            return style.display !== 'none' && style.visibility !== 'hidden';
-        }""",
-        timeout=timeout,
-    )
+async def _wait_for_simulation_form(page, timeout: int = 30000):
+    """Ждёт появления формы симуляции, но с мягким fallback для нестабильного DOM Eni."""
+    try:
+        await page.wait_for_function(
+            """() => {
+                const form = document.getElementById('form_simulador');
+                if (!form) return false;
+                const style = window.getComputedStyle(form);
+                return style.display !== 'none' && style.visibility !== 'hidden';
+            }""",
+            timeout=min(timeout, 18000),
+        )
+        return
+    except PlaywrightTimeout:
+        print("[Eni] Primary wait for simulation form timed out, trying fallback wait...")
+
+    try:
+        await page.wait_for_load_state("domcontentloaded", timeout=10000)
+    except Exception:
+        pass
+
+    try:
+        await page.wait_for_selector("#form_simulador, form#form_simulador, input[name='tarifa_acceso'], #tarifa_acceso", timeout=max(5000, timeout - 18000))
+    except PlaywrightTimeout as e:
+        raise EniSimulationError(f"Simulation form did not appear after submit within {timeout} ms") from e
+
+    await asyncio.sleep(1.5)
 
 
 async def _wait_for_post_submit_state(page, timeout: int = 20000):

@@ -1521,6 +1521,23 @@ PROPOSAL_PDF_TEXTS = {
         "current_situation": "Su situación actual",
         "our_proposal": "Nuestra propuesta",
         "savings": "Su ahorro",
+        "contact_block_title": "Contacto EntrayCompara",
+        "contact_email_label": "Email",
+        "contact_phone_label": "Teléfono",
+        "contact_site_label": "Web",
+        "contact_social_label": "Redes",
+        "summary_title": "Resumen de ahorro",
+        "summary_subtitle": "Comparativa clara entre su tarifa actual y la propuesta recomendada.",
+        "current_plan": "Tarifa actual",
+        "recommended_plan": "Tarifa recomendada",
+        "annual_savings": "Ahorro anual estimado",
+        "next_steps_subtitle": "Le acompañamos en todo el cambio, sin coste para usted.",
+        "step1_title": "1. Confirmación",
+        "step1_desc": "Confirme por WhatsApp o email que quiere cambiar a la nueva tarifa.",
+        "step2_title": "2. Gestión del cambio",
+        "step2_desc": "Nuestro equipo prepara y envía toda la documentación a la comercializadora.",
+        "step3_title": "3. Activación y ahorro",
+        "step3_desc": "Se activa la nueva tarifa y empieza a ahorrar desde las siguientes facturas.",
         "per_month": "al mes",
         "per_year": "al año",
         "next_steps": "Próximos pasos",
@@ -1547,6 +1564,23 @@ PROPOSAL_PDF_TEXTS = {
         "current_situation": "Ваша текущая ситуация",
         "our_proposal": "Наше предложение",
         "savings": "Ваша экономия",
+        "contact_block_title": "Контакты EntrayCompara",
+        "contact_email_label": "Email",
+        "contact_phone_label": "Телефон",
+        "contact_site_label": "Сайт",
+        "contact_social_label": "Соцсети",
+        "summary_title": "Сводка по экономии",
+        "summary_subtitle": "Наглядное сравнение текущего тарифа и рекомендованного предложения.",
+        "current_plan": "Текущий тариф",
+        "recommended_plan": "Рекомендуемый тариф",
+        "annual_savings": "Ожидаемая экономия в год",
+        "next_steps_subtitle": "Мы сопровождаем весь переход и берём оформление на себя.",
+        "step1_title": "1. Подтверждение",
+        "step1_desc": "Подтвердите в WhatsApp или по email, что хотите перейти на новый тариф.",
+        "step2_title": "2. Оформление смены",
+        "step2_desc": "Наша команда подготовит и передаст документы новому поставщику.",
+        "step3_title": "3. Активация и экономия",
+        "step3_desc": "Новый тариф активируется, и вы начинаете экономить уже с ближайших счетов.",
         "per_month": "в месяц",
         "per_year": "в год",
         "next_steps": "Следующие шаги",
@@ -1573,6 +1607,23 @@ PROPOSAL_PDF_TEXTS = {
         "current_situation": "Ваша поточна ситуація",
         "our_proposal": "Наша пропозиція",
         "savings": "Ваша економія",
+        "contact_block_title": "Контакти EntrayCompara",
+        "contact_email_label": "Email",
+        "contact_phone_label": "Телефон",
+        "contact_site_label": "Сайт",
+        "contact_social_label": "Соцмережі",
+        "summary_title": "Підсумок економії",
+        "summary_subtitle": "Зрозуміле порівняння поточного тарифу та рекомендованої пропозиції.",
+        "current_plan": "Поточний тариф",
+        "recommended_plan": "Рекомендований тариф",
+        "annual_savings": "Очікувана економія на рік",
+        "next_steps_subtitle": "Ми супроводжуємо весь перехід і беремо оформлення на себе.",
+        "step1_title": "1. Підтвердження",
+        "step1_desc": "Підтвердіть у WhatsApp або email, що хочете перейти на новий тариф.",
+        "step2_title": "2. Оформлення переходу",
+        "step2_desc": "Наша команда підготує та передасть документи новому постачальнику.",
+        "step3_title": "3. Активація та економія",
+        "step3_desc": "Новий тариф активується, і ви починаєте економити вже з наступних рахунків.",
         "per_month": "на місяць",
         "per_year": "на рік",
         "next_steps": "Наступні кроки",
@@ -1599,6 +1650,23 @@ PROPOSAL_PDF_TEXTS = {
         "current_situation": "Zure egoera oraingoa",
         "our_proposal": "Gure eskaintza",
         "savings": "Zure aurrezkia",
+        "contact_block_title": "EntrayCompara kontaktua",
+        "contact_email_label": "Emaila",
+        "contact_phone_label": "Telefonoa",
+        "contact_site_label": "Webgunea",
+        "contact_social_label": "Sareak",
+        "summary_title": "Aurrezkiaren laburpena",
+        "summary_subtitle": "Zure uneko tarifaren eta gomendatutako proposamenaren arteko alderaketa argia.",
+        "current_plan": "Uneko tarifa",
+        "recommended_plan": "Gomendatutako tarifa",
+        "annual_savings": "Urteko aurrezki estimatua",
+        "next_steps_subtitle": "Aldaketa osoan laguntzen dizugu, zuretzat kosturik gabe.",
+        "step1_title": "1. Baieztapena",
+        "step1_desc": "WhatsApp edo email bidez baieztatu tarifa berrira aldatu nahi duzula.",
+        "step2_title": "2. Aldaketaren kudeaketa",
+        "step2_desc": "Gure taldeak dokumentazio guztia prestatuko eta hornitzaile berriari bidaliko dio.",
+        "step3_title": "3. Aktibazioa eta aurrezkia",
+        "step3_desc": "Tarifa berria aktibatzen da eta hurrengo fakturetatik aurrezten hasten zara.",
         "per_month": "hilean",
         "per_year": "urtean",
         "next_steps": "Hurrengo pausoak",
@@ -1619,6 +1687,13 @@ PROPOSAL_PDF_TEXTS = {
         "proposal_id": "Eskaintza",
         "free_service": "Zerbitzua %100 doakoa da zuretzat",
     }
+}
+
+COMPANY_CONTACTS = {
+    "email": "info@entraycompara.com",
+    "phone": "+34 611 97 49 84",
+    "website": "entraycompara.com",
+    "social": "@entraycompara",
 }
 
 def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: dict, language: str = "es") -> bytes:
@@ -1697,25 +1772,94 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         raise RuntimeError("DejaVuSans.ttf not found for proposal PDF generation")
     pdf.set_auto_page_break(auto=True, margin=25)
     pdf.add_page()
-    
-    # Greeting
+
+    brand_blue = (0, 102, 204)
+    brand_dark = (29, 29, 31)
+    brand_muted = (110, 110, 115)
+    brand_bg = (245, 245, 247)
+    brand_green = (34, 139, 34)
+    card_border = (226, 232, 240)
+
+    def fmt_money(value) -> str:
+        if value is None or value == "":
+            return "N/A"
+        try:
+            return f"EUR {float(value):.2f}"
+        except (TypeError, ValueError):
+            return str(value)
+
+    def draw_section_title(title: str, subtitle: str | None = None):
+        pdf.set_text_color(*brand_blue)
+        pdf.set_font("DejaVu", font_style("B"), 13)
+        pdf.cell(0, 8, title, ln=True)
+        pdf.set_draw_color(*brand_blue)
+        pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+        pdf.ln(2)
+        if subtitle:
+            pdf.set_text_color(*brand_muted)
+            pdf.set_font("DejaVu", font_style(), 9)
+            pdf.multi_cell(0, 5, subtitle)
+            pdf.ln(1)
+
+    def draw_info_card(x: float, y: float, w: float, h: float, title: str, rows: list[tuple[str, str]]):
+        pdf.set_fill_color(*brand_bg)
+        pdf.set_draw_color(*card_border)
+        pdf.rect(x, y, w, h, style="DF")
+        pdf.set_xy(x + 4, y + 4)
+        pdf.set_text_color(*brand_blue)
+        pdf.set_font("DejaVu", font_style("B"), 11)
+        pdf.cell(w - 8, 6, title, ln=True)
+        current_y = y + 12
+        for label, value in rows:
+            pdf.set_xy(x + 4, current_y)
+            pdf.set_text_color(*brand_muted)
+            pdf.set_font("DejaVu", font_style("B"), 8)
+            pdf.cell(28, 5, label, ln=False)
+            pdf.set_text_color(*brand_dark)
+            pdf.set_font("DejaVu", font_style(), 8)
+            pdf.multi_cell(w - 36, 5, str(value))
+            current_y = pdf.get_y() + 1
+
+    def draw_metric_card(x: float, y: float, w: float, h: float, title: str, value: str, accent: tuple[int, int, int], subtitle: str | None = None):
+        pdf.set_fill_color(255, 255, 255)
+        pdf.set_draw_color(*card_border)
+        pdf.rect(x, y, w, h, style="DF")
+        pdf.set_fill_color(*accent)
+        pdf.rect(x, y, 3, h, style="F")
+        pdf.set_xy(x + 6, y + 4)
+        pdf.set_text_color(*brand_muted)
+        pdf.set_font("DejaVu", font_style("B"), 8)
+        pdf.cell(w - 10, 5, title, ln=True)
+        pdf.set_x(x + 6)
+        pdf.set_text_color(*brand_dark)
+        pdf.set_font("DejaVu", font_style("B"), 14)
+        pdf.cell(w - 10, 8, value, ln=True)
+        if subtitle:
+            pdf.set_x(x + 6)
+            pdf.set_text_color(*brand_muted)
+            pdf.set_font("DejaVu", font_style(), 8)
+            pdf.multi_cell(w - 10, 4.5, subtitle)
+
+    def draw_step_box(x: float, y: float, w: float, h: float, number: str, title: str, description: str):
+        pdf.set_fill_color(*brand_bg)
+        pdf.set_draw_color(*card_border)
+        pdf.rect(x, y, w, h, style="DF")
+        pdf.set_fill_color(*brand_blue)
+        pdf.rect(x + 4, y + 4, 10, 10, style="F")
+        pdf.set_xy(x + 4, y + 5)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("DejaVu", font_style("B"), 8)
+        pdf.cell(10, 8, number, align="C")
+        pdf.set_xy(x + 18, y + 4)
+        pdf.set_text_color(*brand_dark)
+        pdf.set_font("DejaVu", font_style("B"), 9)
+        pdf.multi_cell(w - 22, 5, title)
+        pdf.set_x(x + 18)
+        pdf.set_text_color(*brand_muted)
+        pdf.set_font("DejaVu", font_style(), 8)
+        pdf.multi_cell(w - 22, 4.5, description)
+
     client_name = application.get("client_name", "")
-    pdf.set_text_color(42, 106, 150)
-    pdf.set_font("DejaVu", font_style("B"), 14)
-    pdf.cell(0, 10, f"{texts['greeting']} {client_name},", ln=True)
-    pdf.ln(2)
-    
-    # Current situation
-    pdf.set_text_color(42, 106, 150)
-    pdf.set_font("DejaVu", font_style("B"), 12)
-    pdf.cell(0, 8, texts["current_situation"], ln=True)
-    pdf.set_draw_color(42, 106, 150)
-    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
-    pdf.ln(2)
-    
-    pdf.set_text_color(50, 50, 50)
-    pdf.set_font("DejaVu", font_style(), 10)
-    
     current_provider = extracted_data.get("current_provider") or extracted_data.get("retailer") or "N/A"
     current_tariff = extracted_data.get("current_tariff") or extracted_data.get("access_tariff") or "N/A"
     current_cost = get_extracted_current_cost(extracted_data)
@@ -1769,59 +1913,90 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     new_cost = simulation.get("new_monthly_cost_eur")
     duration = simulation.get("contract_duration_months")
     bonus = simulation.get("bonus_description")
-    
-    y = pdf.get_y()
-    y = draw_row(texts["provider"], new_provider, col1_x, y)
-    y = draw_row(texts["tariff"], new_tariff, col1_x, y)
-    y = draw_row(texts["monthly_cost"], f"€{new_cost}" if new_cost else "N/A", col1_x, y)
-    if duration:
-        y = draw_row("Duration", f"{duration} meses", col1_x, y)
-    
-    y2 = pdf.get_y() - (3 * row_h if duration else 2 * row_h)
-    if bonus:
-        y2 = draw_row("Bonus", bonus, col2_x, y2)
-    
-    pdf.set_y(max(y, y2) + 4)
-    
-    # Savings block
     savings_monthly = simulation.get("savings_monthly_eur")
     savings_percent = simulation.get("savings_percent")
-    
-    if savings_monthly is not None and savings_monthly > 0:
-        pdf.set_fill_color(230, 245, 230)
-        pdf.set_draw_color(42, 106, 150)
-        pdf.rect(15, pdf.get_y(), 180, 35, style='DF')
-        
-        pdf.set_xy(15, pdf.get_y() + 5)
-        pdf.set_text_color(42, 106, 150)
-        pdf.set_font("DejaVu", font_style("B"), 11)
-        pdf.cell(180, 8, texts["savings"], align="C", ln=True)
-        
-        pdf.set_text_color(34, 139, 34)
-        pdf.set_font("DejaVu", font_style("B"), 22)
-        pdf.cell(180, 12, f"€{savings_monthly} {texts['per_month']}", align="C", ln=True)
-        
-        if savings_percent:
-            pdf.set_text_color(80, 80, 80)
-            pdf.set_font("DejaVu", font_style(), 10)
-            yearly = round(savings_monthly * 12, 2)
-            pdf.cell(180, 6, f"{savings_percent}% | €{yearly} {texts['per_year']}", align="C", ln=True)
-        
-        pdf.ln(8)
-    
-    # Next steps
-    pdf.set_text_color(42, 106, 150)
-    pdf.set_font("DejaVu", font_style("B"), 12)
-    pdf.cell(0, 8, texts["next_steps"], ln=True)
-    pdf.set_draw_color(42, 106, 150)
-    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
-    pdf.ln(2)
-    
-    pdf.set_text_color(50, 50, 50)
+
+    yearly_savings = round(savings_monthly * 12, 2) if savings_monthly is not None else None
+
+    pdf.set_text_color(*brand_dark)
+    pdf.set_font("DejaVu", font_style("B"), 18)
+    pdf.cell(0, 10, texts["title"], ln=True)
+    pdf.set_text_color(*brand_muted)
     pdf.set_font("DejaVu", font_style(), 10)
-    pdf.cell(0, 6, texts["step1"], ln=True)
-    pdf.cell(0, 6, texts["step2"], ln=True)
-    pdf.cell(0, 6, texts["step3"], ln=True)
+    pdf.multi_cell(120, 5.5, f"{texts['greeting']} {client_name},\n{texts['free_service']}")
+
+    contact_x = 142
+    contact_y = 34
+    contact_w = 53
+    contact_h = 33
+    pdf.set_fill_color(*brand_bg)
+    pdf.set_draw_color(*card_border)
+    pdf.rect(contact_x, contact_y, contact_w, contact_h, style="DF")
+    pdf.set_xy(contact_x + 4, contact_y + 4)
+    pdf.set_text_color(*brand_blue)
+    pdf.set_font("DejaVu", font_style("B"), 9)
+    pdf.cell(contact_w - 8, 5, texts["contact_block_title"], ln=True)
+    pdf.set_text_color(*brand_dark)
+    pdf.set_font("DejaVu", font_style(), 8)
+    pdf.set_x(contact_x + 4)
+    pdf.cell(contact_w - 8, 4.5, f"{texts['contact_phone_label']}: {COMPANY_CONTACTS['phone']}", ln=True)
+    pdf.set_x(contact_x + 4)
+    pdf.cell(contact_w - 8, 4.5, f"{texts['contact_email_label']}: {COMPANY_CONTACTS['email']}", ln=True)
+    pdf.set_x(contact_x + 4)
+    pdf.cell(contact_w - 8, 4.5, f"{texts['contact_site_label']}: {COMPANY_CONTACTS['website']}", ln=True)
+    pdf.set_x(contact_x + 4)
+    pdf.cell(contact_w - 8, 4.5, f"{texts['contact_social_label']}: {COMPANY_CONTACTS['social']}", ln=True)
+
+    pdf.set_y(76)
+    draw_section_title(texts["summary_title"], texts["summary_subtitle"])
+
+    draw_metric_card(15, pdf.get_y(), 56, 22, texts["current_plan"], fmt_money(current_cost), brand_blue, current_tariff)
+    draw_metric_card(77, pdf.get_y(), 56, 22, texts["recommended_plan"], fmt_money(new_cost), brand_green, new_tariff)
+    draw_metric_card(139, pdf.get_y(), 56, 22, texts["annual_savings"], fmt_money(yearly_savings) if yearly_savings is not None else "N/A", brand_green, f"{savings_percent}% | {fmt_money(savings_monthly)} {texts['per_month']}" if savings_monthly is not None and savings_percent is not None else texts["savings"])
+    pdf.set_y(pdf.get_y() + 28)
+
+    draw_section_title(texts["current_situation"])
+    current_rows = [
+        (texts["provider"], current_provider),
+        (texts["tariff"], current_tariff),
+        (texts["monthly_cost"], fmt_money(current_cost)),
+        (texts["contract_end"], contract_end),
+        (texts["service"], service),
+        (texts["power"], power),
+        (texts["consumption"], consumption),
+        (texts["contract_num"], contract_num),
+    ]
+    draw_info_card(15, pdf.get_y(), 86, 46, texts["current_plan"], current_rows[:4])
+    draw_info_card(109, pdf.get_y(), 86, 46, texts["current_situation"], current_rows[4:])
+    pdf.set_y(pdf.get_y() + 52)
+
+    draw_section_title(texts["our_proposal"])
+    proposal_rows_left = [
+        (texts["provider"], new_provider),
+        (texts["tariff"], new_tariff),
+        (texts["monthly_cost"], fmt_money(new_cost)),
+        ("Bonus", bonus or "N/A"),
+    ]
+    proposal_rows_right = [
+        (texts["contract_end"], f"{duration} мес." if duration else "N/A"),
+        (texts["savings"], fmt_money(savings_monthly)),
+        ("% ", f"{savings_percent}%" if savings_percent is not None else "N/A"),
+        (texts["annual_savings"], fmt_money(yearly_savings)),
+    ]
+    draw_info_card(15, pdf.get_y(), 86, 46, texts["recommended_plan"], proposal_rows_left)
+    draw_info_card(109, pdf.get_y(), 86, 46, texts["summary_title"], proposal_rows_right)
+    pdf.set_y(pdf.get_y() + 52)
+
+    draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])
+    base_y = pdf.get_y()
+    step_w = 56
+    step_h = 28
+    draw_step_box(15, base_y, step_w, step_h, "1", texts["step1_title"], texts["step1_desc"])
+    draw_step_box(77, base_y, step_w, step_h, "2", texts["step2_title"], texts["step2_desc"])
+    draw_step_box(139, base_y, step_w, step_h, "3", texts["step3_title"], texts["step3_desc"])
+    pdf.set_draw_color(*brand_blue)
+    pdf.line(71, base_y + 14, 77, base_y + 14)
+    pdf.line(133, base_y + 14, 139, base_y + 14)
     
     return bytes(pdf.output(dest="S"))
 

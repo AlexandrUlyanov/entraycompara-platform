@@ -36,6 +36,7 @@ async def run_eni_simulation(
     interactive: bool = False,
     on_tariffs_ready=None,
     get_selected_tariff=None,
+    progress_callback=None,
 ) -> dict:
     """
     Автоматически проходит симуляцию на Eni Plenitude.
@@ -43,6 +44,11 @@ async def run_eni_simulation(
     При interactive=True останавливается на странице тарифов и ждёт выбора менеджера.
     """
     trace_path = "/tmp/eni_trace.zip"
+
+    async def _report_progress(step_key: str, label: str, percent: int, details: str | None = None):
+        if progress_callback:
+            await progress_callback(step_key, label, percent, details)
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=headless)
         context = await browser.new_context(accept_downloads=True)
@@ -55,6 +61,7 @@ async def run_eni_simulation(
 
         try:
             # Шаг 1: Открыть реферальную ссылку
+            await _report_progress("open_referral", "Открываем сайт Eni", 8, "Переходим по реферальной ссылке.")
             print("[Eni] Step 1: Opening referral URL...")
             await page.goto(REFERRAL_URL, wait_until="domcontentloaded", timeout=30000)
 
@@ -63,12 +70,14 @@ async def run_eni_simulation(
             await _remove_all_overlays(page)
 
             # Шаг 2: Нажать Simulador
+            await _report_progress("open_simulator", "Открываем симулятор", 15, "Переходим в раздел Simulador.")
             print("[Eni] Step 2: Clicking Simulador...")
             await _scroll_and_click(page, 'button[name="option"][value="simulador"]')
             await page.wait_for_selector('button[name="tipo_cliente"][value="1"], button[name="tipo_cliente"][value="2"]', timeout=15000)
             print(f"[Eni] URL after Step 2: {page.url}")
 
             # Шаг 3: Выбрать Hogar / Empresa
+            await _report_progress("select_client_type", "Выбираем тип клиента", 22, f"Тип клиента: {client_type}.")
             print(f"[Eni] Step 3: Selecting client type: {client_type}...")
             if client_type == "Empresa":
                 await _scroll_and_click(page, 'button[name="tipo_cliente"][value="2"]')
@@ -78,6 +87,7 @@ async def run_eni_simulation(
             print(f"[Eni] URL after Step 3: {page.url}")
 
             # Шаг 4: Выбрать Factura de Electricidad
+            await _report_progress("select_supply_type", "Выбираем тип счёта", 28, "Переходим к factura de electricidad.")
             print("[Eni] Step 4: Selecting Factura de Electricidad...")
             await _scroll_and_click(page, 'button[name="tipo_suministro"][value="suministro_luz"]')
             await page.wait_for_selector('input#cups_luz, button#simulador_submit', timeout=15000)
@@ -85,6 +95,7 @@ async def run_eni_simulation(
 
             # Нормализуем CUPS: только заглавные буквы и цифры, без пробелов/дефисов
             cups_clean = cups.upper().replace(' ', '').replace('-', '').replace('.', '')
+            await _report_progress("validate_cups", "Проверяем CUPS", 36, f"Отправляем CUPS {cups_clean}.")
             print(f"[Eni] Step 5: Entering CUPS: {cups_clean} (original: {cups})...")
             await page.fill('input#cups_luz', cups_clean, timeout=10000)
             # Явно триггерим change event (Eni валидирует CUPS через JS onchange)
@@ -104,6 +115,7 @@ async def run_eni_simulation(
             # Проверим результат после нажатия кнопки (шаг 6).
 
             # Шаг 6: Нажать Comenzar Simulación
+            await _report_progress("start_simulation", "Запускаем симуляцию", 44, "Ожидаем форму расчёта.")
             print("[Eni] Step 6: Clicking Comenzar Simulación...")
             await _scroll_and_click(page, 'button#simulador_submit')
             await _wait_for_simulation_form(page, timeout=30000)
@@ -136,6 +148,7 @@ async def run_eni_simulation(
                 still_cups_form = await page.query_selector('input#cups_luz')
                 if still_cups_form and 'pantalla=2' in page.url and len(cups_clean) == 22:
                     cups_20 = cups_clean[:20]
+                    await _report_progress("retry_cups", "Повторно проверяем CUPS", 40, f"Пробуем сокращённый CUPS {cups_20}.")
                     print(f"[Eni] Trying shortened CUPS (20 chars): {cups_20}")
                     await page.fill('input#cups_luz', cups_20, timeout=10000)
                     await page.evaluate("""() => {
@@ -157,6 +170,7 @@ async def run_eni_simulation(
                     raise EniSimulationError(f"CUPS validation failed on server: {cups_clean}")
 
             # Шаг 7: Заполнить форму данными
+            await _report_progress("fill_form", "Заполняем данные счёта", 56, "Вносим мощность, потребление и сумму фактуры.")
             print("[Eni] Step 7: Filling simulation form...")
             await _fill_simulation_form(page, {
                 "access_tariff": access_tariff,
@@ -174,6 +188,7 @@ async def run_eni_simulation(
             await _take_step_screenshot(page, "07_after_fill")
 
             # Шаг 8: Нажать "Continuar" внутри #form_simulador
+            await _report_progress("submit_form", "Отправляем форму", 66, "Передаём данные в расчёт Eni.")
             # Важно: нужен именно клик на кнопку (не form.submit()), чтобы
             # сработал jQuery-валидатор и AJAX-отправка формы.
             # Предварительно удаляем баннер, чтобы он не блокировал клик.
@@ -234,11 +249,13 @@ async def run_eni_simulation(
             # Шаг 9: Работа с тарифами
             if interactive and on_tariffs_ready and get_selected_tariff:
                 # Интерактивный режим: парсим тарифы и ждём выбора менеджера
+                await _report_progress("parse_tariffs", "Загружаем тарифы", 76, "Считываем доступные тарифные предложения.")
                 print("[Eni] Step 9: Interactive mode — parsing tariffs...")
                 await _take_step_screenshot(page, "09_before_tariff_selection")
                 
                 tariffs = await _parse_tariffs_from_page(page)
                 print(f"[Eni] Found {len(tariffs)} tariffs, awaiting manager selection...")
+                await _report_progress("await_manager_choice", "Ждём выбор тарифа", 82, f"Найдено тарифов: {len(tariffs)}.")
                 await on_tariffs_ready(tariffs)
                 
                 selected_index = None
@@ -251,10 +268,12 @@ async def run_eni_simulation(
                         await asyncio.sleep(1)
                 
                 print(f"[Eni] Manager selected tariff index: {selected_index}")
+                await _report_progress("apply_selected_tariff", "Применяем выбранный тариф", 88, f"Выбран тариф #{selected_index + 1}.")
                 await _select_tariff_by_index(page, selected_index)
                 await _take_step_screenshot(page, "09_after_tariff_selection")
             else:
                 # Автоматический режим: 3-й тариф снизу
+                await _report_progress("auto_select_tariff", "Выбираем тариф автоматически", 88, "Выбираем подходящий тариф по бизнес-правилу.")
                 print("[Eni] Step 9: Selecting tariff (3rd from bottom)...")
                 await _take_step_screenshot(page, "09_before_tariff_selection")
                 await _select_third_tariff_from_bottom(page)
@@ -262,10 +281,12 @@ async def run_eni_simulation(
                 await _take_step_screenshot(page, "09_after_tariff_selection")
 
             # Шаг 10: Скачать PDF симуляции через CREAR CONTRATO → IMPRIMIR
+            await _report_progress("download_pdf", "Генерируем и скачиваем PDF", 96, "Формируем документ симуляции.")
             print("[Eni] Step 10: Downloading simulation PDF...")
             download_path = await _download_pdf_via_imprimir(page)
             await _take_step_screenshot(page, "10_after_download")
 
+            await _report_progress("completed", "Симуляция завершена", 100, "PDF успешно получен.")
             print(f"[Eni] Simulation completed. PDF saved to: {download_path.get('pdf_path')}")
             if TRACE_ENABLED:
                 await context.tracing.stop(path=trace_path)

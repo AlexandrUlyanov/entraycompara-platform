@@ -72,9 +72,28 @@ async def main():
     async def _set_task(status: dict):
         await asyncio.to_thread(_set_task_status_sync, firestore_client, application_id, task_id, status)
 
+    async def _set_progress(step_key: str, step_label: str, progress_percent: int, details: str | None = None, status: str = "running"):
+        payload = {
+            "status": status,
+            "step_key": step_key,
+            "step_label": step_label,
+            "progress_percent": progress_percent,
+            "updated_at": datetime.utcnow(),
+        }
+        if details is not None:
+            payload["step_details"] = details
+            payload["message"] = details
+        else:
+            payload["message"] = step_label
+        await _set_task(payload)
+
     await _set_task({
         "status": "running",
         "message": "Запущена автоматическая симуляция на Eni Plenitude...",
+        "step_key": "job_started",
+        "step_label": "Запускаем задачу",
+        "step_details": "Подготавливаем Cloud Run Job и Playwright.",
+        "progress_percent": 3,
         "simulation_id": None,
         "error": None,
         "updated_at": datetime.utcnow(),
@@ -87,6 +106,10 @@ async def main():
             await _set_task({
                 "status": "awaiting_tariff_selection",
                 "message": f"Выберите один из {len(tariffs)} тарифов",
+                "step_key": "await_manager_choice",
+                "step_label": "Ждём выбор тарифа",
+                "step_details": f"Найдено тарифов: {len(tariffs)}. Нужен выбор менеджера.",
+                "progress_percent": 82,
                 "tariffs": tariffs,
                 "updated_at": datetime.utcnow(),
             })
@@ -137,6 +160,7 @@ async def main():
             interactive=True,
             on_tariffs_ready=_on_tariffs_ready,
             get_selected_tariff=_get_selected_tariff,
+            progress_callback=_set_progress,
         )
 
         pdf_path = result.get("pdf_path")
@@ -206,6 +230,10 @@ async def main():
         await _set_task({
             "status": "completed",
             "message": "Симуляция успешно создана.",
+            "step_key": "completed",
+            "step_label": "Симуляция завершена",
+            "step_details": "PDF сохранён и симуляция добавлена в CRM.",
+            "progress_percent": 100,
             "simulation_id": sim_id,
             "simulation_file_url": pdf_url,
             "error": None,
@@ -219,6 +247,9 @@ async def main():
         await _set_task({
             "status": "failed",
             "message": str(e),
+            "step_key": "failed",
+            "step_label": "Симуляция прервана",
+            "step_details": str(e),
             "simulation_id": None,
             "error": str(e),
             "updated_at": datetime.utcnow(),

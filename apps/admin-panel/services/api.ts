@@ -428,6 +428,10 @@ export const getAutoSimulationStatus = async (applicationId: string, taskId: str
   task_id: string;
   status: string;
   message: string;
+  step_key?: string;
+  step_label?: string;
+  step_details?: string;
+  progress_percent?: number;
   simulation_id?: string;
   simulation_file_url?: string;
   error?: string;

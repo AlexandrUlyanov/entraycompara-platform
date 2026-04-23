@@ -25,6 +25,25 @@ const EMPTY_SIMULATION = {
 
 type AutoTaskStatus = 'idle' | 'pending' | 'running' | 'awaiting_tariff_selection' | 'completed' | 'failed';
 
+const AUTO_SIMULATION_STEPS = [
+  { key: 'job_started', label: 'Запускаем задачу' },
+  { key: 'open_referral', label: 'Открываем сайт Eni' },
+  { key: 'open_simulator', label: 'Открываем симулятор' },
+  { key: 'select_client_type', label: 'Выбираем тип клиента' },
+  { key: 'select_supply_type', label: 'Выбираем тип счёта' },
+  { key: 'validate_cups', label: 'Проверяем CUPS' },
+  { key: 'retry_cups', label: 'Повторно проверяем CUPS' },
+  { key: 'start_simulation', label: 'Запускаем симуляцию' },
+  { key: 'fill_form', label: 'Заполняем данные счёта' },
+  { key: 'submit_form', label: 'Отправляем форму' },
+  { key: 'parse_tariffs', label: 'Загружаем тарифы' },
+  { key: 'await_manager_choice', label: 'Ждём выбор тарифа' },
+  { key: 'apply_selected_tariff', label: 'Применяем выбранный тариф' },
+  { key: 'auto_select_tariff', label: 'Выбираем тариф автоматически' },
+  { key: 'download_pdf', label: 'Генерируем и скачиваем PDF' },
+  { key: 'completed', label: 'Симуляция завершена' },
+] as const;
+
 const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -36,6 +55,10 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
   const [autoTaskId, setAutoTaskId] = useState<string | null>(null);
   const [autoStatus, setAutoStatus] = useState<AutoTaskStatus>('idle');
   const [autoMessage, setAutoMessage] = useState<string>('');
+  const [autoStepKey, setAutoStepKey] = useState<string | null>(null);
+  const [autoStepLabel, setAutoStepLabel] = useState<string>('');
+  const [autoStepDetails, setAutoStepDetails] = useState<string>('');
+  const [autoProgressPercent, setAutoProgressPercent] = useState<number>(0);
   const [autoTariffs, setAutoTariffs] = useState<Array<{ index: number; name: string; current_price: string; plenitude_price: string }> | null>(null);
   const [selectedTariffIndex, setSelectedTariffIndex] = useState<number | null>(null);
   const [isSelectingTariff, setIsSelectingTariff] = useState(false);
@@ -64,6 +87,10 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
       const result = await getAutoSimulationStatus(appId, autoTaskId);
       setAutoStatus(result.status as AutoTaskStatus);
       setAutoMessage(result.message || '');
+      setAutoStepKey(result.step_key || null);
+      setAutoStepLabel(result.step_label || '');
+      setAutoStepDetails(result.step_details || '');
+      setAutoProgressPercent(result.progress_percent || 0);
       if (result.status === 'awaiting_tariff_selection' && result.tariffs && result.tariffs.length > 0) {
         setAutoTariffs(result.tariffs);
       } else {
@@ -150,6 +177,10 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
     }
     setAutoStatus('pending');
     setAutoMessage(t('proposalBuilder.simulation.autoCreatePending'));
+    setAutoStepKey('job_started');
+    setAutoStepLabel('Запускаем задачу');
+    setAutoStepDetails('Подготавливаем Cloud Run Job и Playwright.');
+    setAutoProgressPercent(3);
     try {
       const result = await autoCreateEniSimulation(appId, {
         cups: extracted.cups,
@@ -182,6 +213,10 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
       await selectAutoSimulationTariff(appId, autoTaskId, selectedTariffIndex);
       setAutoStatus('running');
       setAutoMessage('Тариф выбран, продолжаем симуляцию...');
+      setAutoStepKey('apply_selected_tariff');
+      setAutoStepLabel('Применяем выбранный тариф');
+      setAutoStepDetails(`Передали в Eni тариф #${selectedTariffIndex + 1}.`);
+      setAutoProgressPercent(88);
       setAutoTariffs(null);
       setSelectedTariffIndex(null);
     } catch (e: any) {
@@ -201,6 +236,10 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
       default: return '';
     }
   };
+
+  const currentStepIndex = autoStepKey
+    ? AUTO_SIMULATION_STEPS.findIndex((step) => step.key === autoStepKey)
+    : -1;
 
   return (
     <div className="space-y-4">
@@ -236,6 +275,54 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
             {(autoStatus === 'pending' || autoStatus === 'running') && <Spinner size="h-3 w-3" />}
             <span className="font-medium">{autoMessage}</span>
           </div>
+
+          {(autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection' || autoStatus === 'completed') && (
+            <div className="mt-3 space-y-3">
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-secondary-light mb-1">
+                  <span>{autoStepLabel || 'Выполняем симуляцию'}</span>
+                  <span>{autoProgressPercent}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-white/60 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-current transition-all duration-500"
+                    style={{ width: `${Math.max(4, autoProgressPercent)}%` }}
+                  />
+                </div>
+                {autoStepDetails && (
+                  <p className="mt-2 text-xs opacity-90">{autoStepDetails}</p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                {AUTO_SIMULATION_STEPS.map((step, index) => {
+                  const isDone = currentStepIndex > index || autoStatus === 'completed';
+                  const isCurrent = autoStepKey === step.key;
+                  return (
+                    <div
+                      key={step.key}
+                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${
+                        isCurrent ? 'bg-white/60' : ''
+                      }`}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] font-bold ${
+                          isDone
+                            ? 'bg-current text-white border-current'
+                            : isCurrent
+                              ? 'border-current'
+                              : 'border-current/40 opacity-60'
+                        }`}
+                      >
+                        {isDone ? '✓' : index + 1}
+                      </div>
+                      <span className={`text-xs ${isCurrent ? 'font-semibold' : ''}`}>{step.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Tariff selection UI */}
           {autoStatus === 'awaiting_tariff_selection' && autoTariffs && autoTariffs.length > 0 && (
@@ -282,7 +369,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
 
           {autoStatus === 'completed' && (
             <button
-              onClick={() => { setAutoStatus('idle'); setAutoTaskId(null); setAutoTariffs(null); setSelectedTariffIndex(null); }}
+              onClick={() => { setAutoStatus('idle'); setAutoTaskId(null); setAutoTariffs(null); setSelectedTariffIndex(null); setAutoStepKey(null); setAutoStepLabel(''); setAutoStepDetails(''); setAutoProgressPercent(0); }}
               className="mt-2 text-xs underline"
             >
               Очистить
@@ -290,7 +377,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
           )}
           {autoStatus === 'failed' && (
             <button
-              onClick={() => { setAutoStatus('idle'); setAutoTaskId(null); }}
+              onClick={() => { setAutoStatus('idle'); setAutoTaskId(null); setAutoStepKey(null); setAutoStepLabel(''); setAutoStepDetails(''); setAutoProgressPercent(0); }}
               className="mt-2 text-xs underline"
             >
               Закрыть

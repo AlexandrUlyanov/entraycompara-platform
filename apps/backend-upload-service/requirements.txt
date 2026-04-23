@@ -8,3 +8,4 @@ requests
 google-generativeai
 fpdf2
 playwright
+python-stdnum==2.2

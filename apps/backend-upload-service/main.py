@@ -19,6 +19,11 @@ from pydantic import BaseModel
 import google.generativeai as genai
 import eni_simulator
 
+try:
+    from stdnum.es import cups as stdnum_cups
+except ImportError:
+    stdnum_cups = None
+
 
 app = FastAPI()
 
@@ -524,6 +529,34 @@ def _normalize_extracted_value(field: str, value: Any) -> Any:
     return value
 
 
+def _compact_cups(value: str | None) -> str | None:
+    if not value:
+        return None
+    return re.sub(r"[^A-Za-z0-9]", "", str(value)).upper()
+
+
+def _is_structurally_valid_cups(value: str | None) -> bool:
+    compact = _compact_cups(value)
+    if not compact:
+        return False
+    return bool(re.fullmatch(r"ES\d{16}[A-Z]{2}(\d[A-Z])?", compact))
+
+
+def _validate_cups(value: str | None) -> tuple[bool, str | None, str]:
+    compact = _compact_cups(value)
+    if not compact:
+        return False, None, "missing"
+
+    if stdnum_cups is not None:
+        try:
+            validated = stdnum_cups.validate(compact)
+            return True, validated, "checksum"
+        except Exception:
+            return False, compact, "checksum"
+
+    return _is_structurally_valid_cups(compact), compact, "structure"
+
+
 def _apply_provider_specific_rules(extracted: dict) -> tuple[dict, list[str]]:
     normalized = dict(extracted)
     rule_hits: list[str] = []
@@ -549,13 +582,17 @@ def _assess_field(field: str, value: Any, extracted: dict) -> dict:
         }
 
     if field == "cups":
-        cups = str(normalized_value).upper()
-        if re.fullmatch(r"ES[0-9A-Z]{18,20}", cups):
-            confidence = 0.97
+        is_valid, validated_cups, validation_mode = _validate_cups(str(normalized_value))
+        cups = validated_cups or _compact_cups(str(normalized_value))
+        if is_valid and validation_mode == "checksum":
+            confidence = 0.99
+        elif is_valid and validation_mode == "structure":
+            confidence = 0.78
+            reasons.append("cups_checksum_validator_unavailable")
         else:
             confidence = 0.2
             needs_review = True
-            reasons.append("invalid_cups_format")
+            reasons.append("invalid_cups_checksum" if validation_mode == "checksum" else "invalid_cups_format")
         normalized_value = cups
     elif field == "client_type":
         if normalized_value in {"Hogar", "Empresa"}:

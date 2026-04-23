@@ -334,7 +334,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
 
       {/* Auto-simulation status */}
       {autoStatus !== 'idle' && (
-        <div className={`p-3 rounded-xl text-sm border ${getAutoStatusColor()}`}>
+        <div className={`p-3 rounded-xl text-sm border ${getAutoStatusColor()} ${autoStatus === 'completed' ? 'entray-success-card' : ''}`}>
           <div className="flex items-center gap-2">
             {(autoStatus === 'pending' || autoStatus === 'running') && <Spinner size="h-3 w-3" />}
             {(autoStatus === 'pending' || autoStatus === 'running' || autoStatus === 'awaiting_tariff_selection') && <WorkingDots className="opacity-80" />}
@@ -367,7 +367,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                     <div
                       key={step.key}
                       className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-all ${
-                        isCurrent ? 'bg-white/70 shadow-[0_10px_25px_rgba(16,185,129,0.08)]' : ''
+                        isCurrent ? 'bg-white/70 shadow-[0_10px_25px_rgba(16,185,129,0.08)] entray-step-enter' : ''
                       }`}
                     >
                       <div
@@ -396,7 +396,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs font-semibold text-secondary">Выберите тариф вручную</p>
                   {formattedTariffCountdown && (
-                    <span className={`text-xs font-bold tabular-nums ${tariffSecondsLeft !== null && tariffSecondsLeft <= 30 ? 'text-red-600' : 'text-primary'}`}>
+                    <span className={`text-xs font-bold tabular-nums px-2 py-1 rounded-lg bg-white/80 ${tariffSecondsLeft !== null && tariffSecondsLeft <= 30 ? 'text-red-600 entray-countdown-urgent' : 'text-primary'}`}>
                       {formattedTariffCountdown}
                     </span>
                   )}

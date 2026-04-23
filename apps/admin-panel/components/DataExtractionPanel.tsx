@@ -308,7 +308,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
           extractStatus === 'failed'
             ? 'bg-red-50 border-red-200 text-red-600'
             : extractStatus === 'completed'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 entray-success-card'
               : 'bg-blue-50 border-blue-200 text-blue-700'
         }`}>
           <div className="flex items-center gap-2">
@@ -339,7 +339,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                   return (
                     <div
                       key={step.key}
-                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-all ${isCurrent ? 'bg-white/70 shadow-[0_10px_25px_rgba(59,130,246,0.08)]' : ''}`}
+                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-all entray-step-enter ${isCurrent ? 'bg-white/70 shadow-[0_10px_25px_rgba(59,130,246,0.08)]' : ''}`}
                     >
                       <div
                         className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] font-bold ${

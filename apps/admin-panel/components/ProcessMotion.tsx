@@ -23,6 +23,28 @@ export const ProcessMotionStyles: React.FC = () => (
       100% { transform: scale(1.9); opacity: 0; }
     }
 
+    @keyframes entray-step-enter {
+      0% { opacity: 0; transform: translateY(6px) scale(.985); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @keyframes entray-countdown-alert {
+      0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,.18); }
+      50% { transform: scale(1.04); box-shadow: 0 0 0 8px rgba(239,68,68,0); }
+    }
+
+    @keyframes entray-success-pop {
+      0% { opacity: 0; transform: scale(.92) translateY(6px); }
+      55% { opacity: 1; transform: scale(1.03) translateY(0); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    @keyframes entray-success-sheen {
+      0% { transform: translateX(-120%); opacity: 0; }
+      25% { opacity: .25; }
+      100% { transform: translateX(120%); opacity: 0; }
+    }
+
     .entray-process-live {
       animation: entray-process-breathe 2.4s ease-in-out infinite;
       position: relative;
@@ -80,6 +102,29 @@ export const ProcessMotionStyles: React.FC = () => (
       animation: entray-process-ring 1.6s ease-out infinite;
       pointer-events: none;
     }
+
+    .entray-step-enter {
+      animation: entray-step-enter .38s cubic-bezier(.22,1,.36,1);
+    }
+
+    .entray-countdown-urgent {
+      animation: entray-countdown-alert 1.4s ease-in-out infinite;
+    }
+
+    .entray-success-card {
+      position: relative;
+      overflow: hidden;
+      animation: entray-success-pop .42s cubic-bezier(.22,1,.36,1);
+    }
+
+    .entray-success-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,.18) 42%, rgba(255,255,255,.38) 52%, transparent 72%);
+      animation: entray-success-sheen 2.8s linear infinite;
+      pointer-events: none;
+    }
   `}</style>
 );
 
@@ -90,4 +135,3 @@ export const WorkingDots: React.FC<{ className?: string }> = ({ className = '' }
     <span className="entray-working-dot h-1.5 w-1.5 rounded-full bg-current" />
   </span>
 );
-

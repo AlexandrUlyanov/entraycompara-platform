@@ -1805,7 +1805,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
         def header(self):
             self.set_fill_color(11, 95, 255)
-            self.rect(0, 0, 210, 32, style="F")
+            self.rect(0, 0, 210, 36, style="F")
 
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 18)
@@ -1824,13 +1824,27 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style(), 8)
             today = datetime.datetime.now().strftime("%d.%m.%Y")
-            self.set_xy(138, 11.5)
-            self.cell(57, 4, f"{texts['date']}: {today}", align="R", ln=True)
+            self.set_xy(132, 6.5)
+            self.cell(63, 4, f"{texts['date']}: {today}", align="R", ln=True)
 
             self.set_text_color(219, 234, 254)
-            self.set_xy(138, 22)
+            self.set_xy(132, 12.5)
             self.set_font("DejaVu", font_style(), 7)
-            self.cell(57, 4, COMPANY_CONTACTS["website"], align="R", ln=False)
+            self.cell(63, 4, COMPANY_CONTACTS["website"], align="R", ln=True)
+
+            self.set_xy(132, 18.5)
+            self.set_text_color(255, 255, 255)
+            self.set_font("DejaVu", font_style("B"), 8)
+            self.cell(63, 4, COMPANY_CONTACTS["phone"], align="R", ln=True)
+
+            cta_text = whatsapp_cta_labels.get(language, whatsapp_cta_labels["es"])
+            cta_link = application.get("proposal_whatsapp_link", "")
+            self.set_fill_color(37, 211, 102)
+            self.rounded_rect(149, 26, 46, 6.5, 2.2, style="F")
+            self.set_xy(149, 27.4)
+            self.set_text_color(255, 255, 255)
+            self.set_font("DejaVu", font_style("B"), 6.6)
+            self.cell(46, 3.5, cta_text, align="C", ln=False, link=cta_link)
         
         def footer(self):
             self.set_y(-16)
@@ -1874,6 +1888,18 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         "ru": "КОММЕНТАРИЙ МЕНЕДЖЕРА",
         "uk": "КОМЕНТАР МЕНЕДЖЕРА",
         "eu": "AHOLKULARIAREN OHARRA",
+    }
+    whatsapp_cta_labels = {
+        "es": "Confirmar por WhatsApp",
+        "ru": "Подтвердить в WhatsApp",
+        "uk": "Підтвердити у WhatsApp",
+        "eu": "Baieztatu WhatsApp bidez",
+    }
+    whatsapp_prefill_messages = {
+        "es": "Hola, confirmo que quiero iniciar el cambio a la nueva tarifa.",
+        "ru": "Здравствуйте, подтверждаю, что хочу начать переход на новый тариф.",
+        "uk": "Доброго дня, підтверджую, що хочу розпочати перехід на новий тариф.",
+        "eu": "Kaixo, tarifa berrira aldatzeko prozesua hasi nahi dudala berresten dut.",
     }
     service_labels = {
         "Electricity Comparison": {
@@ -2095,6 +2121,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         return f"{date_obj.day} {month_name} {date_obj.year}"
 
     client_name = application.get("client_name", "")
+    whatsapp_message = whatsapp_prefill_messages.get(language, whatsapp_prefill_messages["es"])
+    whatsapp_digits = re.sub(r"\D", "", COMPANY_CONTACTS["phone"])
+    if whatsapp_digits.startswith("00"):
+        whatsapp_digits = whatsapp_digits[2:]
+    application["proposal_whatsapp_link"] = f"https://wa.me/{whatsapp_digits}?text={requests.utils.quote(whatsapp_message)}"
     current_provider = extracted_data.get("current_provider") or extracted_data.get("retailer") or "N/A"
     current_tariff = extracted_data.get("current_tariff") or extracted_data.get("access_tariff") or "N/A"
     current_cost = get_extracted_current_cost(extracted_data)
@@ -2167,12 +2198,6 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     pdf.add_page()
     pdf.set_y(40)
 
-    contact_rows = [
-        (texts["contact_phone_label"], COMPANY_CONTACTS["phone"]),
-        (texts["contact_email_label"], COMPANY_CONTACTS["email"]),
-        (texts["contact_site_label"], COMPANY_CONTACTS["website"]),
-        (texts["contact_social_label"], COMPANY_CONTACTS["social"]),
-    ]
     draw_section_title(texts["our_proposal"], texts["summary_subtitle"])
     proposal_rows_left = [
         (texts["recommended_provider_label"], new_provider),
@@ -2194,11 +2219,10 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     draw_info_card(15, proposal_y, 86, 54, texts["recommended_plan"], proposal_rows_left)
     draw_info_card(109, proposal_y, 86, 54, texts["estimated_savings"], proposal_rows_right)
 
-    draw_contact_band(15, proposal_y + 60, 180, 19, contact_rows)
-    next_steps_y = proposal_y + 84
+    next_steps_y = proposal_y + 60
     if proposal_comment:
-        draw_comment_band(15, proposal_y + 84, 180, proposal_comment)
-        next_steps_y = proposal_y + 108
+        draw_comment_band(15, proposal_y + 60, 180, proposal_comment)
+        next_steps_y = proposal_y + 84
     pdf.set_y(next_steps_y)
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])
     steps_y = pdf.get_y()

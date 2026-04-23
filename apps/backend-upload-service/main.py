@@ -429,6 +429,49 @@ def normalize_phone(phone: str) -> str:
     return re.sub(r'\D', '', phone)
 
 
+def get_extracted_current_cost(extracted_data: dict) -> float | None:
+    """Возвращает базовую стоимость для сравнения из старой или новой схемы extracted_data."""
+    if not extracted_data:
+        return None
+    return extracted_data.get("avg_monthly_cost_eur") or extracted_data.get("invoice_amount_with_vat")
+
+
+def format_power_value(extracted_data: dict) -> str:
+    """Форматирует мощность из старой или новой схемы."""
+    power_kw = extracted_data.get("power_kw")
+    if power_kw:
+        return f"{power_kw} kW"
+
+    p1 = extracted_data.get("billed_power_p1")
+    p2 = extracted_data.get("billed_power_p2")
+    if p1 and p2:
+        return f"P1 {p1} kW / P2 {p2} kW"
+    if p1:
+        return f"P1 {p1} kW"
+    if p2:
+        return f"P2 {p2} kW"
+    return "N/A"
+
+
+def format_consumption_value(extracted_data: dict) -> str:
+    """Форматирует потребление из старой или новой схемы."""
+    avg_consumption = extracted_data.get("avg_monthly_consumption_kwh")
+    if avg_consumption:
+        return f"{avg_consumption} kWh"
+
+    p1 = extracted_data.get("consumption_p1")
+    p2 = extracted_data.get("consumption_p2")
+    p3 = extracted_data.get("consumption_p3")
+    parts = []
+    if p1 is not None:
+        parts.append(f"P1 {p1} kWh")
+    if p2 is not None:
+        parts.append(f"P2 {p2} kWh")
+    if p3 is not None:
+        parts.append(f"P3 {p3} kWh")
+    return " / ".join(parts) if parts else "N/A"
+
+
 def send_whatsapp_message(to_phone: str, message: str) -> dict:
     if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
         raise ValueError("WhatsApp credentials not configured")
@@ -1133,7 +1176,7 @@ async def create_simulation(application_id: str, input_data: SimulationInput):
         current_cost = None
         if proposal_data.exists:
             extracted = proposal_data.to_dict().get("extracted_data", {})
-            current_cost = extracted.get("avg_monthly_cost_eur")
+            current_cost = get_extracted_current_cost(extracted)
         
         savings_monthly = None
         savings_percent = None
@@ -1215,7 +1258,7 @@ async def update_simulation(application_id: str, simulation_id: str, update_data
             current_cost = None
             if proposal_data.exists:
                 extracted = proposal_data.to_dict().get("extracted_data", {})
-                current_cost = extracted.get("avg_monthly_cost_eur")
+                current_cost = get_extracted_current_cost(extracted)
             
             new_cost = updates["new_monthly_cost_eur"]
             if current_cost and current_cost > 0:
@@ -1673,14 +1716,14 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     pdf.set_text_color(50, 50, 50)
     pdf.set_font("DejaVu", font_style(), 10)
     
-    current_provider = extracted_data.get("current_provider") or "N/A"
-    current_tariff = extracted_data.get("current_tariff") or "N/A"
-    current_cost = extracted_data.get("avg_monthly_cost_eur")
-    contract_end = extracted_data.get("contract_end_date") or "N/A"
-    power = extracted_data.get("power_kw")
-    consumption = extracted_data.get("avg_monthly_consumption_kwh")
-    contract_num = extracted_data.get("contract_number") or "N/A"
-    service = extracted_data.get("service_type") or "N/A"
+    current_provider = extracted_data.get("current_provider") or extracted_data.get("retailer") or "N/A"
+    current_tariff = extracted_data.get("current_tariff") or extracted_data.get("access_tariff") or "N/A"
+    current_cost = get_extracted_current_cost(extracted_data)
+    contract_end = extracted_data.get("contract_end_date") or extracted_data.get("end_date") or "N/A"
+    power = format_power_value(extracted_data)
+    consumption = format_consumption_value(extracted_data)
+    contract_num = extracted_data.get("contract_number") or extracted_data.get("cups") or "N/A"
+    service = extracted_data.get("service_type") or application.get("service_type") or "N/A"
     
     col1_x = 15
     col2_x = 110
@@ -1704,8 +1747,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     
     y2 = pdf.get_y() - (4 * row_h)
     y2 = draw_row(texts["service"], service, col2_x, y2)
-    y2 = draw_row(texts["power"], f"{power} kW" if power else "N/A", col2_x, y2)
-    y2 = draw_row(texts["consumption"], f"{consumption} kWh" if consumption else "N/A", col2_x, y2)
+    y2 = draw_row(texts["power"], power, col2_x, y2)
+    y2 = draw_row(texts["consumption"], consumption, col2_x, y2)
     y2 = draw_row(texts["contract_num"], contract_num, col2_x, y2)
     
     pdf.set_y(max(y, y2) + 4)

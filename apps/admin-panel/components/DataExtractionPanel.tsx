@@ -126,7 +126,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
     const needsReview = !!assessment.needs_review;
 
     return (
-      <div className="flex items-center justify-between gap-2 mb-1">
+      <div className="flex items-center gap-2">
         <span
           className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold ${
             looksValid
@@ -378,8 +378,10 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.accessTariff')}</label>
-              {renderFieldStatus('access_tariff')}
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide">{t('proposalBuilder.extractData.accessTariff')}</label>
+                {renderFieldStatus('access_tariff')}
+              </div>
               <input
                 type="text"
                 value={formData.access_tariff || ''}
@@ -417,8 +419,10 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
               />
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.invoiceAmount')}</label>
-              {renderFieldStatus('invoice_amount_with_vat')}
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide">{t('proposalBuilder.extractData.invoiceAmount')}</label>
+                {renderFieldStatus('invoice_amount_with_vat')}
+              </div>
               <input
                 type="number"
                 step="0.01"
@@ -429,8 +433,10 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
               {renderFieldReasons('invoice_amount_with_vat')}
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.retailer')}</label>
-              {renderFieldStatus('retailer')}
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide">{t('proposalBuilder.extractData.retailer')}</label>
+                {renderFieldStatus('retailer')}
+              </div>
               <input
                 type="text"
                 value={formData.retailer || ''}

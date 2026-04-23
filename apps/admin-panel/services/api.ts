@@ -1,5 +1,5 @@
 
-import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation } from '../types';
+import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus } from '../types';
 
 const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
@@ -309,11 +309,19 @@ export const generateAIResponse = async (applicationId: string): Promise<{ succe
 
 // --- Proposal Builder API ---
 
-export const extractDataWithAI = async (applicationId: string, fileUrls: string[], forceReextract: boolean = false): Promise<{ success: boolean; extracted_data: ExtractedData }> => {
+export const extractDataWithAI = async (applicationId: string, fileUrls: string[], forceReextract: boolean = false): Promise<{ success: boolean; task_id: string; status: string; message: string }> => {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/extract-data`, {
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ file_urls: fileUrls, force_reextract: forceReextract }),
+  });
+  return handleApiError(response);
+};
+
+export const getExtractionTaskStatus = async (applicationId: string, taskId: string): Promise<ExtractionTaskStatus> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/extract-data/${taskId}/status`, {
+    method: 'GET',
+    headers: getHeaders(),
   });
   return handleApiError(response);
 };

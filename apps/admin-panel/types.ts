@@ -99,6 +99,26 @@ export interface ProposalData {
   };
 }
 
+export interface ExtractionTaskStatus {
+  success: boolean;
+  task_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  message: string;
+  step_key?: string;
+  progress_percent?: number;
+  extracted_data?: ExtractedData;
+  field_assessments?: Record<string, {
+    value?: string | number | null;
+    confidence?: number;
+    needs_review?: boolean;
+    reasons?: string[];
+  }>;
+  overall_confidence?: number;
+  needs_review?: boolean;
+  needs_review_fields?: string[];
+  error?: string;
+}
+
 export interface Simulation {
   id: string;
   simulation_name: string;

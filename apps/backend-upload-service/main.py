@@ -8,6 +8,7 @@ import requests
 import json
 import mimetypes
 import asyncio
+import threading
 from typing import List, Optional, Dict, Any 
 from enum import Enum 
 from email.mime.multipart import MIMEMultipart
@@ -378,6 +379,194 @@ def append_proposal_data_revision(application_id: str, revision_type: str, paylo
         "created_at": datetime.datetime.utcnow(),
         **payload,
     })
+
+
+EXTRACTION_STEP_PROGRESS = {
+    "prepare_task": 3,
+    "check_existing": 8,
+    "download_files": 20,
+    "primary_extraction": 45,
+    "validate_primary": 62,
+    "second_pass": 78,
+    "save_results": 92,
+    "completed": 100,
+}
+
+
+def get_proposal_extraction_task_ref(application_id: str, task_id: str):
+    return (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("proposal_extraction_tasks")
+        .document(task_id)
+    )
+
+
+def update_proposal_extraction_task(application_id: str, task_id: str, payload: dict):
+    task_ref = get_proposal_extraction_task_ref(application_id, task_id)
+    task_ref.set({
+        **payload,
+        "updated_at": datetime.datetime.utcnow(),
+    }, merge=True)
+
+
+def run_proposal_extraction_task(application_id: str, task_id: str, request_payload: dict):
+    request = ExtractDataRequest(**request_payload)
+    try:
+        update_proposal_extraction_task(application_id, task_id, {
+            "status": "running",
+            "message": "Начинаем извлечение данных из фактуры.",
+            "step_key": "prepare_task",
+            "progress_percent": EXTRACTION_STEP_PROGRESS["prepare_task"],
+        })
+
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        update_proposal_extraction_task(application_id, task_id, {
+            "step_key": "check_existing",
+            "message": "Проверяем, есть ли уже извлечённые данные.",
+            "progress_percent": EXTRACTION_STEP_PROGRESS["check_existing"],
+        })
+
+        if not request.force_reextract:
+            existing = doc_ref.collection("proposal_data").document("data").get()
+            if existing.exists and existing.to_dict().get("extracted_data"):
+                existing_data = existing.to_dict()
+                update_proposal_extraction_task(application_id, task_id, {
+                    "status": "completed",
+                    "message": "Данные уже были извлечены ранее.",
+                    "step_key": "completed",
+                    "progress_percent": EXTRACTION_STEP_PROGRESS["completed"],
+                    "extracted_data": existing_data.get("extracted_data"),
+                    "field_assessments": existing_data.get("field_assessments"),
+                    "overall_confidence": existing_data.get("overall_confidence"),
+                    "needs_review": existing_data.get("needs_review", False),
+                    "needs_review_fields": existing_data.get("needs_review_fields", []),
+                })
+                return
+
+        if not request.file_urls:
+            raise HTTPException(status_code=400, detail="Не указаны файлы для анализа.")
+
+        update_proposal_extraction_task(application_id, task_id, {
+            "step_key": "download_files",
+            "message": "Скачиваем и подготавливаем файлы клиента.",
+            "progress_percent": EXTRACTION_STEP_PROGRESS["download_files"],
+        })
+
+        file_contents = []
+        for url in request.file_urls:
+            file_bytes, mime_type = download_gcs_file(url)
+            if len(file_bytes) > 20 * 1024 * 1024:
+                raise HTTPException(status_code=400, detail=f"Файл {url} превышает 20 МБ.")
+            file_contents.append((file_bytes, mime_type))
+
+        update_proposal_extraction_task(application_id, task_id, {
+            "step_key": "primary_extraction",
+            "message": "Извлекаем поля из фактуры через Gemini.",
+            "progress_percent": EXTRACTION_STEP_PROGRESS["primary_extraction"],
+        })
+        primary_extracted, primary_raw = extract_data_with_gemini(file_contents)
+
+        update_proposal_extraction_task(application_id, task_id, {
+            "step_key": "validate_primary",
+            "message": "Проверяем качество данных и применяем правила.",
+            "progress_percent": EXTRACTION_STEP_PROGRESS["validate_primary"],
+        })
+        primary_validation = validate_invoice_extraction(primary_extracted)
+
+        suspicious_fields = primary_validation["needs_review_fields"]
+        if suspicious_fields:
+            update_proposal_extraction_task(application_id, task_id, {
+                "step_key": "second_pass",
+                "message": f"Повторно перепроверяем сомнительные поля: {', '.join(suspicious_fields)}.",
+                "progress_percent": EXTRACTION_STEP_PROGRESS["second_pass"],
+            })
+
+        pipeline_result = apply_second_pass_if_needed(file_contents, primary_extracted, primary_validation)
+
+        extracted = dict(pipeline_result["final_data"])
+        extracted["source_files"] = request.file_urls
+
+        field_assessments = pipeline_result["final_validation"]["field_assessments"]
+        overall_confidence = pipeline_result["final_validation"]["overall_confidence"]
+        needs_review = pipeline_result["final_validation"]["needs_review"]
+        needs_review_fields = pipeline_result["final_validation"]["needs_review_fields"]
+        provider_rule_hits = pipeline_result["final_validation"]["provider_rule_hits"]
+
+        raw_extraction = {
+            "primary_response_text": primary_raw,
+            "primary_extracted_data": primary_extracted,
+            "second_pass_attempted": pipeline_result["second_pass_attempted"],
+            "second_pass_response_text": pipeline_result["second_pass_raw"],
+            "second_pass_updates": pipeline_result["second_pass_updates"],
+        }
+
+        update_proposal_extraction_task(application_id, task_id, {
+            "step_key": "save_results",
+            "message": "Сохраняем результат и обновляем карточку клиента.",
+            "progress_percent": EXTRACTION_STEP_PROGRESS["save_results"],
+        })
+
+        proposal_data_ref = doc_ref.collection("proposal_data").document("data")
+        proposal_data_ref.set({
+            "extracted_data": extracted,
+            "ai_extracted_data": extracted,
+            "raw_extraction": raw_extraction,
+            "field_assessments": field_assessments,
+            "overall_confidence": overall_confidence,
+            "needs_review": needs_review,
+            "needs_review_fields": needs_review_fields,
+            "provider_rule_hits": provider_rule_hits,
+            "extracted_at": datetime.datetime.utcnow(),
+            "extracted_by": "Operator",
+            "manually_corrected": False,
+        })
+
+        append_proposal_data_revision(application_id, "ai_extraction", {
+            "raw_extraction": raw_extraction,
+            "extracted_data": extracted,
+            "field_assessments": field_assessments,
+            "overall_confidence": overall_confidence,
+            "needs_review": needs_review,
+            "needs_review_fields": needs_review_fields,
+            "provider_rule_hits": provider_rule_hits,
+        })
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"Данные счетов извлечены ИИ. Confidence: {overall_confidence}. Review fields: {len(needs_review_fields)}.",
+            event_type=EventType.NOTE,
+            created_by="System"
+        )
+
+        update_proposal_extraction_task(application_id, task_id, {
+            "status": "completed",
+            "message": "Извлечение данных завершено.",
+            "step_key": "completed",
+            "progress_percent": EXTRACTION_STEP_PROGRESS["completed"],
+            "extracted_data": extracted,
+            "field_assessments": field_assessments,
+            "overall_confidence": overall_confidence,
+            "needs_review": needs_review,
+            "needs_review_fields": needs_review_fields,
+        })
+    except HTTPException as exc:
+        update_proposal_extraction_task(application_id, task_id, {
+            "status": "failed",
+            "message": exc.detail if isinstance(exc.detail, str) else "Ошибка при извлечении данных.",
+            "error": exc.detail,
+        })
+    except Exception as exc:
+        print(f"Extract data task error: {exc}")
+        update_proposal_extraction_task(application_id, task_id, {
+            "status": "failed",
+            "message": f"Ошибка при извлечении данных: {str(exc)}",
+            "error": str(exc),
+        })
 
 def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
     """Отправляет файлы в Gemini с промптом для извлечения данных счета."""
@@ -1414,107 +1603,84 @@ async def upload_application_files(application_id: str, files: list[UploadFile] 
 
 @app.post("/api/applications/{application_id}/proposal/extract-data", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
 async def proposal_extract_data(application_id: str, request: ExtractDataRequest):
-    """AI-извлечение данных из загруженных счетов клиента."""
+    """Запуск AI-извлечения данных из загруженных счетов клиента как фоновой задачи."""
     try:
         doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
         doc = doc_ref.get()
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Заявка не найдена.")
-        
-        app_data = doc.to_dict()
-        
-        # Проверяем, не извлекали ли уже данные (если не force_reextract)
-        if not request.force_reextract:
-            existing = doc_ref.collection("proposal_data").document("data").get()
-            if existing.exists and existing.to_dict().get("extracted_data"):
-                return {"success": True, "message": "Данные уже извлечены. Используйте force_reextract=true для повторного извлечения.", "extracted_data": existing.to_dict()["extracted_data"]}
-        
+
         if not request.file_urls:
             raise HTTPException(status_code=400, detail="Не указаны файлы для анализа.")
-        
-        # Скачиваем файлы из GCS
-        file_contents = []
-        for url in request.file_urls:
-            try:
-                file_bytes, mime_type = download_gcs_file(url)
-                # Проверяем лимит размера (20 MB)
-                if len(file_bytes) > 20 * 1024 * 1024:
-                    raise HTTPException(status_code=400, detail=f"Файл {url} превышает 20 МБ.")
-                file_contents.append((file_bytes, mime_type))
-            except Exception as e:
-                print(f"Ошибка скачивания файла {url}: {e}")
-                raise HTTPException(status_code=400, detail=f"Не удалось скачать файл: {url}")
-        
-        # Отправляем в Gemini и прогоняем через валидацию / second pass
-        primary_extracted, primary_raw = extract_data_with_gemini(file_contents)
-        primary_validation = validate_invoice_extraction(primary_extracted)
-        pipeline_result = apply_second_pass_if_needed(file_contents, primary_extracted, primary_validation)
 
-        extracted = dict(pipeline_result["final_data"])
-        extracted["source_files"] = request.file_urls
-
-        field_assessments = pipeline_result["final_validation"]["field_assessments"]
-        overall_confidence = pipeline_result["final_validation"]["overall_confidence"]
-        needs_review = pipeline_result["final_validation"]["needs_review"]
-        needs_review_fields = pipeline_result["final_validation"]["needs_review_fields"]
-        provider_rule_hits = pipeline_result["final_validation"]["provider_rule_hits"]
-
-        raw_extraction = {
-            "primary_response_text": primary_raw,
-            "primary_extracted_data": primary_extracted,
-            "second_pass_attempted": pipeline_result["second_pass_attempted"],
-            "second_pass_response_text": pipeline_result["second_pass_raw"],
-            "second_pass_updates": pipeline_result["second_pass_updates"],
-        }
-
-        # Сохраняем в Firestore
-        proposal_data_ref = doc_ref.collection("proposal_data").document("data")
-        proposal_data_ref.set({
-            "extracted_data": extracted,
-            "ai_extracted_data": extracted,
-            "raw_extraction": raw_extraction,
-            "field_assessments": field_assessments,
-            "overall_confidence": overall_confidence,
-            "needs_review": needs_review,
-            "needs_review_fields": needs_review_fields,
-            "provider_rule_hits": provider_rule_hits,
-            "extracted_at": datetime.datetime.utcnow(),
-            "extracted_by": "Operator",
-            "manually_corrected": False,
+        task_id = f"extract-{uuid.uuid4().hex[:12]}"
+        task_ref = get_proposal_extraction_task_ref(application_id, task_id)
+        task_ref.set({
+            "task_id": task_id,
+            "application_id": application_id,
+            "status": "pending",
+            "message": "Ставим задачу на извлечение данных.",
+            "step_key": "prepare_task",
+            "progress_percent": 0,
+            "file_urls": request.file_urls,
+            "force_reextract": request.force_reextract,
+            "created_at": datetime.datetime.utcnow(),
+            "updated_at": datetime.datetime.utcnow(),
         })
 
-        append_proposal_data_revision(application_id, "ai_extraction", {
-            "raw_extraction": raw_extraction,
-            "extracted_data": extracted,
-            "field_assessments": field_assessments,
-            "overall_confidence": overall_confidence,
-            "needs_review": needs_review,
-            "needs_review_fields": needs_review_fields,
-            "provider_rule_hits": provider_rule_hits,
-        })
-        
-        # Запись в Timeline
-        create_timeline_event_internal(
-            application_id=application_id,
-            content=f"Данные счетов извлечены ИИ. Confidence: {overall_confidence}. Review fields: {len(needs_review_fields)}.",
-            event_type=EventType.NOTE,
-            created_by="System"
+        worker = threading.Thread(
+            target=run_proposal_extraction_task,
+            args=(application_id, task_id, request.model_dump()),
+            daemon=True,
         )
-        
+        worker.start()
+
         return {
             "success": True,
-            "extracted_data": extracted,
-            "field_assessments": field_assessments,
-            "overall_confidence": overall_confidence,
-            "needs_review": needs_review,
-            "needs_review_fields": needs_review_fields,
+            "task_id": task_id,
+            "status": "pending",
+            "message": "Задача на извлечение данных запущена.",
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         print(f"Extract data error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при извлечении данных: {str(e)}")
+
+
+@app.get("/api/applications/{application_id}/proposal/extract-data/{task_id}/status", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def proposal_extract_data_status(application_id: str, task_id: str):
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        task_snapshot = get_proposal_extraction_task_ref(application_id, task_id).get()
+        if not task_snapshot.exists:
+            raise HTTPException(status_code=404, detail="Задача извлечения не найдена.")
+
+        task = task_snapshot.to_dict()
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": task.get("status", "pending"),
+            "message": task.get("message", ""),
+            "step_key": task.get("step_key"),
+            "progress_percent": task.get("progress_percent", 0),
+            "extracted_data": task.get("extracted_data"),
+            "field_assessments": task.get("field_assessments"),
+            "overall_confidence": task.get("overall_confidence"),
+            "needs_review": task.get("needs_review", False),
+            "needs_review_fields": task.get("needs_review_fields", []),
+            "error": task.get("error"),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Extract data status error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении статуса extraction: {str(e)}")
 
 
 @app.put("/api/applications/{application_id}/proposal/extracted-data", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])

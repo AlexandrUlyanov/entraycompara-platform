@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { extractDataWithAI, updateExtractedData, getExtractedData } from '../services/api';
+import { extractDataWithAI, updateExtractedData, getExtractedData, getExtractionTaskStatus } from '../services/api';
 import { ExtractedData } from '../types';
 import Spinner from './Spinner';
 import { useTranslation } from '../i18n';
@@ -27,12 +27,28 @@ const EMPTY_DATA: ExtractedData = {
   source_files: [],
 };
 
+const EXTRACTION_STEPS = [
+  { key: 'prepare_task', progress: 3 },
+  { key: 'check_existing', progress: 8 },
+  { key: 'download_files', progress: 20 },
+  { key: 'primary_extraction', progress: 45 },
+  { key: 'validate_primary', progress: 62 },
+  { key: 'second_pass', progress: 78 },
+  { key: 'save_results', progress: 92 },
+  { key: 'completed', progress: 100 },
+] as const;
+
 const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, uploadedFiles }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [formData, setFormData] = useState<ExtractedData>(EMPTY_DATA);
   const [isEditing, setIsEditing] = useState(false);
+  const [extractTaskId, setExtractTaskId] = useState<string | null>(null);
+  const [extractStatus, setExtractStatus] = useState<'idle' | 'pending' | 'running' | 'completed' | 'failed'>('idle');
+  const [extractMessage, setExtractMessage] = useState('');
+  const [extractStepKey, setExtractStepKey] = useState<string | null>(null);
+  const [extractProgressPercent, setExtractProgressPercent] = useState(0);
 
   const { data: existingData, isLoading: isLoadingData } = useQuery({
     queryKey: ['proposal-data', appId],
@@ -47,14 +63,45 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
     }
   }, [existingData]);
 
+  useEffect(() => {
+    if (!extractTaskId || extractStatus === 'completed' || extractStatus === 'failed') return;
+
+    const interval = setInterval(async () => {
+      try {
+        const result = await getExtractionTaskStatus(appId, extractTaskId);
+        setExtractStatus(result.status);
+        setExtractMessage(result.message || '');
+        setExtractStepKey(result.step_key || null);
+        setExtractProgressPercent(result.progress_percent || 0);
+
+        if (result.status === 'completed') {
+          if (result.extracted_data) {
+            setFormData(result.extracted_data);
+            setIsEditing(true);
+          }
+          queryClient.invalidateQueries({ queryKey: ['proposal-data', appId] });
+          clearInterval(interval);
+        }
+
+        if (result.status === 'failed') {
+          clearInterval(interval);
+        }
+      } catch (error) {
+        console.error('Extraction status polling error:', error);
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [appId, extractTaskId, extractStatus, queryClient]);
+
   const extractMutation = useMutation({
     mutationFn: (urls: string[]) => extractDataWithAI(appId, urls, false),
     onSuccess: (data) => {
-      if (data.extracted_data) {
-        setFormData(data.extracted_data);
-        setIsEditing(true);
-      }
-      queryClient.invalidateQueries({ queryKey: ['proposal-data', appId] });
+      setExtractTaskId(data.task_id);
+      setExtractStatus((data.status as 'pending' | 'running' | 'completed' | 'failed') || 'pending');
+      setExtractMessage(data.message || '');
+      setExtractStepKey('prepare_task');
+      setExtractProgressPercent(3);
     },
   });
 
@@ -127,6 +174,10 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  const currentStepIndex = extractStepKey
+    ? EXTRACTION_STEPS.findIndex((step) => step.key === extractStepKey)
+    : -1;
+
   return (
     <div className="space-y-5">
       {/* Files Selection */}
@@ -161,10 +212,10 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
       {uploadedFiles.length > 0 && (
         <button
           onClick={handleExtract}
-          disabled={extractMutation.isPending || uploadedFiles.length === 0}
+          disabled={extractMutation.isPending || uploadedFiles.length === 0 || extractStatus === 'pending' || extractStatus === 'running'}
           className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary text-white rounded-xl font-medium hover:bg-primary-600 disabled:opacity-50 transition-all"
         >
-          {extractMutation.isPending ? (
+          {extractMutation.isPending || extractStatus === 'pending' || extractStatus === 'running' ? (
             <>
               <Spinner size="h-4 w-4" />
               {t('proposalBuilder.extractData.extracting')}
@@ -182,6 +233,66 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
 
       {extractMutation.isError && (
         <p className="text-xs text-red-500">{(extractMutation.error as Error)?.message}</p>
+      )}
+
+      {extractStatus !== 'idle' && (
+        <div className={`rounded-2xl border px-4 py-3 text-sm ${
+          extractStatus === 'failed'
+            ? 'bg-red-50 border-red-200 text-red-600'
+            : extractStatus === 'completed'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+              : 'bg-blue-50 border-blue-200 text-blue-700'
+        }`}>
+          <div className="flex items-center gap-2">
+            {(extractStatus === 'pending' || extractStatus === 'running') && <Spinner size="h-3 w-3" />}
+            <span className="font-medium">{extractMessage || t('proposalBuilder.extractData.task.inProgress')}</span>
+          </div>
+
+          {(extractStatus === 'pending' || extractStatus === 'running' || extractStatus === 'completed') && (
+            <div className="mt-3 space-y-3">
+              <div>
+                <div className="flex items-center justify-between text-[11px] text-secondary-light mb-1">
+                  <span>{extractStepKey ? t(`proposalBuilder.extractData.step.${extractStepKey}`) : t('proposalBuilder.extractData.task.inProgress')}</span>
+                  <span>{extractProgressPercent}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-white/60 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-current transition-all duration-500"
+                    style={{ width: `${Math.max(4, extractProgressPercent)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                {EXTRACTION_STEPS.map((step, index) => {
+                  const isDone = currentStepIndex > index || extractStatus === 'completed';
+                  const isCurrent = extractStepKey === step.key;
+                  return (
+                    <div
+                      key={step.key}
+                      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${isCurrent ? 'bg-white/60' : ''}`}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center text-[9px] font-bold ${
+                          isDone
+                            ? 'bg-current text-white border-current'
+                            : isCurrent
+                              ? 'border-current'
+                              : 'border-current/40 opacity-60'
+                        }`}
+                      >
+                        {isDone ? '✓' : index + 1}
+                      </div>
+                      <span className={`text-xs ${isCurrent ? 'font-semibold' : ''}`}>
+                        {t(`proposalBuilder.extractData.step.${step.key}`)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Data Form */}

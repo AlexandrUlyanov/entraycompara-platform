@@ -90,7 +90,11 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
           }`}
         >
           <span className="w-1.5 h-1.5 rounded-full bg-current" />
-          {looksValid ? 'Validado' : needsReview ? 'Revisar' : 'Pendiente'}
+          {looksValid
+            ? t('proposalBuilder.extractData.validation.valid')
+            : needsReview
+              ? t('proposalBuilder.extractData.validation.review')
+              : t('proposalBuilder.extractData.validation.pending')}
         </span>
         <span className="text-[10px] text-slate-400">{Math.round(confidence * 100)}%</span>
       </div>
@@ -190,17 +194,17 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 : 'bg-emerald-50 border-emerald-200 text-emerald-700'
             }`}>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold">AI confidence:</span>
+                <span className="font-semibold">{t('proposalBuilder.extractData.aiConfidence')}</span>
                 <span>{Math.round((existingData?.overall_confidence || 0) * 100)}%</span>
                 {existingData?.raw_extraction?.second_pass_attempted && (
                   <span className="px-2 py-0.5 rounded-full bg-white/70 text-[10px] font-semibold uppercase tracking-wide">
-                    second pass used
+                    {t('proposalBuilder.extractData.secondPassUsed')}
                   </span>
                 )}
               </div>
               {existingData?.needs_review && existingData?.needs_review_fields && existingData.needs_review_fields.length > 0 && (
                 <p className="mt-2 text-xs">
-                  Нужна проверка полей: {existingData.needs_review_fields.join(', ')}
+                  {t('proposalBuilder.extractData.reviewFields', { fields: existingData.needs_review_fields.join(', ') })}
                 </p>
               )}
             </div>
@@ -230,7 +234,11 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                     }`}
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                    {cupsLooksValid ? 'CUPS validado' : cupsNeedsReview ? 'Revisar CUPS' : 'CUPS pendiente'}
+                    {cupsLooksValid
+                      ? t('proposalBuilder.extractData.cupsStatus.valid')
+                      : cupsNeedsReview
+                        ? t('proposalBuilder.extractData.cupsStatus.review')
+                        : t('proposalBuilder.extractData.cupsStatus.pending')}
                   </span>
                 )}
               </div>

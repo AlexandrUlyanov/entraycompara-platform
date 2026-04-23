@@ -410,7 +410,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                 value={formData.simulation_name}
                 onChange={e => setFormData(p => ({ ...p, simulation_name: e.target.value }))}
                 className="w-full bg-white border-none rounded-xl text-secondary py-2 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 transition-all shadow-sm text-sm"
-                placeholder="Ej: Tarifa Light"
+                placeholder={t('proposalBuilder.simulation.namePlaceholder')}
               />
             </div>
             <div>

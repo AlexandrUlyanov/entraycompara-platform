@@ -1585,16 +1585,31 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     
     texts = PROPOSAL_PDF_TEXTS.get(language, PROPOSAL_PDF_TEXTS["es"])
     
-    # Находим шрифты fpdf2
+    # Находим шрифты fpdf2 / локальные fallback-шрифты проекта
     fpdf_dir = os.path.dirname(fpdf.__file__)
     font_dir = os.path.join(fpdf_dir, "font")
     dejavu_regular = os.path.join(font_dir, "DejaVuSans.ttf")
     dejavu_bold = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
     
-    # Fallback если нет в font/
+    # Fallback если нет во встроенной папке fpdf2
     if not os.path.exists(dejavu_regular):
         dejavu_regular = os.path.join(fpdf_dir, "fonts", "DejaVuSans.ttf")
         dejavu_bold = os.path.join(fpdf_dir, "fonts", "DejaVuSans-Bold.ttf")
+
+    # Последний fallback: локальная папка шрифтов проекта
+    local_font_dir = os.path.join(os.path.dirname(__file__), "fonts")
+    if not os.path.exists(dejavu_regular):
+        dejavu_regular = os.path.join(local_font_dir, "DejaVuSans.ttf")
+    if not os.path.exists(dejavu_bold):
+        dejavu_bold = os.path.join(local_font_dir, "DejaVuSans-Bold.ttf")
+
+    has_regular_font = os.path.exists(dejavu_regular)
+    has_bold_font = os.path.exists(dejavu_bold)
+
+    def font_style(style: str = "") -> str:
+        if style == "B" and not has_bold_font:
+            return ""
+        return style
     
     class ProposalPDF(FPDF):
         def header(self):
@@ -1603,15 +1618,15 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.rect(0, 0, 210, 25, style='F')
             # Company name
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", "B", 20)
+            self.set_font("DejaVu", font_style("B"), 20)
             self.set_xy(15, 8)
             self.cell(0, 10, "Entraycompara", ln=False)
             # Tagline
-            self.set_font("DejaVu", "", 9)
+            self.set_font("DejaVu", font_style(), 9)
             self.set_xy(15, 16)
             self.cell(0, 6, texts["free_service"], ln=False)
             # Date and ID on the right
-            self.set_font("DejaVu", "", 8)
+            self.set_font("DejaVu", font_style(), 8)
             self.set_xy(140, 8)
             today = datetime.datetime.now().strftime("%d.%m.%Y")
             self.cell(0, 5, f"{texts['date']}: {today}", ln=True)
@@ -1624,37 +1639,39 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.set_fill_color(245, 247, 250)
             self.rect(0, 277, 210, 20, style='F')
             self.set_text_color(100, 100, 100)
-            self.set_font("DejaVu", "", 8)
+            self.set_font("DejaVu", font_style(), 8)
             self.set_xy(15, 280)
             self.cell(0, 5, texts["footer"], ln=False)
             self.set_xy(15, 285)
             self.cell(0, 5, f"{texts['contact']}: ulyanov.ht@gmail.com | entraycompara.com", ln=False)
     
     pdf = ProposalPDF()
-    if os.path.exists(dejavu_regular):
+    if has_regular_font:
         pdf.add_font("DejaVu", "", dejavu_regular, uni=True)
-    if os.path.exists(dejavu_bold):
+    if has_bold_font:
         pdf.add_font("DejaVu", "B", dejavu_bold, uni=True)
+    if not has_regular_font:
+        raise RuntimeError("DejaVuSans.ttf not found for proposal PDF generation")
     pdf.set_auto_page_break(auto=True, margin=25)
     pdf.add_page()
     
     # Greeting
     client_name = application.get("client_name", "")
     pdf.set_text_color(42, 106, 150)
-    pdf.set_font("DejaVu", "B", 14)
+    pdf.set_font("DejaVu", font_style("B"), 14)
     pdf.cell(0, 10, f"{texts['greeting']} {client_name},", ln=True)
     pdf.ln(2)
     
     # Current situation
     pdf.set_text_color(42, 106, 150)
-    pdf.set_font("DejaVu", "B", 12)
+    pdf.set_font("DejaVu", font_style("B"), 12)
     pdf.cell(0, 8, texts["current_situation"], ln=True)
     pdf.set_draw_color(42, 106, 150)
     pdf.line(15, pdf.get_y(), 195, pdf.get_y())
     pdf.ln(2)
     
     pdf.set_text_color(50, 50, 50)
-    pdf.set_font("DejaVu", "", 10)
+    pdf.set_font("DejaVu", font_style(), 10)
     
     current_provider = extracted_data.get("current_provider") or "N/A"
     current_tariff = extracted_data.get("current_tariff") or "N/A"
@@ -1671,10 +1688,10 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     
     def draw_row(label, value, x, y):
         pdf.set_xy(x, y)
-        pdf.set_font("DejaVu", "B", 9)
+        pdf.set_font("DejaVu", font_style("B"), 9)
         pdf.set_text_color(100, 100, 100)
         pdf.cell(40, row_h, label, ln=False)
-        pdf.set_font("DejaVu", "", 9)
+        pdf.set_font("DejaVu", font_style(), 9)
         pdf.set_text_color(50, 50, 50)
         pdf.cell(50, row_h, str(value), ln=True)
         return y + row_h
@@ -1695,14 +1712,14 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     
     # Our proposal
     pdf.set_text_color(42, 106, 150)
-    pdf.set_font("DejaVu", "B", 12)
+    pdf.set_font("DejaVu", font_style("B"), 12)
     pdf.cell(0, 8, texts["our_proposal"], ln=True)
     pdf.set_draw_color(42, 106, 150)
     pdf.line(15, pdf.get_y(), 195, pdf.get_y())
     pdf.ln(2)
     
     pdf.set_text_color(50, 50, 50)
-    pdf.set_font("DejaVu", "", 10)
+    pdf.set_font("DejaVu", font_style(), 10)
     
     new_provider = simulation.get("new_provider", "N/A")
     new_tariff = simulation.get("new_tariff") or "N/A"
@@ -1734,16 +1751,16 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         
         pdf.set_xy(15, pdf.get_y() + 5)
         pdf.set_text_color(42, 106, 150)
-        pdf.set_font("DejaVu", "B", 11)
+        pdf.set_font("DejaVu", font_style("B"), 11)
         pdf.cell(180, 8, texts["savings"], align="C", ln=True)
         
         pdf.set_text_color(34, 139, 34)
-        pdf.set_font("DejaVu", "B", 22)
+        pdf.set_font("DejaVu", font_style("B"), 22)
         pdf.cell(180, 12, f"€{savings_monthly} {texts['per_month']}", align="C", ln=True)
         
         if savings_percent:
             pdf.set_text_color(80, 80, 80)
-            pdf.set_font("DejaVu", "", 10)
+            pdf.set_font("DejaVu", font_style(), 10)
             yearly = round(savings_monthly * 12, 2)
             pdf.cell(180, 6, f"{savings_percent}% | €{yearly} {texts['per_year']}", align="C", ln=True)
         
@@ -1751,14 +1768,14 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     
     # Next steps
     pdf.set_text_color(42, 106, 150)
-    pdf.set_font("DejaVu", "B", 12)
+    pdf.set_font("DejaVu", font_style("B"), 12)
     pdf.cell(0, 8, texts["next_steps"], ln=True)
     pdf.set_draw_color(42, 106, 150)
     pdf.line(15, pdf.get_y(), 195, pdf.get_y())
     pdf.ln(2)
     
     pdf.set_text_color(50, 50, 50)
-    pdf.set_font("DejaVu", "", 10)
+    pdf.set_font("DejaVu", font_style(), 10)
     pdf.cell(0, 6, texts["step1"], ln=True)
     pdf.cell(0, 6, texts["step2"], ln=True)
     pdf.cell(0, 6, texts["step3"], ln=True)

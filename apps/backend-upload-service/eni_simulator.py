@@ -8,6 +8,10 @@ import requests
 
 REFERRAL_URL = "https://g2e.eniplenitude.es/index.php?refid=60335660J3"
 GCS_BUCKET = os.environ.get("GCP_BUCKET_NAME", "entraycompara-invoices")
+TRACE_ENABLED = os.environ.get("ENI_TRACE_ENABLED", "").lower() in {"1", "true", "yes", "on"}
+SHORT_UI_WAIT_SECONDS = float(os.environ.get("ENI_SHORT_UI_WAIT_SECONDS", "0.2"))
+FORM_VALIDATION_WAIT_SECONDS = float(os.environ.get("ENI_FORM_VALIDATION_WAIT_SECONDS", "1.0"))
+DOWNLOAD_FALLBACK_WAIT_SECONDS = float(os.environ.get("ENI_DOWNLOAD_FALLBACK_WAIT_SECONDS", "2.0"))
 
 
 class EniSimulationError(Exception):
@@ -42,8 +46,9 @@ async def run_eni_simulation(
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=headless)
         context = await browser.new_context(accept_downloads=True)
-        # Включаем Playwright Trace — полная запись со скриншотами, DOM, сетью и консолью
-        await context.tracing.start(screenshots=True, snapshots=True, sources=True)
+        if TRACE_ENABLED:
+            # Трассировка полезна для дебага, но заметно замедляет обычный happy path.
+            await context.tracing.start(screenshots=True, snapshots=True, sources=True)
         page = await context.new_page()
         # Увеличиваем viewport, чтобы элементы не "прятались" за пределами экрана
         await page.set_viewport_size({"width": 1920, "height": 1080})
@@ -51,7 +56,7 @@ async def run_eni_simulation(
         try:
             # Шаг 1: Открыть реферальную ссылку
             print("[Eni] Step 1: Opening referral URL...")
-            await page.goto(REFERRAL_URL, wait_until="networkidle", timeout=30000)
+            await page.goto(REFERRAL_URL, wait_until="domcontentloaded", timeout=30000)
 
             # Закрыть cookie banner и все overlay/modal-backdrop'ы
             await _dismiss_cookie_banner(page)
@@ -60,8 +65,7 @@ async def run_eni_simulation(
             # Шаг 2: Нажать Simulador
             print("[Eni] Step 2: Clicking Simulador...")
             await _scroll_and_click(page, 'button[name="option"][value="simulador"]')
-            await page.wait_for_load_state("networkidle", timeout=30000)
-            await asyncio.sleep(1)
+            await page.wait_for_selector('button[name="tipo_cliente"][value="1"], button[name="tipo_cliente"][value="2"]', timeout=15000)
             print(f"[Eni] URL after Step 2: {page.url}")
 
             # Шаг 3: Выбрать Hogar / Empresa
@@ -70,15 +74,13 @@ async def run_eni_simulation(
                 await _scroll_and_click(page, 'button[name="tipo_cliente"][value="2"]')
             else:
                 await _scroll_and_click(page, 'button[name="tipo_cliente"][value="1"]')
-            await page.wait_for_load_state("networkidle", timeout=30000)
-            await asyncio.sleep(1)
+            await page.wait_for_selector('button[name="tipo_suministro"][value="suministro_luz"]', timeout=15000)
             print(f"[Eni] URL after Step 3: {page.url}")
 
             # Шаг 4: Выбрать Factura de Electricidad
             print("[Eni] Step 4: Selecting Factura de Electricidad...")
             await _scroll_and_click(page, 'button[name="tipo_suministro"][value="suministro_luz"]')
-            await page.wait_for_load_state("networkidle", timeout=30000)
-            await asyncio.sleep(1)
+            await page.wait_for_selector('input#cups_luz, button#simulador_submit', timeout=15000)
             print(f"[Eni] URL after Step 4: {page.url}")
 
             # Нормализуем CUPS: только заглавные буквы и цифры, без пробелов/дефисов
@@ -90,7 +92,7 @@ async def run_eni_simulation(
                 const el = document.getElementById('cups_luz');
                 if (el) { el.dispatchEvent(new Event('change', { bubbles: true })); }
             }""")
-            await asyncio.sleep(3)  # Даём JS-валидации время на AJAX-запрос
+            await asyncio.sleep(FORM_VALIDATION_WAIT_SECONDS)
             print(f"[Eni] URL after Step 5: {page.url}")
 
             # Удаляем overlay'и ещё раз — они могли появиться после взаимодействия
@@ -104,8 +106,7 @@ async def run_eni_simulation(
             # Шаг 6: Нажать Comenzar Simulación
             print("[Eni] Step 6: Clicking Comenzar Simulación...")
             await _scroll_and_click(page, 'button#simulador_submit')
-            await page.wait_for_load_state("networkidle", timeout=30000)
-            await asyncio.sleep(3)  # Ждём загрузки формы симуляции
+            await _wait_for_simulation_form(page, timeout=15000)
             print(f"[Eni] URL after Comenzar: {page.url}")
             await _take_step_screenshot(page, "06_after_comenzar")
 
@@ -141,10 +142,9 @@ async def run_eni_simulation(
                         const el = document.getElementById('cups_luz');
                         if (el) { el.dispatchEvent(new Event('change', { bubbles: true })); }
                     }""")
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(FORM_VALIDATION_WAIT_SECONDS)
                     await _scroll_and_click(page, 'button#simulador_submit')
-                    await page.wait_for_load_state("networkidle", timeout=30000)
-                    await asyncio.sleep(3)
+                    await _wait_for_simulation_form(page, timeout=15000)
                     sim_form_visible_20 = await page.evaluate(r"""() => {
                         const form = document.getElementById('form_simulador');
                         if (!form) return false;
@@ -195,8 +195,7 @@ async def run_eni_simulation(
                     const btn = form ? form.querySelector('button[type="submit"]') : null;
                     if (btn) btn.click();
                 }""")
-            await page.wait_for_load_state("networkidle", timeout=60000)
-            await asyncio.sleep(5)
+            await _wait_for_post_submit_state(page, timeout=20000)
             current_url = page.url
             print(f"[Eni] URL after Step 8: {current_url}")
             await _take_step_screenshot(page, "08_after_submit")
@@ -221,8 +220,7 @@ async def run_eni_simulation(
                 # Пробуем найти и кликнуть "Continuar" как fallback
                 try:
                     await _click_continuar(page)
-                    await page.wait_for_load_state("networkidle", timeout=30000)
-                    await asyncio.sleep(3)
+                    await _wait_for_post_submit_state(page, timeout=12000)
                     current_url = page.url
                     print(f"[Eni] URL after Continuar: {current_url}")
                     await _take_step_screenshot(page, "08b_after_continuar")
@@ -250,7 +248,7 @@ async def run_eni_simulation(
                         raise EniSimulationError("Timeout: manager did not select a tariff within 10 minutes")
                     selected_index = await get_selected_tariff()
                     if selected_index is None:
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(1)
                 
                 print(f"[Eni] Manager selected tariff index: {selected_index}")
                 await _select_tariff_by_index(page, selected_index)
@@ -260,7 +258,7 @@ async def run_eni_simulation(
                 print("[Eni] Step 9: Selecting tariff (3rd from bottom)...")
                 await _take_step_screenshot(page, "09_before_tariff_selection")
                 await _select_third_tariff_from_bottom(page)
-                await asyncio.sleep(1)
+                await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
                 await _take_step_screenshot(page, "09_after_tariff_selection")
 
             # Шаг 10: Скачать PDF симуляции через CREAR CONTRATO → IMPRIMIR
@@ -269,21 +267,60 @@ async def run_eni_simulation(
             await _take_step_screenshot(page, "10_after_download")
 
             print(f"[Eni] Simulation completed. PDF saved to: {download_path.get('pdf_path')}")
-            await context.tracing.stop(path=trace_path)
-            await _upload_trace(trace_path)
+            if TRACE_ENABLED:
+                await context.tracing.stop(path=trace_path)
+                await _upload_trace(trace_path)
             await browser.close()
             return download_path
 
         except PlaywrightTimeout as e:
-            await context.tracing.stop(path=trace_path)
-            await _upload_trace(trace_path)
+            if TRACE_ENABLED:
+                await context.tracing.stop(path=trace_path)
+                await _upload_trace(trace_path)
             await _save_debug_snapshot(page, browser, "timeout")
             raise EniSimulationError(f"Timeout during Eni simulation: {str(e)}")
         except Exception as e:
-            await context.tracing.stop(path=trace_path)
-            await _upload_trace(trace_path)
+            if TRACE_ENABLED:
+                await context.tracing.stop(path=trace_path)
+                await _upload_trace(trace_path)
             await _save_debug_snapshot(page, browser, "error")
             raise EniSimulationError(f"Eni simulation failed: {str(e)}")
+
+
+async def _wait_for_simulation_form(page, timeout: int = 15000):
+    """Ждёт появления видимой формы симуляции вместо грубых sleep/networkidle."""
+    await page.wait_for_function(
+        """() => {
+            const form = document.getElementById('form_simulador');
+            if (!form) return false;
+            const style = window.getComputedStyle(form);
+            return style.display !== 'none' && style.visibility !== 'hidden';
+        }""",
+        timeout=timeout,
+    )
+
+
+async def _wait_for_post_submit_state(page, timeout: int = 20000):
+    """Ждёт явного результата после отправки формы, а не просто сетевой тишины."""
+    await page.wait_for_function(
+        """() => {
+            const url = window.location.href;
+            if (!url.includes('pantalla=2')) return true;
+
+            const createContract = document.getElementById('crear_contrato');
+            if (createContract && (createContract.offsetWidth || createContract.offsetHeight || createContract.getClientRects().length)) {
+                return true;
+            }
+
+            const errorEl = document.querySelector('#mensaje_error .text-danger.h3, #mensaje_error .alert-danger, .text-danger.h3, .alert-danger');
+            if (errorEl && window.getComputedStyle(errorEl).display !== 'none') {
+                return true;
+            }
+
+            return false;
+        }""",
+        timeout=timeout,
+    )
 
 
 async def _dismiss_cookie_banner(page):
@@ -296,7 +333,7 @@ async def _dismiss_cookie_banner(page):
         if accept_btn:
             await accept_btn.click()
             print("[Eni] Cookie banner dismissed (click)")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
             return
     except Exception:
         pass
@@ -311,7 +348,7 @@ async def _dismiss_cookie_banner(page):
             }
         }""")
         print("[Eni] Cookie banner dismissed (remove)")
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
     except Exception:
         pass
 
@@ -348,7 +385,7 @@ async def _remove_all_overlays(page):
             document.documentElement.style.overflow = 'auto';
         }""")
         print("[Eni] Overlays removed")
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
     except Exception:
         pass
 
@@ -364,7 +401,7 @@ async def _scroll_and_click(page, selector: str, timeout: int = 10000):
             const el = document.querySelector('{selector}');
             if (el) el.scrollIntoView({{block: 'center', inline: 'center'}});
         }}""")
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
     except Exception:
         pass
 
@@ -385,7 +422,7 @@ async def _scroll_and_click(page, selector: str, timeout: int = 10000):
             el.dispatchEvent(new MouseEvent('click', {{ bubbles: true, cancelable: true, view: window }}));
         }}""")
         print(f"[Eni] Clicked {selector} (JavaScript fallback)")
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
     except Exception as e:
         raise EniSimulationError(f"Failed to click {selector}: {e}")
 
@@ -396,7 +433,7 @@ async def _click_send_simulation(page):
     Важно: на странице могут быть кнопки меню (Activaciones, Simulador, Documentación),
     которые НЕ должны быть нажаты. Мы ищем только кнопки внутри контекста симуляции.
     """
-    await asyncio.sleep(1)
+    await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
     
     # Сначала ищем кнопки с конкретным текстом, исключая кнопки меню
     send_selectors = [
@@ -474,8 +511,7 @@ async def _download_pdf_via_imprimir(page) -> dict:
     except Exception as e:
         print(f"[Eni] Warning: CREAR CONTRATO click issue: {e}")
 
-    await page.wait_for_load_state("networkidle", timeout=30000)
-    await asyncio.sleep(3)
+    await page.wait_for_selector('button, a, [onclick*="imprimir"], #crear_contrato', timeout=15000)
     await _take_step_screenshot(page, "10a_after_crear_contrato")
 
     # Извлекаем данные симуляции из модалки (до клика IMPRIMIR)
@@ -535,7 +571,7 @@ async def _download_pdf_via_imprimir(page) -> dict:
     except Exception as e:
         print(f"[Eni] Download failed: {e}")
         # Fallback: если expect_download не сработал, попробуем просто подождать
-        await asyncio.sleep(5)
+        await asyncio.sleep(DOWNLOAD_FALLBACK_WAIT_SECONDS)
         # Проверим, не навигировали ли мы на PDF
         if page.url.endswith('.pdf'):
             print(f"[Eni] Browser navigated to PDF: {page.url}")
@@ -550,7 +586,7 @@ async def _download_pdf_via_imprimir(page) -> dict:
 
 async def _click_continuar(page):
     """Нажимает кнопку Continuar/Siguiente с fallback'ами."""
-    await asyncio.sleep(1)  # Даём странице время на рендер
+    await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
     selectors = [
         'text=Continuar',
         'text=SIGUIENTE',

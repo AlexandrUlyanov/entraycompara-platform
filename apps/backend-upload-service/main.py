@@ -1852,11 +1852,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             cta_text = whatsapp_cta_labels.get(language, whatsapp_cta_labels["es"])
             cta_link = application.get("proposal_whatsapp_link", "")
             self.set_fill_color(37, 211, 102)
-            self.rounded_rect(149, 26, 46, 6.5, 2.2, style="F")
-            self.set_xy(149, 27.4)
+            self.rounded_rect(143, 24.8, 52, 8, 2.5, style="F")
+            self.set_xy(143, 26.5)
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 6.6)
-            self.cell(46, 3.5, cta_text, align="C", ln=False, link=cta_link)
+            self.set_font("DejaVu", font_style("B"), 7)
+            self.cell(52, 3.8, cta_text, align="C", ln=False, link=cta_link)
             self.set_y(42)
         
         def footer(self):
@@ -2005,13 +2005,13 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.cell(w - 21, 3.5, title.upper(), ln=True)
         pdf.set_x(x + 16)
         pdf.set_text_color(*brand_dark)
-        pdf.set_font("DejaVu", font_style("B"), 14)
-        pdf.cell(w - 21, 7.5, value, ln=True)
+        pdf.set_font("DejaVu", font_style("B"), 13)
+        pdf.cell(w - 21, 6.8, value, ln=True)
         if subtitle:
             pdf.set_x(x + 16)
             pdf.set_text_color(*brand_secondary)
-            pdf.set_font("DejaVu", font_style(), 7.5)
-            pdf.multi_cell(w - 21, 4, subtitle)
+            pdf.set_font("DejaVu", font_style(), 7.1)
+            pdf.multi_cell(w - 21, 3.6, subtitle)
 
     def draw_savings_panel(x: float, y: float, w: float, h: float, value: str, percent_text: str, monthly_text: str):
         pdf.set_fill_color(*brand_blue)
@@ -2043,7 +2043,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.cell(w - 12, 3, confidential_labels.get(language, confidential_labels["es"]), ln=True)
         pdf.set_x(x + 6)
         pdf.set_text_color(*brand_dark)
-        pdf.set_font("DejaVu", font_style("B"), 14)
+        pdf.set_font("DejaVu", font_style("B"), 13)
         pdf.cell(w - 12, 7, fmt_value(client_value), ln=True)
 
     def draw_contact_band(x: float, y: float, w: float, h: float, rows: list[tuple[str, str]]):
@@ -2070,21 +2070,21 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     def draw_comment_band(x: float, y: float, w: float, text: str):
         pdf.set_fill_color(248, 250, 252)
         pdf.set_draw_color(*card_border)
-        pdf.rounded_rect(x, y, w, 24, 3.2, style="DF")
+        pdf.rounded_rect(x, y, w, 28, 3.2, style="DF")
         pdf.set_xy(x + 6, y + 4)
         pdf.set_text_color(*brand_blue)
         pdf.set_font("DejaVu", font_style("B"), 6.5)
         pdf.cell(w - 12, 3, comment_labels.get(language, comment_labels["es"]), ln=True)
         pdf.set_x(x + 6)
         pdf.set_text_color(*brand_dark)
-        pdf.set_font("DejaVu", font_style(), 7.2)
-        pdf.multi_cell(w - 12, 3.7, text[:210])
+        pdf.set_font("DejaVu", font_style(), 7.1)
+        pdf.multi_cell(w - 12, 3.6, text[:320])
 
     def draw_step_row(y: float, number: str, title: str, description: str):
         circle_x = 16
         card_x = 30
         card_w = 165
-        card_h = 16
+        card_h = 15
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*brand_blue)
         pdf.ellipse(circle_x, y + 2, 12, 12, style="D")
@@ -2103,12 +2103,12 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.cell(12, 2, "STEP", ln=False)
         pdf.set_xy(card_x + 28, y + 3.8)
         pdf.set_text_color(*brand_dark)
-        pdf.set_font("DejaVu", font_style("B"), 8)
-        pdf.cell(52, 3.8, title, ln=False)
-        pdf.set_x(card_x + 82)
+        pdf.set_font("DejaVu", font_style("B"), 7.8)
+        pdf.cell(48, 3.8, title, ln=False)
+        pdf.set_x(card_x + 78)
         pdf.set_text_color(*brand_secondary)
-        pdf.set_font("DejaVu", font_style(), 6.9)
-        pdf.multi_cell(card_w - 88, 3.4, description)
+        pdf.set_font("DejaVu", font_style(), 6.7)
+        pdf.multi_cell(card_w - 84, 3.2, description)
 
     def format_long_date(value: str | None) -> str:
         if not value or value == "N/A":
@@ -2161,19 +2161,19 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     yearly_savings = round(savings_monthly * 12, 2) if savings_monthly is not None else None
 
     # Page 1: cover + summary
-    title_y = 46
-    banner_y = 58
-    intro_y = 82
+    title_y = 48
+    banner_y = 60
+    intro_y = 86
     savings_x = 127
-    savings_y = 80
-    summary_y = 128
-    metrics_y = 143
-    current_card_y = 174
+    savings_y = 74
+    summary_y = 120
+    metrics_y = 134
+    current_card_y = 164
 
     pdf.set_xy(page_left, title_y)
     pdf.set_text_color(*brand_dark)
-    pdf.set_font("DejaVu", font_style("B"), 20)
-    pdf.cell(content_w, 9, texts["title"], ln=True)
+    pdf.set_font("DejaVu", font_style("B"), 17)
+    pdf.cell(content_w, 8, texts["title"], ln=True)
 
     draw_client_banner(page_left, banner_y, content_w, client_name)
 
@@ -2182,15 +2182,15 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     pdf.set_font("DejaVu", font_style("B"), 10)
     pdf.cell(100, 6, f"{texts['greeting']} {client_name},", ln=True)
     pdf.set_x(page_left)
-    pdf.set_font("DejaVu", font_style(), 9)
+    pdf.set_font("DejaVu", font_style(), 8.6)
     pdf.set_text_color(*brand_dark)
-    pdf.multi_cell(104, 4.8, texts["intro_paragraph"])
+    pdf.multi_cell(100, 4.4, texts["intro_paragraph"])
 
     draw_savings_panel(
         savings_x,
         savings_y,
         68,
-        42,
+        38,
         fmt_money(yearly_savings) if yearly_savings is not None else "—",
         f"{texts['savings_percentage']}: {savings_percent}%" if savings_percent is not None else texts["savings_percentage"],
         f"{texts['monthly_reduction']}: {fmt_money(savings_monthly)}",
@@ -2198,9 +2198,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     pdf.set_xy(page_left, summary_y)
     draw_section_title(texts["summary_title"], texts["summary_subtitle"])
-    draw_metric_card(page_left, metrics_y, 56, 23, texts["current_plan"], fmt_money(current_cost), brand_blue, f"{current_tariff} · {current_provider}")
-    draw_metric_card(page_left + 62, metrics_y, 56, 23, texts["recommended_plan"], fmt_money(new_cost), brand_green, f"{new_tariff} · {new_provider}")
-    draw_metric_card(page_left + 124, metrics_y, 56, 23, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light, f"{texts['savings_percentage']}: {savings_percent}%" if savings_percent is not None else texts["savings_percentage"])
+    draw_metric_card(page_left, metrics_y, 56, 21, texts["current_plan"], fmt_money(current_cost), brand_blue, f"{current_tariff} · {current_provider}")
+    draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green, f"{new_tariff} · {new_provider}")
+    draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light, f"{texts['savings_percentage']}: {savings_percent}%" if savings_percent is not None else texts["savings_percentage"])
 
     current_rows = [
         (texts["current_provider_label"], current_provider),
@@ -2212,12 +2212,12 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["average_monthly_consumption"], consumption),
         (texts["cups_label"], contract_num),
     ]
-    draw_info_card(page_left, current_card_y, content_w, 74, texts["current_situation"], current_rows, columns=2)
+    draw_info_card(page_left, current_card_y, content_w, 62, texts["current_situation"], current_rows, columns=2)
 
     # Page 2: proposal + contacts + next steps
     pdf.add_page()
     proposal_title_y = 46
-    proposal_cards_y = 60
+    proposal_cards_y = 62
     comment_y = 120
     steps_title_y = 128
     steps_y = 142
@@ -2242,20 +2242,20 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         proposal_rows_right.append(("Bonus", bonus))
     if duration:
         proposal_rows_right.append((texts["contract_end"], str(duration)))
-    draw_info_card(page_left, proposal_cards_y, half_w, card_h, texts["recommended_plan"], proposal_rows_left)
-    draw_info_card(page_left + half_w + gutter, proposal_cards_y, half_w, card_h, texts["estimated_savings"], proposal_rows_right)
+    draw_info_card(page_left, proposal_cards_y, half_w, 48, texts["recommended_plan"], proposal_rows_left)
+    draw_info_card(page_left + half_w + gutter, proposal_cards_y, half_w, 48, texts["estimated_savings"], proposal_rows_right)
 
     if proposal_comment:
         draw_comment_band(page_left, comment_y, content_w, proposal_comment)
-        steps_title_y = 154
-        steps_y = 168
-        disclaimer_y = 226
+        steps_title_y = 158
+        steps_y = 172
+        disclaimer_y = 228
 
     pdf.set_xy(page_left, steps_title_y)
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])
     draw_step_row(steps_y, "1", texts["step1_title"], texts["step1_desc"])
-    draw_step_row(steps_y + 18, "2", texts["step2_title"], texts["step2_desc"])
-    draw_step_row(steps_y + 36, "3", texts["step3_title"], texts["step3_desc"])
+    draw_step_row(steps_y + 17, "2", texts["step2_title"], texts["step2_desc"])
+    draw_step_row(steps_y + 34, "3", texts["step3_title"], texts["step3_desc"])
     pdf.set_xy(page_left, disclaimer_y)
     pdf.set_text_color(*brand_secondary)
     pdf.set_font("DejaVu", font_style(), 6.8)

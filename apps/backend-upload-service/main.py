@@ -1750,6 +1750,18 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     
     texts = PROPOSAL_PDF_TEXTS.get(language, PROPOSAL_PDF_TEXTS["es"])
     proposal_comment = (application.get("proposal_comment") or "").strip()
+    whatsapp_cta_labels = {
+        "es": "Confirmar por WhatsApp",
+        "ru": "Подтвердить в WhatsApp",
+        "uk": "Підтвердити у WhatsApp",
+        "eu": "Baieztatu WhatsApp bidez",
+    }
+    whatsapp_prefill_messages = {
+        "es": "Hola, confirmo que quiero iniciar el cambio a la nueva tarifa.",
+        "ru": "Здравствуйте, подтверждаю, что хочу начать переход на новый тариф.",
+        "uk": "Доброго дня, підтверджую, що хочу розпочати перехід на новий тариф.",
+        "eu": "Kaixo, tarifa berrira aldatzeko prozesua hasi nahi dudala berresten dut.",
+    }
     
     # Находим шрифты fpdf2 / локальные fallback-шрифты проекта
     fpdf_dir = os.path.dirname(fpdf.__file__)
@@ -1888,18 +1900,6 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         "ru": "КОММЕНТАРИЙ МЕНЕДЖЕРА",
         "uk": "КОМЕНТАР МЕНЕДЖЕРА",
         "eu": "AHOLKULARIAREN OHARRA",
-    }
-    whatsapp_cta_labels = {
-        "es": "Confirmar por WhatsApp",
-        "ru": "Подтвердить в WhatsApp",
-        "uk": "Підтвердити у WhatsApp",
-        "eu": "Baieztatu WhatsApp bidez",
-    }
-    whatsapp_prefill_messages = {
-        "es": "Hola, confirmo que quiero iniciar el cambio a la nueva tarifa.",
-        "ru": "Здравствуйте, подтверждаю, что хочу начать переход на новый тариф.",
-        "uk": "Доброго дня, підтверджую, що хочу розпочати перехід на новий тариф.",
-        "eu": "Kaixo, tarifa berrira aldatzeko prozesua hasi nahi dudala berresten dut.",
     }
     service_labels = {
         "Electricity Comparison": {

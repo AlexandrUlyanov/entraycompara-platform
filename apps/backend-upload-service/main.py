@@ -1538,6 +1538,17 @@ PROPOSAL_PDF_TEXTS = {
         "step2_desc": "Nuestro equipo prepara y envía toda la documentación a la comercializadora.",
         "step3_title": "3. Activación y ahorro",
         "step3_desc": "Se activa la nueva tarifa y empieza a ahorrar desde las siguientes facturas.",
+        "intro_paragraph": "Hemos analizado su situación energética actual y le presentamos una propuesta personalizada que le permitirá reducir su factura eléctrica sin ningún coste ni gestión por su parte.",
+        "estimated_savings": "Ahorro estimado",
+        "monthly_reduction": "Menor coste mensual",
+        "current_provider_label": "Proveedor actual",
+        "recommended_provider_label": "Proveedor recomendado",
+        "contracted_power": "Potencia contratada",
+        "average_monthly_consumption": "Consumo medio mensual",
+        "cups_label": "Nº de contrato (CUPS)",
+        "monthly_savings": "Ahorro mensual",
+        "savings_percentage": "Ahorro porcentual",
+        "proposal_disclaimer": "Esta propuesta es orientativa y se basa en los datos de consumo facilitados. El ahorro real puede variar según el consumo efectivo. EntrayCompara actúa como intermediario independiente sin coste para el cliente.",
         "per_month": "al mes",
         "per_year": "al año",
         "next_steps": "Próximos pasos",
@@ -1581,6 +1592,17 @@ PROPOSAL_PDF_TEXTS = {
         "step2_desc": "Наша команда подготовит и передаст документы новому поставщику.",
         "step3_title": "3. Активация и экономия",
         "step3_desc": "Новый тариф активируется, и вы начинаете экономить уже с ближайших счетов.",
+        "intro_paragraph": "Мы проанализировали вашу текущую ситуацию по энергоснабжению и подготовили персональное предложение, которое позволит сократить расходы без дополнительных затрат и сложностей с вашей стороны.",
+        "estimated_savings": "Ожидаемая экономия",
+        "monthly_reduction": "Снижение ежемесячной стоимости",
+        "current_provider_label": "Текущий поставщик",
+        "recommended_provider_label": "Рекомендуемый поставщик",
+        "contracted_power": "Подключённая мощность",
+        "average_monthly_consumption": "Среднее месячное потребление",
+        "cups_label": "№ договора (CUPS)",
+        "monthly_savings": "Экономия в месяц",
+        "savings_percentage": "Экономия в процентах",
+        "proposal_disclaimer": "Это предложение носит ориентировочный характер и основано на предоставленных данных о потреблении. Фактическая экономия может отличаться в зависимости от реального профиля потребления. EntrayCompara действует как независимый посредник без оплаты со стороны клиента.",
         "per_month": "в месяц",
         "per_year": "в год",
         "next_steps": "Следующие шаги",
@@ -1624,6 +1646,17 @@ PROPOSAL_PDF_TEXTS = {
         "step2_desc": "Наша команда підготує та передасть документи новому постачальнику.",
         "step3_title": "3. Активація та економія",
         "step3_desc": "Новий тариф активується, і ви починаєте економити вже з наступних рахунків.",
+        "intro_paragraph": "Ми проаналізували вашу поточну енергетичну ситуацію та підготували персональну пропозицію, яка допоможе зменшити рахунки без додаткових витрат і складних дій з вашого боку.",
+        "estimated_savings": "Очікувана економія",
+        "monthly_reduction": "Зменшення щомісячної вартості",
+        "current_provider_label": "Поточний постачальник",
+        "recommended_provider_label": "Рекомендований постачальник",
+        "contracted_power": "Підключена потужність",
+        "average_monthly_consumption": "Середнє місячне споживання",
+        "cups_label": "№ договору (CUPS)",
+        "monthly_savings": "Економія на місяць",
+        "savings_percentage": "Економія у відсотках",
+        "proposal_disclaimer": "Ця пропозиція має орієнтовний характер і базується на наданих даних про споживання. Реальна економія може відрізнятися залежно від фактичного профілю споживання. EntrayCompara діє як незалежний посередник без оплати з боку клієнта.",
         "per_month": "на місяць",
         "per_year": "на рік",
         "next_steps": "Наступні кроки",
@@ -1667,6 +1700,17 @@ PROPOSAL_PDF_TEXTS = {
         "step2_desc": "Gure taldeak dokumentazio guztia prestatuko eta hornitzaile berriari bidaliko dio.",
         "step3_title": "3. Aktibazioa eta aurrezkia",
         "step3_desc": "Tarifa berria aktibatzen da eta hurrengo fakturetatik aurrezten hasten zara.",
+        "intro_paragraph": "Zure egungo energia-egoera aztertu dugu eta proposamen pertsonalizatua prestatu dugu, zure faktura elektrikoa murrizteko kudeaketarik edo kosturik gabe.",
+        "estimated_savings": "Aurrezki estimatua",
+        "monthly_reduction": "Hileko kostu txikiagoa",
+        "current_provider_label": "Uneko hornitzailea",
+        "recommended_provider_label": "Gomendatutako hornitzailea",
+        "contracted_power": "Kontratatutako potentzia",
+        "average_monthly_consumption": "Hileko batez besteko kontsumoa",
+        "cups_label": "Kontratu zk. (CUPS)",
+        "monthly_savings": "Hileko aurrezkia",
+        "savings_percentage": "Aurrezki portzentuala",
+        "proposal_disclaimer": "Proposamen hau orientagarria da eta emandako kontsumo-datuetan oinarritzen da. Benetako aurrezkia aldatu daiteke benetako kontsumoaren arabera. EntrayCompara bezeroarentzat kosturik gabeko bitartekari independente gisa jarduten du.",
         "per_month": "hilean",
         "per_year": "urtean",
         "next_steps": "Hurrengo pausoak",
@@ -1859,6 +1903,25 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.set_font("DejaVu", font_style(), 8)
         pdf.multi_cell(w - 22, 4.5, description)
 
+    def format_long_date(value: str | None) -> str:
+        if not value or value == "N/A":
+            return "N/A"
+        try:
+            date_obj = datetime.datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            return value
+
+        months = {
+            "es": ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"],
+            "ru": ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"],
+            "uk": ["січня", "лютого", "березня", "квітня", "травня", "червня", "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"],
+            "eu": ["urtarrila", "otsaila", "martxoa", "apirila", "maiatza", "ekaina", "uztaila", "abuztua", "iraila", "urria", "azaroa", "abendua"],
+        }
+        month_name = months.get(language, months["es"])[date_obj.month - 1]
+        if language == "es":
+            return f"{date_obj.day} de {month_name} de {date_obj.year}"
+        return f"{date_obj.day} {month_name} {date_obj.year}"
+
     client_name = application.get("client_name", "")
     current_provider = extracted_data.get("current_provider") or extracted_data.get("retailer") or "N/A"
     current_tariff = extracted_data.get("current_tariff") or extracted_data.get("access_tariff") or "N/A"
@@ -1918,77 +1981,66 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     yearly_savings = round(savings_monthly * 12, 2) if savings_monthly is not None else None
 
+    # Page 1: cover + summary
     pdf.set_text_color(*brand_dark)
     pdf.set_font("DejaVu", font_style("B"), 18)
     pdf.cell(0, 10, texts["title"], ln=True)
+    pdf.ln(2)
     pdf.set_text_color(*brand_muted)
+    pdf.set_font("DejaVu", font_style("B"), 12)
+    pdf.cell(0, 8, f"{texts['greeting']} {client_name},", ln=True)
     pdf.set_font("DejaVu", font_style(), 10)
-    pdf.multi_cell(120, 5.5, f"{texts['greeting']} {client_name},\n{texts['free_service']}")
+    pdf.multi_cell(180, 5.5, texts["intro_paragraph"])
+    pdf.ln(5)
+    draw_section_title(texts["summary_title"])
+    draw_metric_card(15, pdf.get_y(), 56, 24, texts["current_plan"], fmt_money(current_cost), brand_blue, f"{current_tariff} · {current_provider}")
+    draw_metric_card(77, pdf.get_y(), 56, 24, texts["recommended_plan"], fmt_money(new_cost), brand_green, f"{new_tariff} · {new_provider}")
+    draw_metric_card(139, pdf.get_y(), 56, 24, texts["annual_savings"], fmt_money(yearly_savings) if yearly_savings is not None else "N/A", brand_green, f"{texts['estimated_savings']}: {savings_percent}% · {texts['monthly_reduction']}: {fmt_money(savings_monthly)}")
 
-    contact_x = 142
-    contact_y = 34
-    contact_w = 53
-    contact_h = 33
-    pdf.set_fill_color(*brand_bg)
-    pdf.set_draw_color(*card_border)
-    pdf.rect(contact_x, contact_y, contact_w, contact_h, style="DF")
-    pdf.set_xy(contact_x + 4, contact_y + 4)
-    pdf.set_text_color(*brand_blue)
-    pdf.set_font("DejaVu", font_style("B"), 9)
-    pdf.cell(contact_w - 8, 5, texts["contact_block_title"], ln=True)
-    pdf.set_text_color(*brand_dark)
-    pdf.set_font("DejaVu", font_style(), 8)
-    pdf.set_x(contact_x + 4)
-    pdf.cell(contact_w - 8, 4.5, f"{texts['contact_phone_label']}: {COMPANY_CONTACTS['phone']}", ln=True)
-    pdf.set_x(contact_x + 4)
-    pdf.cell(contact_w - 8, 4.5, f"{texts['contact_email_label']}: {COMPANY_CONTACTS['email']}", ln=True)
-    pdf.set_x(contact_x + 4)
-    pdf.cell(contact_w - 8, 4.5, f"{texts['contact_site_label']}: {COMPANY_CONTACTS['website']}", ln=True)
-    pdf.set_x(contact_x + 4)
-    pdf.cell(contact_w - 8, 4.5, f"{texts['contact_social_label']}: {COMPANY_CONTACTS['social']}", ln=True)
-
-    pdf.set_y(76)
-    draw_section_title(texts["summary_title"], texts["summary_subtitle"])
-
-    draw_metric_card(15, pdf.get_y(), 56, 22, texts["current_plan"], fmt_money(current_cost), brand_blue, current_tariff)
-    draw_metric_card(77, pdf.get_y(), 56, 22, texts["recommended_plan"], fmt_money(new_cost), brand_green, new_tariff)
-    draw_metric_card(139, pdf.get_y(), 56, 22, texts["annual_savings"], fmt_money(yearly_savings) if yearly_savings is not None else "N/A", brand_green, f"{savings_percent}% | {fmt_money(savings_monthly)} {texts['per_month']}" if savings_monthly is not None and savings_percent is not None else texts["savings"])
-    pdf.set_y(pdf.get_y() + 28)
-
-    draw_section_title(texts["current_situation"])
+    # Page 2: current situation + contacts
+    pdf.add_page()
     current_rows = [
-        (texts["provider"], current_provider),
+        (texts["current_provider_label"], current_provider),
         (texts["tariff"], current_tariff),
         (texts["monthly_cost"], fmt_money(current_cost)),
-        (texts["contract_end"], contract_end),
+        (texts["contract_end"], format_long_date(contract_end)),
         (texts["service"], service),
-        (texts["power"], power),
-        (texts["consumption"], consumption),
-        (texts["contract_num"], contract_num),
+        (texts["contracted_power"], power),
+        (texts["average_monthly_consumption"], consumption),
+        (texts["cups_label"], contract_num),
     ]
-    draw_info_card(15, pdf.get_y(), 86, 46, texts["current_plan"], current_rows[:4])
-    draw_info_card(109, pdf.get_y(), 86, 46, texts["current_situation"], current_rows[4:])
-    pdf.set_y(pdf.get_y() + 52)
+    draw_info_card(15, 40, 118, 112, texts["current_situation"], current_rows)
 
+    contact_rows = [
+        (texts["contact_phone_label"], COMPANY_CONTACTS["phone"]),
+        (texts["contact_email_label"], COMPANY_CONTACTS["email"]),
+        (texts["contact_site_label"], COMPANY_CONTACTS["website"]),
+        (texts["contact_social_label"], COMPANY_CONTACTS["social"]),
+    ]
+    draw_info_card(141, 92, 54, 60, texts["contact_block_title"], contact_rows)
+
+    # Page 3: proposal
+    pdf.add_page()
     draw_section_title(texts["our_proposal"])
     proposal_rows_left = [
-        (texts["provider"], new_provider),
+        (texts["recommended_provider_label"], new_provider),
         (texts["tariff"], new_tariff),
         (texts["monthly_cost"], fmt_money(new_cost)),
         ("Bonus", bonus or "N/A"),
     ]
     proposal_rows_right = [
-        (texts["contract_end"], f"{duration} мес." if duration else "N/A"),
-        (texts["savings"], fmt_money(savings_monthly)),
-        ("% ", f"{savings_percent}%" if savings_percent is not None else "N/A"),
-        (texts["annual_savings"], fmt_money(yearly_savings)),
+        (texts["monthly_savings"], fmt_money(savings_monthly)),
+        (texts["savings_percentage"], f"{savings_percent}%" if savings_percent is not None else "N/A"),
+        ("Bonus", bonus or "N/A"),
+        (texts["contract_end"], "N/A" if not duration else str(duration)),
     ]
-    draw_info_card(15, pdf.get_y(), 86, 46, texts["recommended_plan"], proposal_rows_left)
-    draw_info_card(109, pdf.get_y(), 86, 46, texts["summary_title"], proposal_rows_right)
-    pdf.set_y(pdf.get_y() + 52)
+    draw_info_card(15, 40, 86, 72, texts["our_proposal"], proposal_rows_left)
+    draw_info_card(109, 40, 86, 72, texts["summary_title"], proposal_rows_right)
 
+    # Page 4: next steps
+    pdf.add_page()
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])
-    base_y = pdf.get_y()
+    base_y = 50
     step_w = 56
     step_h = 28
     draw_step_box(15, base_y, step_w, step_h, "1", texts["step1_title"], texts["step1_desc"])
@@ -1997,6 +2049,10 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     pdf.set_draw_color(*brand_blue)
     pdf.line(71, base_y + 14, 77, base_y + 14)
     pdf.line(133, base_y + 14, 139, base_y + 14)
+    pdf.set_xy(15, 100)
+    pdf.set_text_color(*brand_muted)
+    pdf.set_font("DejaVu", font_style(), 8)
+    pdf.multi_cell(180, 4.5, texts["proposal_disclaimer"])
     
     return bytes(pdf.output(dest="S"))
 

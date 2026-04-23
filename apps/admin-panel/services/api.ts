@@ -1,5 +1,5 @@
 
-import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption } from '../types';
+import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse } from '../types';
 
 const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
@@ -326,6 +326,14 @@ export const getExtractionTaskStatus = async (applicationId: string, taskId: str
   return handleApiError(response);
 };
 
+export const getLatestExtractionTask = async (applicationId: string): Promise<LatestExtractionTaskResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/extract-data/latest-task`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
 export const updateExtractedData = async (applicationId: string, extractedData: ExtractedData): Promise<{ success: boolean; message: string }> => {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/extracted-data`, {
     method: 'PUT',
@@ -439,21 +447,16 @@ export const autoCreateEniSimulation = async (applicationId: string, data: {
   return handleApiError(response);
 };
 
-export const getAutoSimulationStatus = async (applicationId: string, taskId: string): Promise<{
-  success: boolean;
-  task_id: string;
-  status: string;
-  message: string;
-  step_key?: string;
-  step_label?: string;
-  step_details?: string;
-  progress_percent?: number;
-  simulation_id?: string;
-  simulation_file_url?: string;
-  error?: string;
-  tariffs?: Array<{ index: number; name: string; current_price: string; plenitude_price: string }>;
-}> => {
+export const getAutoSimulationStatus = async (applicationId: string, taskId: string): Promise<AutoSimulationTaskStatus> => {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations/auto-create/${taskId}/status`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const getLatestAutoSimulationTask = async (applicationId: string): Promise<LatestAutoSimulationTaskResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/simulations/auto-create/latest-task`, {
     method: 'GET',
     headers: getHeaders(),
   });

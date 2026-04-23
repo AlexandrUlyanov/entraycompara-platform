@@ -437,6 +437,22 @@ def get_proposal_extraction_task_ref(application_id: str, task_id: str):
     )
 
 
+def get_latest_proposal_extraction_task(application_id: str) -> dict | None:
+    tasks = (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("proposal_extraction_tasks")
+        .order_by("updated_at", direction=firestore.Query.DESCENDING)
+        .limit(1)
+        .stream()
+    )
+    for task in tasks:
+        data = task.to_dict()
+        data["task_id"] = data.get("task_id") or task.id
+        return data
+    return None
+
+
 def update_proposal_extraction_task(application_id: str, task_id: str, payload: dict):
     task_ref = get_proposal_extraction_task_ref(application_id, task_id)
     task_ref.set({
@@ -1771,6 +1787,41 @@ async def proposal_extract_data_status(application_id: str, task_id: str):
         raise HTTPException(status_code=500, detail=f"Ошибка при получении статуса extraction: {str(e)}")
 
 
+@app.get("/api/applications/{application_id}/proposal/extract-data/latest-task", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def proposal_extract_latest_task(application_id: str):
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        task = get_latest_proposal_extraction_task(application_id)
+        if not task:
+            return {"success": True, "task": None}
+
+        return {
+            "success": True,
+            "task": {
+                "task_id": task.get("task_id"),
+                "status": task.get("status", "pending"),
+                "message": task.get("message", ""),
+                "step_key": task.get("step_key"),
+                "progress_percent": task.get("progress_percent", 0),
+                "extracted_data": task.get("extracted_data"),
+                "field_assessments": task.get("field_assessments"),
+                "overall_confidence": task.get("overall_confidence"),
+                "needs_review": task.get("needs_review", False),
+                "needs_review_fields": task.get("needs_review_fields", []),
+                "error": task.get("error"),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Extract latest task error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении последней задачи extraction: {str(e)}")
+
+
 @app.put("/api/applications/{application_id}/proposal/extracted-data", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
 async def proposal_update_extracted_data(application_id: str, update_data: ExtractedDataUpdate):
     """Сохранение/корректировка извлеченных данных оператором."""
@@ -2069,6 +2120,23 @@ def _get_task_status(application_id: str, task_id: str) -> dict | None:
         return doc.to_dict()
     return None
 
+
+def _get_latest_task_status(application_id: str) -> dict | None:
+    tasks = (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("auto_simulation_tasks")
+        .order_by("updated_at", direction=firestore.Query.DESCENDING)
+        .limit(1)
+        .stream()
+    )
+    for task in tasks:
+        data = task.to_dict()
+        data["task_id"] = data.get("task_id") or task.id
+        return data
+    return None
+
+
 def _set_task_status(application_id: str, task_id: str, status: dict):
     _task_doc_ref(application_id, task_id).set(status, merge=True)
 
@@ -2198,6 +2266,40 @@ async def get_auto_simulation_status(application_id: str, task_id: str):
     except Exception as e:
         print(f"Get task status error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении статуса: {str(e)}")
+
+
+@app.get("/api/applications/{application_id}/proposal/simulations/auto-create/latest-task", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def get_latest_auto_simulation_status(application_id: str):
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        if not doc_ref.get().exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        task = _get_latest_task_status(application_id)
+        if not task:
+            return {"success": True, "task": None}
+
+        return {
+            "success": True,
+            "task": {
+                "task_id": task.get("task_id"),
+                "status": task.get("status"),
+                "message": task.get("message"),
+                "step_key": task.get("step_key"),
+                "step_label": task.get("step_label"),
+                "step_details": task.get("step_details"),
+                "progress_percent": task.get("progress_percent"),
+                "simulation_id": task.get("simulation_id"),
+                "simulation_file_url": task.get("simulation_file_url"),
+                "error": task.get("error"),
+                "tariffs": task.get("tariffs"),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Get latest auto task status error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении последней автосимуляции: {str(e)}")
 
 
 @app.post("/api/applications/{application_id}/proposal/simulations/auto-create/{task_id}/select-tariff", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   listSimulations, createSimulation, updateSimulation, deleteSimulation, selectSimulation,
-  autoCreateEniSimulation, getAutoSimulationStatus, selectAutoSimulationTariff, getExtractedData
+  autoCreateEniSimulation, getAutoSimulationStatus, getLatestAutoSimulationTask, selectAutoSimulationTariff, getExtractedData
 } from '../services/api';
 import { Simulation } from '../types';
 import Spinner from './Spinner';
@@ -77,6 +77,34 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
   const simulations = data?.simulations || [];
   const extracted = proposalData?.extracted_data;
   const hasCups = !!extracted?.cups;
+
+  useEffect(() => {
+    if (autoTaskId) return;
+
+    let isCancelled = false;
+    const hydrateLatestTask = async () => {
+      try {
+        const result = await getLatestAutoSimulationTask(appId);
+        if (isCancelled || !result.task) return;
+
+        setAutoTaskId(result.task.task_id);
+        setAutoStatus(result.task.status as AutoTaskStatus);
+        setAutoMessage(result.task.message || '');
+        setAutoStepKey(result.task.step_key || null);
+        setAutoStepLabel(result.task.step_label || '');
+        setAutoStepDetails(result.task.step_details || '');
+        setAutoProgressPercent(result.task.progress_percent || 0);
+        setAutoTariffs(result.task.status === 'awaiting_tariff_selection' ? result.task.tariffs || null : null);
+      } catch (error) {
+        console.error('Latest auto-simulation task hydration error:', error);
+      }
+    };
+
+    hydrateLatestTask();
+    return () => {
+      isCancelled = true;
+    };
+  }, [appId, autoTaskId]);
 
   // Polling auto-simulation status
   useEffect(() => {

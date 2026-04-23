@@ -119,6 +119,11 @@ export interface ExtractionTaskStatus {
   error?: string;
 }
 
+export interface LatestExtractionTaskResponse {
+  success: boolean;
+  task: ExtractionTaskStatus | null;
+}
+
 export interface RetailerOption {
   value: string;
   label: string;
@@ -137,6 +142,26 @@ export interface Simulation {
   savings_monthly_eur?: number;
   savings_percent?: number;
   created_at: string;
+}
+
+export interface AutoSimulationTaskStatus {
+  success: boolean;
+  task_id: string;
+  status: 'pending' | 'running' | 'awaiting_tariff_selection' | 'completed' | 'failed';
+  message: string;
+  step_key?: string;
+  step_label?: string;
+  step_details?: string;
+  progress_percent?: number;
+  simulation_id?: string;
+  simulation_file_url?: string;
+  error?: string;
+  tariffs?: Array<{ index: number; name: string; current_price: string; plenitude_price: string }>;
+}
+
+export interface LatestAutoSimulationTaskResponse {
+  success: boolean;
+  task: AutoSimulationTaskStatus | null;
 }
 
 export interface CursorPaginatedApplications {

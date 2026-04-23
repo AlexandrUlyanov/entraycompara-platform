@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { extractDataWithAI, updateExtractedData, getExtractedData, getExtractionTaskStatus, listRetailers } from '../services/api';
+import { extractDataWithAI, updateExtractedData, getExtractedData, getExtractionTaskStatus, getLatestExtractionTask, listRetailers } from '../services/api';
 import { ExtractedData } from '../types';
 import Spinner from './Spinner';
 import { useTranslation } from '../i18n';
@@ -76,6 +76,36 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
       setIsEditing(true);
     }
   }, [existingData]);
+
+  useEffect(() => {
+    if (extractTaskId) return;
+
+    let isCancelled = false;
+    const hydrateLatestTask = async () => {
+      try {
+        const result = await getLatestExtractionTask(appId);
+        if (isCancelled || !result.task) return;
+
+        setExtractTaskId(result.task.task_id);
+        setExtractStatus(result.task.status);
+        setExtractMessage(result.task.message || '');
+        setExtractStepKey(result.task.step_key || null);
+        setExtractProgressPercent(result.task.progress_percent || 0);
+
+        if (result.task.extracted_data) {
+          setFormData(result.task.extracted_data);
+          setIsEditing(true);
+        }
+      } catch (error) {
+        console.error('Latest extraction task hydration error:', error);
+      }
+    };
+
+    hydrateLatestTask();
+    return () => {
+      isCancelled = true;
+    };
+  }, [appId, extractTaskId]);
 
   useEffect(() => {
     if (!extractTaskId || extractStatus === 'completed' || extractStatus === 'failed') return;

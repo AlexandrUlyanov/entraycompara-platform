@@ -62,7 +62,8 @@ WHATSAPP_API_VERSION = "v25.0"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-GEMINI_MODEL = "gemini-2.5-flash-lite"
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
+GEMINI_INVOICE_EXTRACTION_MODEL = os.environ.get("GEMINI_INVOICE_EXTRACTION_MODEL", "gemini-2.5-flash")
 # -------------------------
 
 # --- Настройки Email (Gmail SMTP) ---
@@ -316,33 +317,44 @@ def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=503, detail="Gemini API Key не настроен на бэкенде.")
     
-    prompt = """Ты — аналитик испанских электрических счетов (facturas de luz). Извлеки из предоставленных файлов ТОЛЬКО следующие данные в формате JSON.
+    prompt = """Ты — точный парсер испанских электрических счетов (facturas de luz).
+Извлеки из приложенных файлов только значения, которые явно видны в документе, и верни один JSON-объект.
+
+КРИТИЧЕСКИЕ ПРАВИЛА:
+- Не выдумывай значения и не подставляй вероятные догадки.
+- Если поле нельзя уверенно прочитать, верни null.
+- Не путай comercializadora с distribuidora.
+- Не путай CUPS с COD. CLIENTE, número de contrato или referencia.
+- Для чисел верни number без символов €, kWh, kW, %.
+- Даты верни в формате YYYY-MM-DD.
+- Если в счёте несколько периодов или несколько таблиц, бери данные именно текущей factura / периода facturación.
+- Если значение видно неоднозначно, лучше null, чем неверное число.
+
 ГДЕ ИСКАТЬ КАЖДОЕ ПОЛЕ В ДОКУМЕНТЕ:
 {
-  "cups": "string|null — ищи в блоке DATOS DEL TITULAR / DATOS DEL SUMINISTRO, рядом с надписью 'CUPS:' или 'C.U.P.S.'. Это 20-22 символа, начинается с ES. НЕ ПУТАЙ с номером договора (COD. CLIENTE).",
-  "client_type": "Hogar|Empresa|null — ищи тип клиента: если тариф 2.0A/2.0DHA/2.0DHS и мощность до 10kW — скорее всего Hogar. Если 3.0A/3.1A и выше — Empresa. Если нет явных признаков — null.",
-  "access_tariff": "string|null — ищи в блоке DATOS DEL TITULAR, рядом с 'TARIFA:' или 'TARIFA DE ACCESO:'. Может быть 2.0A, 2.0DHA, 2.0DHS, 3.0A, 3.1A, 2.0TD, 3.0TD и т.д.",
-  "start_date": "YYYY-MM-DD|null — ищи в блоке DATOS DE LA FACTURA, рядом с 'PERIODO FACTURACION: Del DD/MM/YYYY al DD/MM/YYYY'. Первая дата = start_date.",
-  "end_date": "YYYY-MM-DD|null — ищи в блоке DATOS DE LA FACTURA, рядом с 'PERIODO FACTURACION: Del DD/MM/YYYY al DD/MM/YYYY'. Вторая дата = end_date.",
-  "equipment_rental": "number|null — ищи в нижней части счета, рядом с 'Importe alquiler Equipo de Medida' или 'Alquiler de equipos'. Сумма в €.",
-  "invoice_amount_with_vat": "number|null — ищи в блоке DATOS DE LA FACTURA, рядом с 'TOTAL FACTURA:' или 'TOTAL FACTURA' (самая крупная итоговая сумма, уже с IVA).",
-  "retailer": "string|null — ищи название компании-продавца (comercializadora). Обычно в шапке или внизу страницы мелким шрифтом (например, 'SUNAIR ONE ENERGY, S.L.').",
-  "billed_power_p1": "number|null — ищи в блоке DATOS DEL TITULAR рядом с 'POTENCIA: P1:' или в таблице 'Termino de Potencia'. Значение в kW (например, 3.3). P1 = Punta (пиковая мощность).",
-  "billed_power_p2": "number|null — ищи в блоке DATOS DEL TITULAR рядом с 'POTENCIA: P2:' или в таблице 'Termino de Potencia'. P2 = Llano. Для старых тарифов 2.0A может отсутствовать — тогда null.",
-  "consumption_p1": "number|null — ищи в таблице 'CALCULO DE LA FACTURA' → 'Termino de Energia', рядом с 'P1 XXX kWh'. P1 = Punta (самый дорогой период, horas laborables). Потребление в kWh.",
-  "consumption_p2": "number|null — ищи в таблице 'CALCULO DE LA FACTURA' → 'Termino de Energia' или в таблице 'Lectura' по периоду P2 (Llano). P2 = Llano (переходный период, precio intermedio). Потребление в kWh.",
-  "consumption_p3": "number|null — ищи в таблице 'Lectura' по периоду P3 (Valle). P3 = Valle (самый дешёвый период, noches/fines de semana). Потребление в kWh. Если тариф 2.0A без разделения — может быть null."
+  "cups": "string|null — ищи в DATOS DEL TITULAR / DATOS DEL SUMINISTRO рядом с 'CUPS' или 'C.U.P.S.'. Обычно 20-22 символа и начинается с ES.",
+  "client_type": "Hogar|Empresa|null — ставь Empresa только если есть явные признаки empresa / negocio / CIF / razón social / tariffa empresarial. Если таких признаков нет — Hogar.",
+  "access_tariff": "string|null — ищи рядом с 'TARIFA', 'TARIFA DE ACCESO', 'PEAJE' или 'ATR'. Бери точное значение как в счёте: 2.0A, 2.0DHA, 2.0TD, 3.0TD и т.д.",
+  "start_date": "YYYY-MM-DD|null — первая дата периода facturación.",
+  "end_date": "YYYY-MM-DD|null — вторая дата периода facturación.",
+  "equipment_rental": "number|null — 'alquiler de equipos', 'alquiler contador', 'equipo de medida'.",
+  "invoice_amount_with_vat": "number|null — итоговая сумма фактуры с налогами: 'TOTAL FACTURA', 'IMPORTE TOTAL', 'TOTAL IMPORTE FACTURA'.",
+  "retailer": "string|null — comercializadora / proveedor actual, а не distribuidora.",
+  "billed_power_p1": "number|null — potencia contratada или facturada для P1 в kW.",
+  "billed_power_p2": "number|null — potencia contratada или facturada для P2 в kW. Если нет отдельного P2 — null.",
+  "consumption_p1": "number|null — consumo / energía P1 в kWh.",
+  "consumption_p2": "number|null — consumo / energía P2 в kWh.",
+  "consumption_p3": "number|null — consumo / energía P3 в kWh."
 }
-ФОРМАТ ДАТ: если в документе дата '05/04/2013', преобразуй в '2013-04-05' (YYYY-MM-DD).
-Важно:
-- НЕ ПУТАЙ CUPS (уникальный код счетчика, начинается с ES) с COD. CLIENTE (код клиента, обычно 4-6 цифр).
-- access_tariff бери ТОЧНО как написано в документе (2.0A, 2.0DHA, 3.0A и т.д.).
-- invoice_amount_with_vat — это ВСЕГДА итоговая сумма 'TOTAL FACTURA' (с IVA).
-- billed_power_p1/p2 — это мощность в kW из раздела POTENCIA, а НЕ потребление в kWh.
-- consumption_p1/p2/p3 — это потребление в kWh из раздела Energia / Lectura.
-Если данных нет — используй null. Отвечай ТОЛЬКО JSON, без пояснений."""
+
+ПЕРЕД ОТВЕТОМ ПРОВЕРЬ:
+- JSON должен быть валидным.
+- Все ключи должны присутствовать.
+- Значения должны соответствовать именно полям из документа.
+
+Отвечай ТОЛЬКО JSON, без пояснений и без markdown."""
     
-    model = genai.GenerativeModel(GEMINI_MODEL)
+    model = genai.GenerativeModel(GEMINI_INVOICE_EXTRACTION_MODEL)
     
     # Формируем контент: промпт + файлы
     content_parts = [prompt]

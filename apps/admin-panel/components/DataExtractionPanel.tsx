@@ -65,6 +65,10 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
     },
   });
 
+  const cupsAssessment = existingData?.field_assessments?.cups;
+  const cupsLooksValid = !!cupsAssessment && !cupsAssessment.needs_review && (cupsAssessment.confidence || 0) >= 0.9;
+  const cupsNeedsReview = !!cupsAssessment?.needs_review;
+
   const handleExtract = () => {
     const urls = selectedFiles.length > 0 ? selectedFiles : uploadedFiles;
     if (urls.length === 0) return;
@@ -179,13 +183,34 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
-              <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.cups')}</label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide">{t('proposalBuilder.extractData.cups')}</label>
+                {cupsAssessment && (
+                  <span
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-semibold ${
+                      cupsLooksValid
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : cupsNeedsReview
+                          ? 'bg-red-50 text-red-600'
+                          : 'bg-amber-50 text-amber-700'
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                    {cupsLooksValid ? 'CUPS validado' : cupsNeedsReview ? 'Revisar CUPS' : 'CUPS pendiente'}
+                  </span>
+                )}
+              </div>
               <input
                 type="text"
                 value={formData.cups || ''}
                 onChange={e => updateField('cups', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {cupsAssessment?.reasons && cupsAssessment.reasons.length > 0 && (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {cupsAssessment.reasons.join(', ')}
+                </p>
+              )}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.clientType')}</label>

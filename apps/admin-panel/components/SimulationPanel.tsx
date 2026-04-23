@@ -472,19 +472,6 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
         </div>
       )}
 
-      {/* Add Button */}
-      {!isFormOpen && (
-        <button
-          onClick={() => setIsFormOpen(true)}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-primary/30 text-primary rounded-xl font-medium hover:bg-primary/5 transition-all"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-          </svg>
-          {t('proposalBuilder.simulation.addBtn')}
-        </button>
-      )}
-
       {/* Form */}
       {isFormOpen && (
         <div className="bg-slate-50/80 rounded-2xl p-4 space-y-3 border border-slate-100">

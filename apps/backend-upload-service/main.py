@@ -1820,13 +1820,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.rect(0, 0, 210, 36, style="F")
 
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 18)
+            self.set_font("DejaVu", font_style("B"), 17)
             self.set_xy(15, 7)
-            self.cell(0, 8, "Entray", ln=False)
-            self.set_xy(15, 14)
-            self.cell(0, 8, "compara", ln=False)
+            self.cell(0, 8, "Entray Compara", ln=False)
 
-            self.set_xy(18, 24)
+            self.set_xy(15, 22)
             self.set_text_color(219, 234, 254)
             self.set_font("DejaVu", font_style("B"), 7)
             self.cell(56, 4, texts["free_service"], ln=False)
@@ -1850,9 +1848,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             cta_text = whatsapp_cta_labels.get(language, whatsapp_cta_labels["es"])
             cta_link = application.get("proposal_whatsapp_link", "")
             self.set_fill_color(37, 211, 102)
-            self.rounded_rect(143, 24.8, 52, 8, 2.5, style="F")
-            self.link(143, 24.8, 52, 8, cta_link)
-            self.set_xy(143, 26.5)
+            self.rounded_rect(79, 24.8, 52, 8, 2.5, style="F")
+            self.link(79, 24.8, 52, 8, cta_link)
+            self.set_xy(79, 26.5)
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 7)
             self.cell(52, 3.8, cta_text, align="C", ln=False, link=cta_link)
@@ -1866,8 +1864,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.set_text_color(100, 116, 139)
             self.set_font("DejaVu", font_style(), 8)
             self.set_x(15)
-            self.cell(90, 5, texts["footer"], ln=False)
-            self.cell(90, 5, f"{COMPANY_CONTACTS['email']} | {COMPANY_CONTACTS['website']}", align="R", ln=False)
+            self.cell(110, 5, texts["footer"], ln=False)
+            self.cell(70, 5, COMPANY_CONTACTS["website"], align="R", ln=False)
     
     pdf = ProposalPDF()
     if has_regular_font:
@@ -2054,13 +2052,10 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.multi_cell(w - 16, 4, monthly_text)
 
     def draw_client_banner(x: float, y: float, w: float, client_value: str):
-        pdf.set_fill_color(239, 246, 255)
-        pdf.set_draw_color(191, 219, 254)
-        pdf.rounded_rect(x, y, w, 15, 3.2, style="DF")
-        pdf.set_xy(x + 6, y + 4.2)
-        pdf.set_text_color(*brand_dark)
-        pdf.set_font("DejaVu", font_style("B"), 11)
-        pdf.cell(w - 12, 5, f"{confidential_labels.get(language, confidential_labels['es'])} {format_client_name(client_value)}", ln=True)
+        pdf.set_xy(x, y + 1)
+        pdf.set_text_color(*brand_secondary)
+        pdf.set_font("DejaVu", font_style("B"), 8.5)
+        pdf.cell(w, 5, f"{confidential_labels.get(language, confidential_labels['es'])} {format_client_name(client_value)}", ln=True)
 
     def draw_contact_band(x: float, y: float, w: float, h: float, rows: list[tuple[str, str]]):
         pdf.set_fill_color(255, 255, 255)
@@ -2178,13 +2173,13 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     # Page 1: cover + summary
     title_y = 48
-    banner_y = 60
-    intro_y = 84
+    banner_y = 58
+    intro_y = 72
     savings_x = 127
     savings_y = 80
-    summary_y = 120
-    metrics_y = 134
-    current_card_y = 164
+    summary_y = 116
+    metrics_y = 130
+    current_card_y = 160
 
     pdf.set_xy(page_left, title_y)
     pdf.set_text_color(*brand_dark)

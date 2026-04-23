@@ -1875,6 +1875,20 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         "uk": "КОМЕНТАР МЕНЕДЖЕРА",
         "eu": "AHOLKULARIAREN OHARRA",
     }
+    service_labels = {
+        "Electricity Comparison": {
+            "es": "Comparación de electricidad",
+            "ru": "Сравнение электричества",
+            "uk": "Порівняння електроенергії",
+            "eu": "Elektrizitate konparaketa",
+        },
+        "Gas Comparison": {
+            "es": "Comparación de gas",
+            "ru": "Сравнение газа",
+            "uk": "Порівняння газу",
+            "eu": "Gas konparaketa",
+        },
+    }
 
     def to_float(value):
         try:
@@ -1894,6 +1908,12 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         if value is None or value == "":
             return "—"
         return str(value)
+
+    def localize_service(value: str | None) -> str:
+        if not value:
+            return "—"
+        localized = service_labels.get(value, {})
+        return localized.get(language, value)
 
     def draw_section_title(title: str, subtitle: str | None = None):
         pdf.set_text_color(*brand_blue)
@@ -1995,18 +2015,22 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*card_border)
         pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
-        col_gap = 6
-        col_w = (w - 16 - col_gap * 3) / 4
+        col_gap = 8
+        row_gap = 1
+        col_w = (w - 16 - col_gap) / 2
         for idx, (label, value) in enumerate(rows):
-            current_x = x + 8 + idx * (col_w + col_gap)
-            pdf.set_xy(current_x, y + 6)
+            row = idx // 2
+            col = idx % 2
+            current_x = x + 8 + col * (col_w + col_gap)
+            current_y = y + 4 + row * (7 + row_gap)
+            pdf.set_xy(current_x, current_y)
             pdf.set_text_color(*brand_muted)
-            pdf.set_font("DejaVu", font_style("B"), 6.5)
-            pdf.cell(col_w, 3.5, label.upper(), ln=True)
+            pdf.set_font("DejaVu", font_style("B"), 6)
+            pdf.cell(col_w, 3, label.upper(), ln=True)
             pdf.set_x(current_x)
             pdf.set_text_color(*brand_dark)
-            pdf.set_font("DejaVu", font_style(), 8)
-            pdf.multi_cell(col_w, 4, fmt_value(value))
+            pdf.set_font("DejaVu", font_style(), 7)
+            pdf.cell(col_w, 3.6, fmt_value(value), ln=False)
 
     def draw_comment_band(x: float, y: float, w: float, text: str):
         pdf.set_fill_color(248, 250, 252)
@@ -2078,7 +2102,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     power = format_power_value(extracted_data)
     consumption = format_consumption_value(extracted_data)
     contract_num = extracted_data.get("contract_number") or extracted_data.get("cups") or "N/A"
-    service = extracted_data.get("service_type") or application.get("service_type") or "N/A"
+    service = localize_service(extracted_data.get("service_type") or application.get("service_type") or "N/A")
     
     new_provider = simulation.get("new_provider", "N/A")
     new_tariff = simulation.get("new_tariff") or "N/A"
@@ -2124,7 +2148,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     metric_y = pdf.get_y()
     draw_metric_card(15, metric_y, 56, 23, texts["current_plan"], fmt_money(current_cost), brand_blue, f"{current_tariff} · {current_provider}")
     draw_metric_card(77, metric_y, 56, 23, texts["recommended_plan"], fmt_money(new_cost), brand_green, f"{new_tariff} · {new_provider}")
-    draw_metric_card(139, metric_y, 56, 23, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light, f"{texts['estimated_savings']}: {savings_percent}%" if savings_percent is not None else texts["estimated_savings"])
+    draw_metric_card(139, metric_y, 56, 23, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light, f"{texts['savings_percentage']}: {savings_percent}%" if savings_percent is not None else texts["savings_percentage"])
     pdf.set_y(metric_y + 30)
 
     current_rows = [
@@ -2141,8 +2165,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     # Page 2: proposal + contacts + next steps
     pdf.add_page()
-    draw_client_banner(15, 40, 180, client_name)
-    pdf.set_y(64)
+    pdf.set_y(40)
 
     contact_rows = [
         (texts["contact_phone_label"], COMPANY_CONTACTS["phone"]),
@@ -2155,19 +2178,23 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["recommended_provider_label"], new_provider),
         (texts["tariff"], new_tariff),
         (texts["monthly_cost"], fmt_money(new_cost)),
-        ("Bonus", bonus or "—"),
     ]
+    if bonus:
+        proposal_rows_left.append(("Bonus", bonus))
+
     proposal_rows_right = [
         (texts["monthly_savings"], fmt_money(savings_monthly)),
         (texts["savings_percentage"], f"{savings_percent}%" if savings_percent is not None else "—"),
-        ("Bonus", bonus or "—"),
-        (texts["contract_end"], "—" if not duration else str(duration)),
     ]
+    if bonus:
+        proposal_rows_right.append(("Bonus", bonus))
+    if duration:
+        proposal_rows_right.append((texts["contract_end"], str(duration)))
     proposal_y = pdf.get_y()
     draw_info_card(15, proposal_y, 86, 54, texts["recommended_plan"], proposal_rows_left)
     draw_info_card(109, proposal_y, 86, 54, texts["estimated_savings"], proposal_rows_right)
 
-    draw_contact_band(15, proposal_y + 60, 180, 18, contact_rows)
+    draw_contact_band(15, proposal_y + 60, 180, 19, contact_rows)
     next_steps_y = proposal_y + 84
     if proposal_comment:
         draw_comment_band(15, proposal_y + 84, 180, proposal_comment)

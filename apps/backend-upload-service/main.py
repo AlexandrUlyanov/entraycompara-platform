@@ -488,6 +488,94 @@ def _build_interaction_history_context(doc_ref, app_data: dict, max_events: int 
 
     return "\n\n".join(lines) if lines else "История взаимодействия пока пуста."
 
+
+def _detect_client_language_from_messages(messages: list[str], fallback: str = "es") -> str:
+    if not messages:
+        return fallback
+
+    sample = " ".join(messages[-6:]).lower()
+    if not sample.strip():
+        return fallback
+
+    spanish_markers = [
+        "hola", "gracias", "factura", "propuesta", "tarifa", "compañía", "cambio",
+        "quiero", "puede", "puedo", "vale", "luz", "gas", "correo", "enviar", "si ",
+        "sí", "buenas", "perfecto", "claro", "duda",
+    ]
+    russian_markers = [
+        "привет", "спасибо", "счет", "предложение", "тариф", "хочу", "можно",
+        "отправ", "понял", "понятно", "да", "нет", "здравствуйте", "документ",
+    ]
+    ukrainian_markers = [
+        "добрий", "дякую", "рахунок", "пропозиція", "тариф", "хочу", "можна",
+        "відправ", "зрозуміло", "документ", "будь ласка", "так", "ні",
+    ]
+    basque_markers = [
+        "kaixo", "eskerrik", "faktura", "proposamena", "tarifa", "bidali",
+        "mesedez", "argi", "gas", "nahi", "duzu",
+    ]
+
+    scores = {
+        "es": sum(1 for marker in spanish_markers if marker in sample),
+        "ru": sum(1 for marker in russian_markers if marker in sample),
+        "uk": sum(1 for marker in ukrainian_markers if marker in sample),
+        "eu": sum(1 for marker in basque_markers if marker in sample),
+    }
+
+    best_lang = max(scores, key=scores.get)
+    if scores[best_lang] == 0:
+        return fallback
+    return best_lang
+
+
+def _build_live_lead_snapshot(doc_ref, app_data: dict) -> str:
+    lines = [
+        f"Текущий статус: {app_data.get('status', 'New Lead')}",
+        f"Тип услуги: {app_data.get('service_type', 'Не указан')}",
+        f"Язык в карточке: {app_data.get('language', 'es')}",
+        f"Файлов в карточке: {len(app_data.get('uploaded_files', []) or [])}",
+    ]
+
+    if app_data.get("uploaded_files"):
+        lines.append("Документы в карточке:")
+        lines.append(_format_file_links(app_data.get("uploaded_files") or [], max_items=12))
+
+    if app_data.get("proposal_file_url"):
+        lines.append(f"Текущее КП: {app_data.get('proposal_file_url')}")
+
+    try:
+        proposal_data_doc = doc_ref.collection("proposal_data").document("data").get()
+        if proposal_data_doc.exists:
+            proposal_data = proposal_data_doc.to_dict() or {}
+            extracted = proposal_data.get("extracted_data") or {}
+            if extracted:
+                lines.extend([
+                    "Извлечённые данные:",
+                    f"CUPS: {extracted.get('cups', 'Не найден')}",
+                    f"Коммерциализатор: {extracted.get('retailer', 'Не найден')}",
+                    f"Тариф доступа: {extracted.get('access_tariff', 'Не найден')}",
+                    f"Сумма счёта: {extracted.get('invoice_amount_with_vat', 'Не найдена')}",
+                ])
+    except Exception as exc:
+        print(f"[AI Context] Failed to build live lead snapshot from proposal_data: {exc}")
+
+    try:
+        selected_sim = (
+            doc_ref.collection("proposal_simulations")
+            .where("is_selected", "==", True)
+            .limit(1)
+            .stream()
+        )
+        for sim_doc in selected_sim:
+            sim_data = sim_doc.to_dict() or {}
+            lines.append("Выбранная симуляция:")
+            lines.append(_format_simulation_summary(sim_data))
+            break
+    except Exception as exc:
+        print(f"[AI Context] Failed to build live lead snapshot from selected simulation: {exc}")
+
+    return "\n".join(lines)
+
 def download_gcs_file(gcs_path: str) -> tuple[bytes, str]:
     """Скачивает файл из GCS по пути вида gs://bucket/path, https://storage.googleapis.com/... или path внутри bucket."""
     # Публичный URL вида https://storage.googleapis.com/bucket/path
@@ -3744,24 +3832,35 @@ async def api_generate_ai_response(data: AIGenerateRequest):
             .stream()
         
         chat_lines = []
+        client_messages = []
         for tdoc in timeline_docs:
             tdata = tdoc.to_dict()
             if tdata.get("type") == EventType.WHATSAPP.value:
-                sender = "Клиент" if tdata.get("direction") == "incoming" or tdata.get("created_by") == "Client" else "Менеджер"
+                is_client_message = tdata.get("direction") == "incoming" or tdata.get("created_by") == "Client"
+                sender = "Клиент" if is_client_message else "Менеджер"
                 chat_lines.append(f"{sender}: {tdata.get('content', '')}")
+                if is_client_message and tdata.get("content"):
+                    client_messages.append(str(tdata.get("content")))
         
         chat_history = "\n".join(chat_lines) if chat_lines else "Переписка только началась."
         interaction_history = _build_interaction_history_context(doc_ref, app_data)
+        live_lead_snapshot = _build_live_lead_snapshot(doc_ref, app_data)
         
         # 3. Формируем промпт
         uploaded_files = app_data.get("uploaded_files", [])
         files = ", ".join([url.split('/')[-1] for url in uploaded_files]) or "Нет загруженных файлов"
-        has_files = len(uploaded_files) > 0
         status = app_data.get('status', 'New Lead')
         service_type = app_data.get('service_type', 'Не указан')
-        client_language = app_data.get('language', 'es')
-        language_names = {'es': 'испанском', 'ru': 'русском', 'uk': 'украинском', 'eu': 'баскском'}
-        language_name = language_names.get(client_language, client_language)
+        lead_language = app_data.get('language', 'es')
+        effective_language = _detect_client_language_from_messages(client_messages, fallback=lead_language)
+        language_labels = {
+            'es': 'Español',
+            'ru': 'Русский',
+            'uk': 'Українська',
+            'eu': 'Euskara',
+        }
+        language_name = language_labels.get(lead_language, lead_language)
+        effective_language_name = language_labels.get(effective_language, effective_language)
         
         prompt = f"""Ты — Entraycompara WhatsApp Sales Agent Elite v3, эталонный AI-менеджер по продажам и клиентской коммуникации для компании Entraycompara.
 
@@ -3845,6 +3944,10 @@ Email: {app_data.get('client_email', 'Не указан')}
 Количество загруженных файлов: {len(uploaded_files)}
 Загруженные файлы: {files}
 Язык клиента на сайте: {language_name}
+Актуальный язык по последним сообщениям клиента: {effective_language_name}
+
+[АКТУАЛЬНЫЙ SNAPSHOT ЛИДА]
+{live_lead_snapshot}
 
 [ИСТОРИЯ ВЗАИМОДЕЙСТВИЯ ПО ЛИДУ]
 {interaction_history}
@@ -3864,6 +3967,7 @@ Email: {app_data.get('client_email', 'Не указан')}
 5. KNOWLEDGE_BASE.
 
 Историю взаимодействия по лиду используй как вспомогательный factual context для понимания этапа работы, документов, симуляций, КП и обещанных следующих шагов, но не нарушай указанный выше порядок приоритета.
+Актуальный snapshot лида используй как обязательную проверку фактов перед ответом: язык, файлы, статус, документы, симуляции, КП и уже извлечённые данные должны считаться текущим состоянием системы.
 
 Никогда не нарушай более высокий приоритет ради более низкого.
 
@@ -3938,13 +4042,15 @@ Email: {app_data.get('client_email', 'Не указан')}
 ========================
 
 1. Отвечай строго на языке клиента.
-2. По умолчанию используй {language_name}.
-3. Если клиент явно пишет на другом языке в chat_history, переключайся на язык клиента.
+2. По умолчанию используй актуальный язык по последним сообщениям клиента: {effective_language_name}.
+3. Если в последних входящих сообщениях клиента язык изменился, немедленно переключись на новый язык ответа.
 4. Не смешивай языки без причины.
 5. Подстраивайся под уровень формальности клиента:
    - если клиент пишет просто — отвечай просто;
    - если клиент пишет формально — отвечай вежливо и формально.
 6. Не используй внутренние англицизмы CRM и sales jargon.
+7. Язык в карточке лида используй как fallback, но последние явные сообщения клиента важнее.
+8. Перед финальным ответом ещё раз проверь, что язык ответа совпадает с актуальным языком клиента, а не с языком предыдущего сообщения менеджера.
 
 ========================
 8. ПРАВИЛА ФОРМАТА
@@ -3979,6 +4085,23 @@ Email: {app_data.get('client_email', 'Не указан')}
 - формулируй это просто;
 - можно напомнить, что достаточно foto o PDF;
 - не усложняй инструкцию.
+
+========================
+9.5. ПРАВИЛА АКТУАЛЬНОСТИ ДАННЫХ ЛИДА
+========================
+
+Ты всегда обязан опираться на актуальные данные внутри лида.
+
+Это значит:
+- если в lead snapshot есть документы, считай их уже полученными;
+- если в lead snapshot есть КП, не пиши так, будто предложение ещё не подготовлено;
+- если в lead snapshot есть выбранная симуляция, считай, что расчёт уже существует;
+- если в lead snapshot есть extracted data, можешь опираться на факт завершённого анализа этапа, но не придумывай то, чего там нет;
+- если в истории видно, что менеджер уже обещал следующий шаг, не противоречь этому шагу;
+- если клиент спрашивает о текущем этапе, отвечай исходя из реального состояния лида, а не абстрактного сценария.
+
+Никогда не игнорируй актуальные данные лида.
+Никогда не отвечай устаревшим контекстом, если в lead snapshot или истории есть более свежая информация.
 
 ========================
 10. MINI PLAYBOOK ПО СТАТУСАМ

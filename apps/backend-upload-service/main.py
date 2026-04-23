@@ -1944,6 +1944,14 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             return "—"
         return str(value)
 
+    def format_client_name(value: str | None) -> str:
+        if not value:
+            return "—"
+        parts = [part for part in str(value).strip().split() if part]
+        if not parts:
+            return "—"
+        return " ".join(part[:1].upper() + part[1:].lower() for part in parts)
+
     def localize_service(value: str | None) -> str:
         if not value:
             return "—"
@@ -1951,10 +1959,12 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         return localized.get(language, value)
 
     def draw_section_title(title: str, subtitle: str | None = None):
+        anchor_x = pdf.get_x()
         pdf.set_text_color(*brand_blue)
         pdf.set_font("DejaVu", font_style("B"), 15)
         pdf.cell(0, 8, title, ln=True)
         if subtitle:
+            pdf.set_x(anchor_x)
             pdf.set_text_color(*brand_secondary)
             pdf.set_font("DejaVu", font_style(), 8.5)
             pdf.multi_cell(122, 4.6, subtitle)
@@ -2008,10 +2018,21 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.set_font("DejaVu", font_style("B"), 13)
         pdf.cell(w - 21, 6.8, value, ln=True)
         if subtitle:
-            pdf.set_x(x + 16)
-            pdf.set_text_color(*brand_secondary)
-            pdf.set_font("DejaVu", font_style(), 7.1)
-            pdf.multi_cell(w - 21, 3.6, subtitle)
+            if subtitle.startswith("PERCENT::"):
+                _, label, percent_value = subtitle.split("::", 2)
+                pdf.set_x(x + 16)
+                pdf.set_text_color(*brand_secondary)
+                pdf.set_font("DejaVu", font_style("B"), 6.5)
+                pdf.cell(w - 21, 3.2, label.upper(), ln=True)
+                pdf.set_x(x + 16)
+                pdf.set_text_color(*brand_dark)
+                pdf.set_font("DejaVu", font_style("B"), 10.5)
+                pdf.cell(w - 21, 4.8, percent_value, ln=True)
+            else:
+                pdf.set_x(x + 16)
+                pdf.set_text_color(*brand_secondary)
+                pdf.set_font("DejaVu", font_style(), 7.1)
+                pdf.multi_cell(w - 21, 3.6, subtitle)
 
     def draw_savings_panel(x: float, y: float, w: float, h: float, value: str, percent_text: str, monthly_text: str):
         pdf.set_fill_color(*brand_blue)
@@ -2036,15 +2057,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     def draw_client_banner(x: float, y: float, w: float, client_value: str):
         pdf.set_fill_color(239, 246, 255)
         pdf.set_draw_color(191, 219, 254)
-        pdf.rounded_rect(x, y, w, 18, 3.2, style="DF")
-        pdf.set_xy(x + 6, y + 4)
-        pdf.set_text_color(*brand_blue)
-        pdf.set_font("DejaVu", font_style("B"), 7)
-        pdf.cell(w - 12, 3, confidential_labels.get(language, confidential_labels["es"]), ln=True)
-        pdf.set_x(x + 6)
+        pdf.rounded_rect(x, y, w, 15, 3.2, style="DF")
+        pdf.set_xy(x + 6, y + 4.2)
         pdf.set_text_color(*brand_dark)
-        pdf.set_font("DejaVu", font_style("B"), 13)
-        pdf.cell(w - 12, 7, fmt_value(client_value), ln=True)
+        pdf.set_font("DejaVu", font_style("B"), 11)
+        pdf.cell(w - 12, 5, f"{confidential_labels.get(language, confidential_labels['es'])} {format_client_name(client_value)}", ln=True)
 
     def draw_contact_band(x: float, y: float, w: float, h: float, rows: list[tuple[str, str]]):
         pdf.set_fill_color(255, 255, 255)
@@ -2129,7 +2146,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             return f"{date_obj.day} de {month_name} de {date_obj.year}"
         return f"{date_obj.day} {month_name} {date_obj.year}"
 
-    client_name = application.get("client_name", "")
+    client_name = format_client_name(application.get("client_name", ""))
     whatsapp_message = whatsapp_prefill_messages.get(language, whatsapp_prefill_messages["es"])
     whatsapp_digits = re.sub(r"\D", "", COMPANY_CONTACTS["phone"])
     if whatsapp_digits.startswith("00"):
@@ -2163,7 +2180,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     # Page 1: cover + summary
     title_y = 48
     banner_y = 60
-    intro_y = 86
+    intro_y = 82
     savings_x = 127
     savings_y = 74
     summary_y = 120
@@ -2198,9 +2215,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     pdf.set_xy(page_left, summary_y)
     draw_section_title(texts["summary_title"], texts["summary_subtitle"])
-    draw_metric_card(page_left, metrics_y, 56, 21, texts["current_plan"], fmt_money(current_cost), brand_blue, f"{current_tariff} · {current_provider}")
-    draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green, f"{new_tariff} · {new_provider}")
-    draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light, f"{texts['savings_percentage']}: {savings_percent}%" if savings_percent is not None else texts["savings_percentage"])
+    draw_metric_card(page_left, metrics_y, 56, 21, texts["current_plan"], fmt_money(current_cost), brand_blue)
+    draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green)
+    draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light, f"PERCENT::{texts['savings_percentage']}::{f'{savings_percent}%' if savings_percent is not None else '—'}")
 
     current_rows = [
         (texts["current_provider_label"], current_provider),

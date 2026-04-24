@@ -3175,13 +3175,13 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             highlight_color = (highlight_rows or {}).get(label)
             if highlight_color and value_text and value_text != "N/A":
                 value_y = pdf.get_y() + 0.55
-                value_w = min(col_w * 0.8, max(pdf.get_string_width(value_text) + 10.0, 26.0))
+                value_w = min(col_w * 0.8, max(pdf.get_string_width(value_text) + 12.0, 28.0))
                 pdf.set_fill_color(*highlight_color)
                 pdf.rounded_rect(current_x, value_y, value_w, 6.2, 2.0, style="F")
-                pdf.set_xy(current_x + 3.0, value_y + 0.65)
+                pdf.set_xy(current_x, value_y + 0.65)
                 pdf.set_text_color(*brand_dark)
                 pdf.set_font("DejaVu", font_style("B"), 8.5)
-                pdf.cell(value_w - 6.0, 4.5, value_text, ln=True)
+                pdf.cell(value_w, 4.5, value_text, align="C", ln=True)
                 col_y[col] = value_y + 6.2 + row_gap
                 continue
             pdf.set_text_color(*brand_dark)
@@ -3521,10 +3521,12 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     pdf.add_page()
     steps_title_y = 28
     steps_y = 52
+    cta_gap = 5
+    cta_h = 11.5
     steps_cta_y = steps_y + 54
     legal_h = 30
     legal_y = 257 - legal_h
-    comment_y = steps_cta_y + 16
+    comment_y = steps_cta_y + cta_h + cta_gap
     available_comment_h = max(28, legal_y - comment_y - 8)
     comment_h = 0
 

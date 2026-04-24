@@ -2875,6 +2875,12 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         "uk": "Підтверджую зміну тарифу",
         "eu": "Tarifa aldaketa berresten dut",
     }
+    proposal_footer_cta_labels = {
+        "es": "Confirmar y continuar el cambio a una tarifa mejor",
+        "ru": "Подтвердить и продолжить переход на выгодный тариф",
+        "uk": "Підтвердити та продовжити перехід на вигідний тариф",
+        "eu": "Berretsi eta tarifa hobe batera aldatzen jarraitu",
+    }
     whatsapp_prefill_messages = {
         "es": "Hola, confirmo que quiero iniciar el cambio a la nueva tarifa.",
         "ru": "Здравствуйте, подтверждаю, что хочу начать переход на новый тариф.",
@@ -3168,15 +3174,15 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             pdf.set_x(current_x)
             highlight_color = (highlight_rows or {}).get(label)
             if highlight_color and value_text and value_text != "N/A":
-                value_y = pdf.get_y() + 0.2
-                value_w = min(col_w, pdf.get_string_width(value_text) + 4.5)
+                value_y = pdf.get_y() + 0.55
+                value_w = min(col_w * 0.8, max(pdf.get_string_width(value_text) + 10.0, 26.0))
                 pdf.set_fill_color(*highlight_color)
-                pdf.rounded_rect(current_x, value_y, value_w, 5.1, 1.4, style="F")
-                pdf.set_xy(current_x + 2.2, value_y + 0.15)
+                pdf.rounded_rect(current_x, value_y, value_w, 6.2, 2.0, style="F")
+                pdf.set_xy(current_x + 3.0, value_y + 0.65)
                 pdf.set_text_color(*brand_dark)
                 pdf.set_font("DejaVu", font_style("B"), 8.5)
-                pdf.cell(value_w - 4.4, 4.5, value_text, ln=True)
-                col_y[col] = value_y + 5.1 + row_gap
+                pdf.cell(value_w - 6.0, 4.5, value_text, ln=True)
+                col_y[col] = value_y + 6.2 + row_gap
                 continue
             pdf.set_text_color(*brand_dark)
             pdf.set_font("DejaVu", font_style(), 8.5)
@@ -3322,29 +3328,27 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.set_text_color(*brand_dark)
         pdf.set_font("DejaVu", font_style("B"), 7.8)
         pdf.cell(42, 3.8, clean_title, ln=False)
-        description_x = card_x + 78
-
-        if number == "1":
-            cta_text = whatsapp_cta_labels.get(language, whatsapp_cta_labels["es"])
-            cta_link = application.get("proposal_whatsapp_link", "")
-            cta_w = 42
-            cta_h = 5.8
-            cta_x = card_x + 44
-            cta_y = y + 3.7
-            pdf.set_fill_color(37, 211, 102)
-            pdf.rounded_rect(cta_x, cta_y, cta_w, cta_h, 1.8, style="F")
-            if cta_link:
-                pdf.link(cta_x, cta_y, cta_w, cta_h, cta_link)
-            pdf.set_xy(cta_x, cta_y + 1.35)
-            pdf.set_text_color(255, 255, 255)
-            pdf.set_font("DejaVu", font_style("B"), 5.9)
-            pdf.cell(cta_w, 2.6, cta_text, align="C", ln=False, link=cta_link or None)
-            description_x = card_x + 92
+        description_x = card_x + 66
 
         pdf.set_xy(description_x, y + 3.8)
         pdf.set_text_color(*brand_secondary)
         pdf.set_font("DejaVu", font_style(), 6.7)
         pdf.multi_cell(card_x + card_w - description_x - 8, 3.2, description)
+
+    def draw_full_width_cta(y: float):
+        cta_text = proposal_footer_cta_labels.get(language, proposal_footer_cta_labels["es"])
+        cta_link = application.get("proposal_whatsapp_link", "")
+        cta_x = page_left + 8
+        cta_w = content_w - 16
+        cta_h = 11.5
+        pdf.set_fill_color(37, 211, 102)
+        pdf.rounded_rect(cta_x, y, cta_w, cta_h, 3.0, style="F")
+        if cta_link:
+            pdf.link(cta_x, y, cta_w, cta_h, cta_link)
+        pdf.set_xy(cta_x, y + 3.1)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("DejaVu", font_style("B"), 8.4)
+        pdf.cell(cta_w, 4.2, cta_text, align="C", ln=False, link=cta_link or None)
 
     def format_long_date(value: str | None) -> str:
         if not value or value == "N/A":
@@ -3516,11 +3520,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     # Page 2: next steps + legal
     pdf.add_page()
     steps_title_y = 28
-    steps_y = 48
+    steps_y = 52
+    steps_cta_y = steps_y + 54
     legal_h = 30
     legal_y = 257 - legal_h
-    steps_block_end_y = steps_y + 34 + 15
-    comment_y = steps_block_end_y + 10
+    comment_y = steps_cta_y + 16
     available_comment_h = max(28, legal_y - comment_y - 8)
     comment_h = 0
 
@@ -3533,6 +3537,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     draw_step_row(steps_y, "1", texts["step1_title"], texts["step1_desc"])
     draw_step_row(steps_y + 17, "2", texts["step2_title"], texts["step2_desc"])
     draw_step_row(steps_y + 34, "3", texts["step3_title"], texts["step3_desc"])
+    draw_full_width_cta(steps_cta_y)
     if proposal_comment:
         draw_comment_band(page_left, comment_y, content_w, comment_h, proposal_comment)
     draw_legal_band(page_left, legal_y, content_w, legal_h, texts.get("proposal_disclaimer_title", ""), texts["proposal_disclaimer"])

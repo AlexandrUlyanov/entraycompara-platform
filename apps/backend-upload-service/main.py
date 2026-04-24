@@ -2673,6 +2673,7 @@ PROPOSAL_PDF_TEXTS = {
         "tariff": "Tarifa",
         "monthly_cost": "Coste mensual",
         "contract_end": "Fin de contrato",
+        "billing_period": "Período facturado",
         "power": "Potencia",
         "consumption": "Consumo medio",
         "contract_num": "Nº contrato",
@@ -2729,6 +2730,7 @@ PROPOSAL_PDF_TEXTS = {
         "tariff": "Тариф",
         "monthly_cost": "Ежемесячная стоимость",
         "contract_end": "Окончание договора",
+        "billing_period": "Период счёта",
         "power": "Мощность",
         "consumption": "Среднее потребление",
         "contract_num": "№ договора",
@@ -2785,6 +2787,7 @@ PROPOSAL_PDF_TEXTS = {
         "tariff": "Тариф",
         "monthly_cost": "Щомісячна вартість",
         "contract_end": "Закінчення договору",
+        "billing_period": "Період рахунку",
         "power": "Потужність",
         "consumption": "Середнє споживання",
         "contract_num": "№ договору",
@@ -2841,6 +2844,7 @@ PROPOSAL_PDF_TEXTS = {
         "tariff": "Tarifa",
         "monthly_cost": "Hileko kostua",
         "contract_end": "Kontratuaren amaiera",
+        "billing_period": "Fakturatutako aldia",
         "power": "Potentzia",
         "consumption": "Kontsumo batez bestekoa",
         "contract_num": "Kontratu zk.",
@@ -3123,7 +3127,16 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
         return max(col_heights) if col_heights else 0
 
-    def draw_info_card(x: float, y: float, w: float, h: float, title: str, rows: list[tuple[str, str]], columns: int = 1):
+    def draw_info_card(
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        title: str,
+        rows: list[tuple[str, str]],
+        columns: int = 1,
+        highlight_rows: dict[str, tuple[int, int, int]] | None = None,
+    ):
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*brand_blue_light)
         pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
@@ -3153,6 +3166,18 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             pdf.set_font("DejaVu", font_style("B"), 6.5)
             pdf.cell(col_w, 3.5, label.upper(), ln=True)
             pdf.set_x(current_x)
+            highlight_color = (highlight_rows or {}).get(label)
+            if highlight_color and value_text and value_text != "N/A":
+                value_y = pdf.get_y() + 0.2
+                value_w = min(col_w, pdf.get_string_width(value_text) + 4.5)
+                pdf.set_fill_color(*highlight_color)
+                pdf.rounded_rect(current_x, value_y, value_w, 5.1, 1.4, style="F")
+                pdf.set_xy(current_x + 2.2, value_y + 0.15)
+                pdf.set_text_color(*brand_dark)
+                pdf.set_font("DejaVu", font_style("B"), 8.5)
+                pdf.cell(value_w - 4.4, 4.5, value_text, ln=True)
+                col_y[col] = value_y + 5.1 + row_gap
+                continue
             pdf.set_text_color(*brand_dark)
             pdf.set_font("DejaVu", font_style(), 8.5)
             pdf.multi_cell(col_w, 4.5, value_text)
@@ -3340,6 +3365,33 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             return f"{date_obj.day} de {month_name} de {date_obj.year}"
         return f"{date_obj.day} {month_name} {date_obj.year}"
 
+    def parse_iso_date(value: str | None):
+        if not value or value == "N/A":
+            return None
+        try:
+            return datetime.datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+    def format_billing_period_value(days: int | None, period_savings_value) -> str:
+        if not days:
+            return "N/A"
+        days_word = {
+            "es": "días",
+            "ru": "дней",
+            "uk": "днів",
+            "eu": "egun",
+        }.get(language, "días")
+        savings_prefix = {
+            "es": "ahorro",
+            "ru": "экономия",
+            "uk": "економія",
+            "eu": "aurrezkia",
+        }.get(language, "ahorro")
+        if period_savings_value is None:
+            return f"{days} {days_word}"
+        return f"{days} {days_word} · {savings_prefix} {fmt_money(period_savings_value)}"
+
     client_name = format_client_name(application.get("client_name", ""))
     current_provider = extracted_data.get("current_provider") or extracted_data.get("retailer") or "N/A"
     current_tariff = extracted_data.get("current_tariff") or extracted_data.get("access_tariff") or "N/A"
@@ -3365,6 +3417,12 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     if savings_percent is None and current_cost_num not in (None, 0) and savings_monthly is not None:
         savings_percent = round((float(savings_monthly) / current_cost_num) * 100, 2)
     yearly_savings = round(savings_monthly * 12, 2) if savings_monthly is not None else None
+    start_date_obj = parse_iso_date(extracted_data.get("start_date"))
+    end_date_obj = parse_iso_date(extracted_data.get("end_date"))
+    billing_days = None
+    if start_date_obj and end_date_obj and end_date_obj >= start_date_obj:
+        billing_days = (end_date_obj - start_date_obj).days + 1
+    period_savings = round(float(savings_monthly) * billing_days / 30, 2) if savings_monthly is not None and billing_days else None
 
     # Page 1: cover + summary
     title_y = 28
@@ -3414,14 +3472,23 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["current_provider_label"], current_provider),
         (texts["tariff"], current_tariff),
         (texts["monthly_cost"], fmt_money(current_cost)),
-        (texts["contract_end"], format_long_date(contract_end)),
+        (texts.get("billing_period", texts["contract_end"]), format_billing_period_value(billing_days, period_savings)),
         (texts["service"], service),
         (texts["contracted_power"], power),
         (texts["average_monthly_consumption"], consumption),
         (texts["cups_label"], contract_num),
     ]
     current_card_h = max(44, measure_info_card_content_height(current_rows, content_w, 2) + 16)
-    draw_info_card(page_left, current_card_y, content_w, current_card_h, texts["current_situation"], current_rows, columns=2)
+    draw_info_card(
+        page_left,
+        current_card_y,
+        content_w,
+        current_card_h,
+        texts["current_situation"],
+        current_rows,
+        columns=2,
+        highlight_rows={texts["monthly_cost"]: (255, 226, 236)},
+    )
 
     proposal_title_y_page1 = current_card_y + current_card_h + 8
     proposal_cards_y_page1 = proposal_title_y_page1 + 9
@@ -3435,7 +3502,16 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["savings_percentage"], f"{savings_percent}%" if savings_percent is not None else "—"),
     ]
     proposal_card_h = max(30, measure_info_card_content_height(proposal_rows_merged, content_w, 2) + 16)
-    draw_info_card(page_left, proposal_cards_y_page1, content_w, proposal_card_h, texts["recommended_plan"], proposal_rows_merged, columns=2)
+    draw_info_card(
+        page_left,
+        proposal_cards_y_page1,
+        content_w,
+        proposal_card_h,
+        texts["recommended_plan"],
+        proposal_rows_merged,
+        columns=2,
+        highlight_rows={texts["monthly_cost"]: (223, 255, 225)},
+    )
 
     # Page 2: next steps + legal
     pdf.add_page()

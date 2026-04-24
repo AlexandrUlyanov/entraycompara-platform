@@ -3391,10 +3391,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["average_monthly_consumption"], consumption),
         (texts["cups_label"], contract_num),
     ]
-    draw_info_card(page_left, current_card_y, content_w, 58, texts["current_situation"], current_rows, columns=2)
+    current_card_h = 50
+    draw_info_card(page_left, current_card_y, content_w, current_card_h, texts["current_situation"], current_rows, columns=2)
 
-    proposal_title_y_page1 = current_card_y + 68
-    proposal_cards_y_page1 = proposal_title_y_page1 + 12
+    proposal_title_y_page1 = current_card_y + current_card_h + 6
+    proposal_cards_y_page1 = proposal_title_y_page1 + 10
     pdf.set_xy(page_left, proposal_title_y_page1)
     draw_section_title(texts["our_proposal"], None)
     proposal_rows_left = [
@@ -3406,8 +3407,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["monthly_savings"], fmt_money(savings_monthly)),
         (texts["savings_percentage"], f"{savings_percent}%" if savings_percent is not None else "—"),
     ]
-    draw_info_card(page_left, proposal_cards_y_page1, half_w, 40, texts["recommended_plan"], proposal_rows_left)
-    draw_info_card(page_left + half_w + gutter, proposal_cards_y_page1, half_w, 40, texts["estimated_savings"], proposal_rows_right)
+    draw_info_card(page_left, proposal_cards_y_page1, half_w, 30, texts["recommended_plan"], proposal_rows_left)
+    draw_info_card(page_left + half_w + gutter, proposal_cards_y_page1, half_w, 30, texts["estimated_savings"], proposal_rows_right)
 
     # Page 2: next steps + legal
     pdf.add_page()

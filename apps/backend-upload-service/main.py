@@ -303,6 +303,7 @@ class SimulationResponse(BaseModel):
     is_selected: bool
     savings_monthly_eur: float | None = None
     savings_percent: float | None = None
+    billing_period_days: int | None = None
     created_at: datetime.datetime
 
 class ProposalGenerateRequest(BaseModel):
@@ -3463,8 +3464,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     invoice_total_num = to_float(extracted_data.get("invoice_amount_with_vat"))
     start_date_obj = parse_iso_date(extracted_data.get("start_date"))
     end_date_obj = parse_iso_date(extracted_data.get("end_date"))
-    billing_days = None
-    if start_date_obj and end_date_obj and end_date_obj >= start_date_obj:
+    billing_days = to_float(simulation.get("billing_period_days"))
+    billing_days = int(billing_days) if billing_days is not None else None
+    if billing_days is None and start_date_obj and end_date_obj and end_date_obj >= start_date_obj:
         billing_days = (end_date_obj - start_date_obj).days + 1
     period_current_cost = invoice_total_num if invoice_total_num is not None else current_cost_num
     period_new_cost = new_cost_num

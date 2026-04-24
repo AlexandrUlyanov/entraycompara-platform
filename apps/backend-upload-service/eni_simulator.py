@@ -570,7 +570,7 @@ async def _download_pdf_via_imprimir(page) -> dict:
 
     # Извлекаем данные симуляции из модалки (до клика IMPRIMIR)
     sim_data = await page.evaluate(r"""() => {
-        const result = { new_monthly_cost_eur: null, savings_monthly_eur: null, savings_percent: null };
+        const result = { new_monthly_cost_eur: null, savings_monthly_eur: null, savings_percent: null, billing_period_days: null };
         const text = document.body.innerText || '';
         
         // Ищем "Con Plenitude hubieras pagado" — цена с Plenitude
@@ -594,6 +594,11 @@ async def _download_pdf_via_imprimir(page) -> dict:
             if (percentOnly) {
                 result.savings_percent = parseFloat(percentOnly[1].replace('.', '').replace(',', '.'));
             }
+        }
+
+        const periodMatch = text.match(/Periodo\s+Facturaci[oó]n[\s:]*([\d]+)\s*d[ií]as/i);
+        if (periodMatch) {
+            result.billing_period_days = parseInt(periodMatch[1], 10);
         }
         
         return result;

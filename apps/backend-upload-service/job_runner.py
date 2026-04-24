@@ -172,6 +172,7 @@ async def main():
         extracted_cost = result.get("new_monthly_cost_eur")
         extracted_savings = result.get("savings_monthly_eur")
         extracted_percent = result.get("savings_percent")
+        extracted_billing_days = result.get("billing_period_days")
 
         # Upload PDF to GCS
         today = datetime.utcnow()
@@ -201,6 +202,7 @@ async def main():
             "is_selected": False,
             "savings_monthly_eur": extracted_savings,
             "savings_percent": extracted_percent,
+            "billing_period_days": extracted_billing_days,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
         }

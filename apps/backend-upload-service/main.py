@@ -3156,7 +3156,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
                 pdf.set_font("DejaVu", font_style(), 7.1)
                 pdf.multi_cell(w - 21, 3.6, subtitle)
 
-    def draw_savings_panel(x: float, y: float, w: float, h: float, value: str, percent_text: str, monthly_text: str):
+    def draw_savings_panel(x: float, y: float, w: float, h: float, value: str, percent_value: str, monthly_value: str):
         pdf.set_fill_color(*brand_blue)
         pdf.rounded_rect(x, y, w, h, 4, style="F")
         badge_w = 42
@@ -3168,17 +3168,23 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("DejaVu", font_style("B"), 6.1)
         pdf.cell(badge_w, 2.5, texts["annual_savings"].upper(), align="C", ln=False)
-        pdf.set_xy(x + 8, y + 15.5)
-        pdf.set_font("DejaVu", font_style("B"), 20)
-        pdf.cell(w - 16, 8.5, value, align="C", ln=True)
-        pdf.set_xy(x + 8, y + 25.5)
-        pdf.set_font("DejaVu", font_style(), 8.1)
+        pdf.set_xy(x + 8, y + 14.8)
+        pdf.set_font("DejaVu", font_style("B"), 18.5)
+        pdf.cell(w - 16, 8.2, value, align="C", ln=True)
+        pdf.set_xy(x + 8, y + 25.2)
         pdf.set_text_color(255, 255, 255)
-        pdf.multi_cell(w - 16, 3.8, percent_text, align="C")
-        pdf.set_xy(x + 8, y + 32.7)
+        pdf.set_font("DejaVu", font_style("B"), 7.5)
+        pdf.cell(w - 16, 3.4, texts["savings_percentage"], align="C", ln=True)
+        pdf.set_xy(x + 8, y + 28.8)
+        pdf.set_font("DejaVu", font_style(), 8.8)
+        pdf.cell(w - 16, 4, percent_value, align="C", ln=True)
+        pdf.set_xy(x + 8, y + 33.8)
         pdf.set_text_color(219, 234, 254)
-        pdf.set_font("DejaVu", font_style(), 7.5)
-        pdf.multi_cell(w - 16, 3.6, monthly_text, align="C")
+        pdf.set_font("DejaVu", font_style("B"), 6.9)
+        pdf.cell(w - 16, 3.2, texts["monthly_reduction"], align="C", ln=True)
+        pdf.set_xy(x + 8, y + 37.0)
+        pdf.set_font("DejaVu", font_style(), 8.2)
+        pdf.cell(w - 16, 3.6, monthly_value, align="C", ln=True)
 
     def draw_client_banner(x: float, y: float, w: float, client_value: str):
         pdf.set_xy(x, y + 1)
@@ -3341,8 +3347,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         68,
         38,
         fmt_money(yearly_savings) if yearly_savings is not None else "—",
-        f"{texts['savings_percentage']}: {savings_percent}%" if savings_percent is not None else texts["savings_percentage"],
-        f"{texts['monthly_reduction']}: {fmt_money(savings_monthly)}",
+        f"{savings_percent}%" if savings_percent is not None else "—",
+        fmt_money(savings_monthly),
     )
 
     summary_y = max(pdf.get_y() + 8, savings_y + 42)

@@ -3089,7 +3089,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             pdf.set_x(anchor_x)
             pdf.set_text_color(*brand_secondary)
             pdf.set_font("DejaVu", font_style(), 8.5)
-            pdf.multi_cell(122, 4.6, subtitle)
+            pdf.multi_cell(156, 4.6, subtitle)
         pdf.ln(2)
 
     def draw_info_card(x: float, y: float, w: float, h: float, title: str, rows: list[tuple[str, str]], columns: int = 1):
@@ -3225,30 +3225,44 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         card_x = 30
         card_w = 165
         card_h = 15
+        clean_title = re.sub(r"^\d+\.\s*", "", title).strip()
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*brand_blue)
         pdf.ellipse(circle_x, y + 2, 12, 12, style="D")
-        pdf.set_xy(circle_x, y + 4.2)
+        pdf.set_xy(circle_x, y + 5)
         pdf.set_text_color(*brand_blue)
-        pdf.set_font("DejaVu", font_style("B"), 10)
+        pdf.set_font("DejaVu", font_style("B"), 9.5)
         pdf.cell(12, 4, number, align="C")
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*card_border)
         pdf.rounded_rect(card_x, y, card_w, card_h, 3, style="DF")
-        pdf.set_fill_color(236, 253, 245)
-        pdf.rounded_rect(card_x + 6, y + 3.5, 18, 4, 1.5, style="F")
-        pdf.set_xy(card_x + 9, y + 4.1)
-        pdf.set_text_color(*brand_green_dark)
-        pdf.set_font("DejaVu", font_style("B"), 6)
-        pdf.cell(12, 2, "STEP", ln=False)
-        pdf.set_xy(card_x + 28, y + 3.8)
+        pdf.set_xy(card_x + 10, y + 4)
         pdf.set_text_color(*brand_dark)
         pdf.set_font("DejaVu", font_style("B"), 7.8)
-        pdf.cell(48, 3.8, title, ln=False)
-        pdf.set_x(card_x + 78)
+        pdf.cell(42, 3.8, clean_title, ln=False)
+        description_x = card_x + 78
+
+        if number == "1":
+            cta_text = whatsapp_cta_labels.get(language, whatsapp_cta_labels["es"])
+            cta_link = application.get("proposal_whatsapp_link", "")
+            cta_w = 42
+            cta_h = 5.8
+            cta_x = card_x + 44
+            cta_y = y + 3.7
+            pdf.set_fill_color(37, 211, 102)
+            pdf.rounded_rect(cta_x, cta_y, cta_w, cta_h, 1.8, style="F")
+            if cta_link:
+                pdf.link(cta_x, cta_y, cta_w, cta_h, cta_link)
+            pdf.set_xy(cta_x, cta_y + 1.35)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font("DejaVu", font_style("B"), 5.9)
+            pdf.cell(cta_w, 2.6, cta_text, align="C", ln=False, link=cta_link or None)
+            description_x = card_x + 92
+
+        pdf.set_xy(description_x, y + 3.8)
         pdf.set_text_color(*brand_secondary)
         pdf.set_font("DejaVu", font_style(), 6.7)
-        pdf.multi_cell(card_w - 84, 3.2, description)
+        pdf.multi_cell(card_x + card_w - description_x - 8, 3.2, description)
 
     def format_long_date(value: str | None) -> str:
         if not value or value == "N/A":
@@ -3332,11 +3346,10 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     )
 
     summary_y = max(pdf.get_y() + 8, savings_y + 42)
-    metrics_y = summary_y + 14
-    current_card_y = metrics_y + 30
-
     pdf.set_xy(page_left, summary_y)
     draw_section_title(texts["summary_title"], texts["summary_subtitle"])
+    metrics_y = pdf.get_y() + 2
+    current_card_y = metrics_y + 30
     draw_metric_card(page_left, metrics_y, 56, 21, texts["current_plan"], fmt_money(current_cost), brand_blue)
     draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green)
     draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light)

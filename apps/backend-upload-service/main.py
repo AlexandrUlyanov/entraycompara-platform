@@ -3416,17 +3416,31 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     current_cost_num = to_float(current_cost)
     new_cost_num = to_float(new_cost)
+    invoice_total_num = to_float(extracted_data.get("invoice_amount_with_vat"))
     if savings_monthly is None and current_cost_num is not None and new_cost_num is not None:
         savings_monthly = round(current_cost_num - new_cost_num, 2)
     if savings_percent is None and current_cost_num not in (None, 0) and savings_monthly is not None:
         savings_percent = round((float(savings_monthly) / current_cost_num) * 100, 2)
-    yearly_savings = round(savings_monthly * 12, 2) if savings_monthly is not None else None
     start_date_obj = parse_iso_date(extracted_data.get("start_date"))
     end_date_obj = parse_iso_date(extracted_data.get("end_date"))
     billing_days = None
     if start_date_obj and end_date_obj and end_date_obj >= start_date_obj:
         billing_days = (end_date_obj - start_date_obj).days + 1
-    period_savings = round(float(savings_monthly) * billing_days / 30, 2) if savings_monthly is not None and billing_days else None
+    savings_ratio = None
+    if current_cost_num not in (None, 0) and savings_monthly is not None:
+        savings_ratio = float(savings_monthly) / current_cost_num
+    elif savings_percent is not None:
+        savings_ratio = float(savings_percent) / 100
+
+    period_savings = None
+    yearly_savings = None
+    if invoice_total_num is not None and billing_days and billing_days > 0 and savings_ratio is not None:
+        daily_savings = (invoice_total_num * savings_ratio) / billing_days
+        period_savings = round(daily_savings * billing_days, 2)
+        yearly_savings = round(daily_savings * 365, 2)
+    else:
+        period_savings = round(float(savings_monthly) * billing_days / 30, 2) if savings_monthly is not None and billing_days else None
+        yearly_savings = round(savings_monthly * 12, 2) if savings_monthly is not None else None
 
     # Page 1: cover + summary
     title_y = 28

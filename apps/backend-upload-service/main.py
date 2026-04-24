@@ -2877,6 +2877,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         "uk": "Доброго дня, підтверджую, що хочу розпочати перехід на новий тариф.",
         "eu": "Kaixo, tarifa berrira aldatzeko prozesua hasi nahi dudala berresten dut.",
     }
+    whatsapp_message = whatsapp_prefill_messages.get(language, whatsapp_prefill_messages["es"])
+    whatsapp_digits = re.sub(r"\D", "", COMPANY_CONTACTS["phone"])
+    if whatsapp_digits.startswith("00"):
+        whatsapp_digits = whatsapp_digits[2:]
+    application["proposal_whatsapp_link"] = f"https://wa.me/{whatsapp_digits}?text={requests.utils.quote(whatsapp_message)}"
     
     # Находим шрифты fpdf2 / локальные fallback-шрифты проекта
     fpdf_dir = os.path.dirname(fpdf.__file__)
@@ -3154,22 +3159,26 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     def draw_savings_panel(x: float, y: float, w: float, h: float, value: str, percent_text: str, monthly_text: str):
         pdf.set_fill_color(*brand_blue)
         pdf.rounded_rect(x, y, w, h, 4, style="F")
-        pdf.set_fill_color(*brand_blue_light)
-        pdf.rounded_rect(x + 6, y + 6, 40, 7, 2, style="F")
-        pdf.set_xy(x + 10, y + 8)
+        badge_w = 42
+        badge_h = 7
+        badge_x = x + (w - badge_w) / 2
+        pdf.set_fill_color(68, 133, 255)
+        pdf.rounded_rect(badge_x, y + 6, badge_w, badge_h, 2, style="F")
+        pdf.set_xy(badge_x, y + 8)
         pdf.set_text_color(255, 255, 255)
-        pdf.set_font("DejaVu", font_style("B"), 6.5)
-        pdf.cell(32, 2.5, texts["annual_savings"].upper(), ln=False)
-        pdf.set_xy(x + 8, y + 17)
-        pdf.set_font("DejaVu", font_style("B"), 22)
-        pdf.cell(w - 16, 9, value, ln=True)
-        pdf.set_x(x + 8)
-        pdf.set_font("DejaVu", font_style(), 8.5)
-        pdf.multi_cell(w - 16, 4.2, percent_text)
-        pdf.set_x(x + 8)
+        pdf.set_font("DejaVu", font_style("B"), 6.1)
+        pdf.cell(badge_w, 2.5, texts["annual_savings"].upper(), align="C", ln=False)
+        pdf.set_xy(x + 8, y + 15.5)
+        pdf.set_font("DejaVu", font_style("B"), 20)
+        pdf.cell(w - 16, 8.5, value, align="C", ln=True)
+        pdf.set_xy(x + 8, y + 25.5)
+        pdf.set_font("DejaVu", font_style(), 8.1)
+        pdf.set_text_color(255, 255, 255)
+        pdf.multi_cell(w - 16, 3.8, percent_text, align="C")
+        pdf.set_xy(x + 8, y + 32.7)
         pdf.set_text_color(219, 234, 254)
-        pdf.set_font("DejaVu", font_style(), 8)
-        pdf.multi_cell(w - 16, 4, monthly_text)
+        pdf.set_font("DejaVu", font_style(), 7.5)
+        pdf.multi_cell(w - 16, 3.6, monthly_text, align="C")
 
     def draw_client_banner(x: float, y: float, w: float, client_value: str):
         pdf.set_xy(x, y + 1)
@@ -3261,11 +3270,6 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         return f"{date_obj.day} {month_name} {date_obj.year}"
 
     client_name = format_client_name(application.get("client_name", ""))
-    whatsapp_message = whatsapp_prefill_messages.get(language, whatsapp_prefill_messages["es"])
-    whatsapp_digits = re.sub(r"\D", "", COMPANY_CONTACTS["phone"])
-    if whatsapp_digits.startswith("00"):
-        whatsapp_digits = whatsapp_digits[2:]
-    application["proposal_whatsapp_link"] = f"https://wa.me/{whatsapp_digits}?text={requests.utils.quote(whatsapp_message)}"
     current_provider = extracted_data.get("current_provider") or extracted_data.get("retailer") or "N/A"
     current_tariff = extracted_data.get("current_tariff") or extracted_data.get("access_tariff") or "N/A"
     current_cost = get_extracted_current_cost(extracted_data)

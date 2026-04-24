@@ -1303,6 +1303,50 @@ def normalize_phone(phone: str) -> str:
     return re.sub(r'\D', '', phone)
 
 
+def get_extracted_billing_days(extracted_data: dict) -> int | None:
+    if not extracted_data:
+        return None
+    start_date = extracted_data.get("start_date")
+    end_date = extracted_data.get("end_date")
+    if not start_date or not end_date:
+        return None
+    try:
+        start_obj = datetime.datetime.strptime(start_date, "%Y-%m-%d").date()
+        end_obj = datetime.datetime.strptime(end_date, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    if end_obj < start_obj:
+        return None
+    return (end_obj - start_obj).days + 1
+
+
+def get_extracted_monthly_base(extracted_data: dict) -> float | None:
+    """Возвращает месячную базу для честного сравнения, нормализуя счёт по периоду при необходимости."""
+    if not extracted_data:
+        return None
+
+    avg_monthly = extracted_data.get("avg_monthly_cost_eur")
+    if avg_monthly is not None:
+        try:
+            return float(avg_monthly)
+        except (TypeError, ValueError):
+            pass
+
+    invoice_total = extracted_data.get("invoice_amount_with_vat")
+    if invoice_total is None:
+        return None
+
+    try:
+        invoice_total_num = float(invoice_total)
+    except (TypeError, ValueError):
+        return None
+
+    billing_days = get_extracted_billing_days(extracted_data)
+    if billing_days and billing_days > 0:
+        return round(invoice_total_num * 30 / billing_days, 2)
+    return invoice_total_num
+
+
 def get_extracted_current_cost(extracted_data: dict) -> float | None:
     """Возвращает базовую стоимость для сравнения из старой или новой схемы extracted_data."""
     if not extracted_data:
@@ -2189,7 +2233,7 @@ async def create_simulation(application_id: str, input_data: SimulationInput):
         current_cost = None
         if proposal_data.exists:
             extracted = proposal_data.to_dict().get("extracted_data", {})
-            current_cost = get_extracted_current_cost(extracted)
+            current_cost = get_extracted_monthly_base(extracted)
         
         savings_monthly = None
         savings_percent = None
@@ -2271,7 +2315,7 @@ async def update_simulation(application_id: str, simulation_id: str, update_data
             current_cost = None
             if proposal_data.exists:
                 extracted = proposal_data.to_dict().get("extracted_data", {})
-                current_cost = get_extracted_current_cost(extracted)
+                current_cost = get_extracted_monthly_base(extracted)
             
             new_cost = updates["new_monthly_cost_eur"]
             if current_cost and current_cost > 0:
@@ -3417,17 +3461,25 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     current_cost_num = to_float(current_cost)
     new_cost_num = to_float(new_cost)
     invoice_total_num = to_float(extracted_data.get("invoice_amount_with_vat"))
-    if savings_monthly is None and current_cost_num is not None and new_cost_num is not None:
-        savings_monthly = round(current_cost_num - new_cost_num, 2)
-    if savings_percent is None and current_cost_num not in (None, 0) and savings_monthly is not None:
-        savings_percent = round((float(savings_monthly) / current_cost_num) * 100, 2)
+    monthly_base_num = get_extracted_monthly_base(extracted_data)
+    if monthly_base_num is not None and new_cost_num is not None:
+        savings_monthly = round(monthly_base_num - new_cost_num, 2)
+        if monthly_base_num != 0:
+            savings_percent = round((float(savings_monthly) / monthly_base_num) * 100, 2)
+    else:
+        if savings_monthly is None and current_cost_num is not None and new_cost_num is not None:
+            savings_monthly = round(current_cost_num - new_cost_num, 2)
+        if savings_percent is None and current_cost_num not in (None, 0) and savings_monthly is not None:
+            savings_percent = round((float(savings_monthly) / current_cost_num) * 100, 2)
     start_date_obj = parse_iso_date(extracted_data.get("start_date"))
     end_date_obj = parse_iso_date(extracted_data.get("end_date"))
     billing_days = None
     if start_date_obj and end_date_obj and end_date_obj >= start_date_obj:
         billing_days = (end_date_obj - start_date_obj).days + 1
     savings_ratio = None
-    if current_cost_num not in (None, 0) and savings_monthly is not None:
+    if monthly_base_num not in (None, 0) and savings_monthly is not None:
+        savings_ratio = float(savings_monthly) / monthly_base_num
+    elif current_cost_num not in (None, 0) and savings_monthly is not None:
         savings_ratio = float(savings_monthly) / current_cost_num
     elif savings_percent is not None:
         savings_ratio = float(savings_percent) / 100

@@ -2937,44 +2937,44 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
         def header(self):
             self.set_fill_color(11, 95, 255)
-            header_h = 24
+            header_h = 20
             self.rect(0, 0, 210, header_h, style="F")
 
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 14)
-            self.set_xy(15, 4.2)
-            self.cell(0, 5.5, "Entra y Compara", ln=False)
+            self.set_font("DejaVu", font_style("B"), 13)
+            self.set_xy(15, 3.4)
+            self.cell(0, 5, "Entra y Compara", ln=False)
 
-            self.set_xy(15, 10.8)
+            self.set_xy(15, 9.2)
             self.set_text_color(219, 234, 254)
-            self.set_font("DejaVu", font_style("B"), 6.8)
-            self.cell(72, 3.8, texts["free_service"], ln=False)
+            self.set_font("DejaVu", font_style("B"), 6.5)
+            self.cell(72, 3.3, texts["free_service"], ln=False)
 
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 14)
+            self.set_font("DejaVu", font_style("B"), 13)
             today = datetime.datetime.now().strftime("%d.%m.%Y")
-            self.set_xy(132, 4.2)
-            self.cell(63, 5.5, COMPANY_CONTACTS["phone"], align="R", ln=True)
+            self.set_xy(132, 3.4)
+            self.cell(63, 5, COMPANY_CONTACTS["phone"], align="R", ln=True)
 
             self.set_text_color(219, 234, 254)
-            self.set_xy(132, 10.8)
-            self.set_font("DejaVu", font_style("B"), 6.8)
-            self.cell(63, 3.8, f"{texts['date']}: {today}", align="R", ln=True)
+            self.set_xy(132, 9.2)
+            self.set_font("DejaVu", font_style("B"), 6.5)
+            self.cell(63, 3.3, f"{texts['date']}: {today}", align="R", ln=True)
 
             cta_text = whatsapp_cta_labels.get(language, whatsapp_cta_labels["es"])
             cta_link = application.get("proposal_whatsapp_link", "")
             button_w = 66
-            button_h = 8.8
+            button_h = 7.8
             button_x = (210 - button_w) / 2
             button_y = (header_h - button_h) / 2
             self.set_fill_color(37, 211, 102)
             self.rounded_rect(button_x, button_y, button_w, button_h, 2.7, style="F")
             if cta_link:
                 self.link(button_x, button_y, button_w, button_h, cta_link)
-            self.set_xy(button_x, button_y + 2.1)
+            self.set_xy(button_x, button_y + 1.7)
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 7)
-            self.cell(button_w, 4.2, cta_text, align="C", ln=False, link=cta_link or None)
+            self.set_font("DejaVu", font_style("B"), 6.7)
+            self.cell(button_w, 3.8, cta_text, align="C", ln=False, link=cta_link or None)
             self.set_y(header_h + 4)
         
         def footer(self):
@@ -3350,8 +3350,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     metrics_y = pdf.get_y() + 2
     current_card_y = metrics_y + 30
     draw_metric_card(page_left, metrics_y, 56, 21, texts["current_plan"], fmt_money(current_cost), brand_blue, border_color=(239, 68, 68))
-    draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green, border_color=(0, 200, 83))
-    draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light)
+    draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green, border_color=(245, 158, 11))
+    draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light, border_color=(0, 200, 83))
 
     current_rows = [
         (texts["current_provider_label"], current_provider),

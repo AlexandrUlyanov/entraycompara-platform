@@ -2937,40 +2937,36 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
         def header(self):
             self.set_fill_color(11, 95, 255)
-            self.rect(0, 0, 210, 30, style="F")
+            header_h = 24
+            self.rect(0, 0, 210, header_h, style="F")
 
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 15)
-            self.set_xy(15, 5.4)
-            self.cell(0, 6, "Entra y Compara", ln=False)
+            self.set_font("DejaVu", font_style("B"), 14)
+            self.set_xy(15, 4.2)
+            self.cell(0, 5.5, "Entra y Compara", ln=False)
 
-            self.set_xy(15, 12.4)
+            self.set_xy(15, 10.8)
             self.set_text_color(219, 234, 254)
-            self.set_font("DejaVu", font_style("B"), 7)
-            self.cell(72, 4, texts["free_service"], ln=False)
+            self.set_font("DejaVu", font_style("B"), 6.8)
+            self.cell(72, 3.8, texts["free_service"], ln=False)
 
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style(), 8)
+            self.set_font("DejaVu", font_style("B"), 14)
             today = datetime.datetime.now().strftime("%d.%m.%Y")
-            self.set_xy(132, 4.5)
-            self.cell(63, 4, f"{texts['date']}: {today}", align="R", ln=True)
+            self.set_xy(132, 4.2)
+            self.cell(63, 5.5, COMPANY_CONTACTS["phone"], align="R", ln=True)
 
             self.set_text_color(219, 234, 254)
-            self.set_xy(132, 10.2)
-            self.set_font("DejaVu", font_style(), 7)
-            self.cell(63, 4, COMPANY_CONTACTS["website"], align="R", ln=True)
-
-            self.set_xy(132, 15.9)
-            self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 8)
-            self.cell(63, 4, COMPANY_CONTACTS["phone"], align="R", ln=True)
+            self.set_xy(132, 10.8)
+            self.set_font("DejaVu", font_style("B"), 6.8)
+            self.cell(63, 3.8, f"{texts['date']}: {today}", align="R", ln=True)
 
             cta_text = whatsapp_cta_labels.get(language, whatsapp_cta_labels["es"])
             cta_link = application.get("proposal_whatsapp_link", "")
             button_w = 66
             button_h = 8.8
             button_x = (210 - button_w) / 2
-            button_y = (30 - button_h) / 2
+            button_y = (header_h - button_h) / 2
             self.set_fill_color(37, 211, 102)
             self.rounded_rect(button_x, button_y, button_w, button_h, 2.7, style="F")
             if cta_link:
@@ -2979,7 +2975,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 7)
             self.cell(button_w, 4.2, cta_text, align="C", ln=False, link=cta_link or None)
-            self.set_y(34)
+            self.set_y(header_h + 4)
         
         def footer(self):
             self.set_y(-16)

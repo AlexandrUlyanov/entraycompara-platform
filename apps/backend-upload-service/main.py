@@ -3394,8 +3394,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     current_card_h = 50
     draw_info_card(page_left, current_card_y, content_w, current_card_h, texts["current_situation"], current_rows, columns=2)
 
-    proposal_title_y_page1 = current_card_y + current_card_h + 6
-    proposal_cards_y_page1 = proposal_title_y_page1 + 10
+    proposal_title_y_page1 = current_card_y + current_card_h + 12
+    proposal_cards_y_page1 = proposal_title_y_page1 + 12
     pdf.set_xy(page_left, proposal_title_y_page1)
     draw_section_title(texts["our_proposal"], None)
     proposal_rows_left = [
@@ -3413,7 +3413,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     # Page 2: next steps + legal
     pdf.add_page()
     steps_title_y = 28
-    steps_y = 42
+    steps_y = 48
     legal_h = 30
     legal_y = 257 - legal_h
     comment_y = 114

@@ -3407,8 +3407,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["monthly_savings"], fmt_money(savings_monthly)),
         (texts["savings_percentage"], f"{savings_percent}%" if savings_percent is not None else "—"),
     ]
-    draw_info_card(page_left, proposal_cards_y_page1, half_w, 30, texts["recommended_plan"], proposal_rows_left)
-    draw_info_card(page_left + half_w + gutter, proposal_cards_y_page1, half_w, 30, texts["estimated_savings"], proposal_rows_right)
+    draw_info_card(page_left, proposal_cards_y_page1, half_w, 36, texts["recommended_plan"], proposal_rows_left)
+    draw_info_card(page_left + half_w + gutter, proposal_cards_y_page1, half_w, 36, texts["estimated_savings"], proposal_rows_right)
 
     # Page 2: next steps + legal
     pdf.add_page()

@@ -3208,17 +3208,14 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             pdf.cell(col_w, 3.6, fmt_value(value), ln=False)
 
     def draw_comment_band(x: float, y: float, w: float, h: float, text: str):
-        pdf.set_fill_color(248, 250, 252)
-        pdf.set_draw_color(*card_border)
+        pdf.set_fill_color(255, 255, 255)
+        pdf.set_draw_color(*brand_blue_light)
         pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
-        pdf.set_xy(x + 6, y + 4)
-        pdf.set_text_color(*brand_blue)
-        pdf.set_font("DejaVu", font_style("B"), 6.5)
-        pdf.cell(w - 12, 3, comment_labels.get(language, comment_labels["es"]), ln=True)
-        pdf.set_x(x + 6)
+        draw_floating_badge(x, y, w, comment_labels.get(language, comment_labels["es"]))
+        pdf.set_xy(x + 8, y + 10)
         pdf.set_text_color(*brand_dark)
-        pdf.set_font("DejaVu", font_style(), 7.0)
-        pdf.multi_cell(w - 12, 3.5, text[:1200])
+        pdf.set_font("DejaVu", font_style(), 7.25)
+        pdf.multi_cell(w - 16, 3.7, text[:1800])
 
     def draw_step_row(y: float, number: str, title: str, description: str):
         circle_x = 16
@@ -3383,15 +3380,15 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     # Page 2: next steps + legal
     pdf.add_page()
-    steps_title_y = 40
-    steps_y = 54
-    disclaimer_y = 112
-    comment_y = 132
-    comment_h = 84
+    steps_title_y = 28
+    steps_y = 42
+    disclaimer_y = 98
+    comment_y = 116
+    comment_h = 150
 
     if proposal_comment:
-        comment_y = 128
-        comment_h = 92
+        comment_y = 116
+        comment_h = 150
 
     pdf.set_xy(page_left, steps_title_y)
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])

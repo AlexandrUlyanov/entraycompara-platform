@@ -3341,11 +3341,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         f"{savings_percent}%" if savings_percent is not None else "—",
     )
 
-    summary_y = max(pdf.get_y() + 6, savings_y + 38)
+    summary_y = max(pdf.get_y() + 8, savings_y + 42)
     pdf.set_xy(page_left, summary_y)
     draw_section_title(texts["summary_title"], texts["summary_subtitle"])
-    metrics_y = pdf.get_y() + 1
-    current_card_y = metrics_y + 27
+    metrics_y = pdf.get_y() + 4
+    current_card_y = metrics_y + 33
     draw_metric_card(page_left, metrics_y, 56, 21, texts["current_plan"], fmt_money(current_cost), brand_blue, border_color=(239, 68, 68))
     draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green, border_color=(245, 158, 11))
     draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light, border_color=(0, 200, 83))
@@ -3360,9 +3360,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["average_monthly_consumption"], consumption),
         (texts["cups_label"], contract_num),
     ]
-    draw_info_card(page_left, current_card_y, content_w, 56, texts["current_situation"], current_rows, columns=2)
+    draw_info_card(page_left, current_card_y, content_w, 58, texts["current_situation"], current_rows, columns=2)
 
-    proposal_title_y_page1 = current_card_y + 60
+    proposal_title_y_page1 = current_card_y + 68
     proposal_cards_y_page1 = proposal_title_y_page1 + 12
     pdf.set_xy(page_left, proposal_title_y_page1)
     draw_section_title(texts["our_proposal"], None)

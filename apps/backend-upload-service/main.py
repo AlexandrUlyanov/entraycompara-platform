@@ -3445,6 +3445,17 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             return f"{days} {days_word}"
         return f"{days} {days_word} · {savings_prefix} {fmt_money(period_savings_value)}"
 
+    def format_days_only_value(days: int | None) -> str:
+        if not days:
+            return "N/A"
+        days_word = {
+            "es": "días",
+            "ru": "дней",
+            "uk": "днів",
+            "eu": "egun",
+        }.get(language, "días")
+        return f"{days} {days_word}"
+
     client_name = format_client_name(application.get("client_name", ""))
     current_provider = extracted_data.get("current_provider") or extracted_data.get("retailer") or "N/A"
     current_tariff = extracted_data.get("current_tariff") or extracted_data.get("access_tariff") or "N/A"
@@ -3547,7 +3558,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["current_provider_label"], current_provider),
         (texts["tariff"], current_tariff),
         (texts.get("period_cost", texts["monthly_cost"]), fmt_money(period_current_cost)),
-        (texts.get("billing_period", texts["contract_end"]), format_billing_period_value(billing_days, period_savings)),
+        (texts.get("billing_period", texts["contract_end"]), format_days_only_value(billing_days)),
         (texts["service"], service),
         (texts["contracted_power"], power),
         (texts["average_monthly_consumption"], consumption),
@@ -3573,6 +3584,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["recommended_provider_label"], new_provider),
         (texts["tariff"], new_tariff),
         (texts.get("period_cost", texts["monthly_cost"]), fmt_money(period_new_cost)),
+        (texts.get("billing_period", texts["contract_end"]), format_billing_period_value(billing_days, period_savings)),
         (texts["monthly_savings"], fmt_money(savings_monthly)),
         (texts["savings_percentage"], f"{savings_percent}%" if savings_percent is not None else "—"),
     ]

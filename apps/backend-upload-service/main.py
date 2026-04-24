@@ -3207,18 +3207,18 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             pdf.set_font("DejaVu", font_style(), 7)
             pdf.cell(col_w, 3.6, fmt_value(value), ln=False)
 
-    def draw_comment_band(x: float, y: float, w: float, text: str):
+    def draw_comment_band(x: float, y: float, w: float, h: float, text: str):
         pdf.set_fill_color(248, 250, 252)
         pdf.set_draw_color(*card_border)
-        pdf.rounded_rect(x, y, w, 28, 3.2, style="DF")
+        pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
         pdf.set_xy(x + 6, y + 4)
         pdf.set_text_color(*brand_blue)
         pdf.set_font("DejaVu", font_style("B"), 6.5)
         pdf.cell(w - 12, 3, comment_labels.get(language, comment_labels["es"]), ln=True)
         pdf.set_x(x + 6)
         pdf.set_text_color(*brand_dark)
-        pdf.set_font("DejaVu", font_style(), 7.1)
-        pdf.multi_cell(w - 12, 3.6, text[:320])
+        pdf.set_font("DejaVu", font_style(), 7.0)
+        pdf.multi_cell(w - 12, 3.5, text[:1200])
 
     def draw_step_row(y: float, number: str, title: str, description: str):
         circle_x = 16
@@ -3383,16 +3383,15 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     # Page 2: next steps + legal
     pdf.add_page()
-    comment_y = 40
     steps_title_y = 40
     steps_y = 54
     disclaimer_y = 112
+    comment_y = 132
+    comment_h = 84
 
     if proposal_comment:
-        draw_comment_band(page_left, comment_y, content_w, proposal_comment)
-        steps_title_y = 74
-        steps_y = 88
-        disclaimer_y = 146
+        comment_y = 128
+        comment_h = 92
 
     pdf.set_xy(page_left, steps_title_y)
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])
@@ -3406,6 +3405,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     pdf.set_x(page_left)
     pdf.set_font("DejaVu", font_style(), 6.15)
     pdf.multi_cell(content_w, 3.3, texts["proposal_disclaimer"])
+    if proposal_comment:
+        draw_comment_band(page_left, comment_y, content_w, comment_h, proposal_comment)
     
     return bytes(pdf.output(dest="S"))
 

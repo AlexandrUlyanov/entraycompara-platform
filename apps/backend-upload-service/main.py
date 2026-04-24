@@ -3461,38 +3461,37 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     current_cost_num = to_float(current_cost)
     new_cost_num = to_float(new_cost)
     invoice_total_num = to_float(extracted_data.get("invoice_amount_with_vat"))
-    monthly_base_num = get_extracted_monthly_base(extracted_data)
-    if monthly_base_num is not None and new_cost_num is not None:
-        savings_monthly = round(monthly_base_num - new_cost_num, 2)
-        if monthly_base_num != 0:
-            savings_percent = round((float(savings_monthly) / monthly_base_num) * 100, 2)
-    else:
-        if savings_monthly is None and current_cost_num is not None and new_cost_num is not None:
-            savings_monthly = round(current_cost_num - new_cost_num, 2)
-        if savings_percent is None and current_cost_num not in (None, 0) and savings_monthly is not None:
-            savings_percent = round((float(savings_monthly) / current_cost_num) * 100, 2)
     start_date_obj = parse_iso_date(extracted_data.get("start_date"))
     end_date_obj = parse_iso_date(extracted_data.get("end_date"))
     billing_days = None
     if start_date_obj and end_date_obj and end_date_obj >= start_date_obj:
         billing_days = (end_date_obj - start_date_obj).days + 1
-    savings_ratio = None
-    if monthly_base_num not in (None, 0) and savings_monthly is not None:
-        savings_ratio = float(savings_monthly) / monthly_base_num
-    elif current_cost_num not in (None, 0) and savings_monthly is not None:
-        savings_ratio = float(savings_monthly) / current_cost_num
-    elif savings_percent is not None:
-        savings_ratio = float(savings_percent) / 100
+    period_current_cost = invoice_total_num if invoice_total_num is not None else current_cost_num
+    period_new_cost = new_cost_num
+    period_savings = to_float(savings_monthly)
 
-    period_savings = None
-    yearly_savings = None
-    if invoice_total_num is not None and billing_days and billing_days > 0 and savings_ratio is not None:
-        daily_savings = (invoice_total_num * savings_ratio) / billing_days
-        period_savings = round(daily_savings * billing_days, 2)
-        yearly_savings = round(daily_savings * 365, 2)
+    if period_savings is None and period_current_cost is not None and period_new_cost is not None:
+        period_savings = round(period_current_cost - period_new_cost, 2)
+
+    if billing_days and billing_days > 0 and period_new_cost is not None:
+        normalized_new_cost = round(period_new_cost * 30 / billing_days, 2)
     else:
-        period_savings = round(float(savings_monthly) * billing_days / 30, 2) if savings_monthly is not None and billing_days else None
-        yearly_savings = round(savings_monthly * 12, 2) if savings_monthly is not None else None
+        normalized_new_cost = period_new_cost
+
+    if billing_days and billing_days > 0 and period_savings is not None:
+        savings_monthly = round(period_savings * 30 / billing_days, 2)
+        yearly_savings = round(period_savings * 365 / billing_days, 2)
+    else:
+        savings_monthly = period_savings
+        yearly_savings = round(period_savings * 12, 2) if period_savings is not None else None
+
+    if period_current_cost not in (None, 0) and period_savings is not None:
+        savings_percent = round((float(period_savings) / period_current_cost) * 100, 2)
+    elif savings_percent is not None:
+        savings_percent = round(float(savings_percent), 2)
+
+    if normalized_new_cost is not None:
+        new_cost = normalized_new_cost
 
     # Page 1: cover + summary
     title_y = 28

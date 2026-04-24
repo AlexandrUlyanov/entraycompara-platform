@@ -3125,9 +3125,19 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             pdf.multi_cell(col_w, 4.5, fmt_value(value))
             col_y[col] = pdf.get_y() + 2.4
 
-    def draw_metric_card(x: float, y: float, w: float, h: float, title: str, value: str, accent: tuple[int, int, int], subtitle: str | None = None):
+    def draw_metric_card(
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        title: str,
+        value: str,
+        accent: tuple[int, int, int],
+        subtitle: str | None = None,
+        border_color: tuple[int, int, int] | None = None,
+    ):
         pdf.set_fill_color(255, 255, 255)
-        pdf.set_draw_color(*card_border)
+        pdf.set_draw_color(*(border_color or card_border))
         pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
         pdf.set_xy(x + 10, y + 4.5)
         pdf.set_text_color(*brand_secondary)
@@ -3343,8 +3353,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     draw_section_title(texts["summary_title"], texts["summary_subtitle"])
     metrics_y = pdf.get_y() + 2
     current_card_y = metrics_y + 30
-    draw_metric_card(page_left, metrics_y, 56, 21, texts["current_plan"], fmt_money(current_cost), brand_blue)
-    draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green)
+    draw_metric_card(page_left, metrics_y, 56, 21, texts["current_plan"], fmt_money(current_cost), brand_blue, border_color=(239, 68, 68))
+    draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green, border_color=(0, 200, 83))
     draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light)
 
     current_rows = [

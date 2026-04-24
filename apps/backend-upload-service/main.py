@@ -3310,11 +3310,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     yearly_savings = round(savings_monthly * 12, 2) if savings_monthly is not None else None
 
     # Page 1: cover + summary
-    title_y = 34
-    banner_y = 48
-    intro_y = 60
+    title_y = 28
+    banner_y = 41
+    intro_y = 51
     savings_x = 127
-    savings_y = 68
+    savings_y = 58
     summary_y = 0
     metrics_y = 0
     current_card_y = 0
@@ -3344,11 +3344,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         f"{savings_percent}%" if savings_percent is not None else "—",
     )
 
-    summary_y = max(pdf.get_y() + 8, savings_y + 42)
+    summary_y = max(pdf.get_y() + 6, savings_y + 38)
     pdf.set_xy(page_left, summary_y)
     draw_section_title(texts["summary_title"], texts["summary_subtitle"])
-    metrics_y = pdf.get_y() + 2
-    current_card_y = metrics_y + 30
+    metrics_y = pdf.get_y() + 1
+    current_card_y = metrics_y + 27
     draw_metric_card(page_left, metrics_y, 56, 21, texts["current_plan"], fmt_money(current_cost), brand_blue, border_color=(239, 68, 68))
     draw_metric_card(page_left + 62, metrics_y, 56, 21, texts["recommended_plan"], fmt_money(new_cost), brand_green, border_color=(245, 158, 11))
     draw_metric_card(page_left + 124, metrics_y, 56, 21, texts["monthly_savings"], fmt_money(savings_monthly), brand_blue_light, border_color=(0, 200, 83))
@@ -3363,43 +3363,36 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["average_monthly_consumption"], consumption),
         (texts["cups_label"], contract_num),
     ]
-    draw_info_card(page_left, current_card_y, content_w, 62, texts["current_situation"], current_rows, columns=2)
+    draw_info_card(page_left, current_card_y, content_w, 56, texts["current_situation"], current_rows, columns=2)
 
-    # Page 2: proposal + contacts + next steps
-    pdf.add_page()
-    proposal_title_y = 40
-    proposal_cards_y = 62
-    comment_y = 120
-    steps_title_y = 122
-    steps_y = 136
-    disclaimer_y = 194
-
-    pdf.set_xy(page_left, proposal_title_y)
-    draw_section_title(texts["our_proposal"], texts.get("proposal_subtitle") or texts["summary_subtitle"])
+    proposal_title_y_page1 = current_card_y + 60
+    proposal_cards_y_page1 = proposal_title_y_page1 + 12
+    pdf.set_xy(page_left, proposal_title_y_page1)
+    draw_section_title(texts["our_proposal"], None)
     proposal_rows_left = [
         (texts["recommended_provider_label"], new_provider),
         (texts["tariff"], new_tariff),
         (texts["monthly_cost"], fmt_money(new_cost)),
     ]
-    if bonus:
-        proposal_rows_left.append(("Bonus", bonus))
-
     proposal_rows_right = [
         (texts["monthly_savings"], fmt_money(savings_monthly)),
         (texts["savings_percentage"], f"{savings_percent}%" if savings_percent is not None else "—"),
     ]
-    if bonus:
-        proposal_rows_right.append(("Bonus", bonus))
-    if duration:
-        proposal_rows_right.append((texts["contract_end"], str(duration)))
-    draw_info_card(page_left, proposal_cards_y, half_w, 48, texts["recommended_plan"], proposal_rows_left)
-    draw_info_card(page_left + half_w + gutter, proposal_cards_y, half_w, 48, texts["estimated_savings"], proposal_rows_right)
+    draw_info_card(page_left, proposal_cards_y_page1, half_w, 40, texts["recommended_plan"], proposal_rows_left)
+    draw_info_card(page_left + half_w + gutter, proposal_cards_y_page1, half_w, 40, texts["estimated_savings"], proposal_rows_right)
+
+    # Page 2: next steps + legal
+    pdf.add_page()
+    comment_y = 40
+    steps_title_y = 40
+    steps_y = 54
+    disclaimer_y = 112
 
     if proposal_comment:
         draw_comment_band(page_left, comment_y, content_w, proposal_comment)
-        steps_title_y = 156
-        steps_y = 170
-        disclaimer_y = 226
+        steps_title_y = 74
+        steps_y = 88
+        disclaimer_y = 146
 
     pdf.set_xy(page_left, steps_title_y)
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])

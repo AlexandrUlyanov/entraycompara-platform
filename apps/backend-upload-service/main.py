@@ -3088,20 +3088,28 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             pdf.multi_cell(156, 4.6, subtitle)
         pdf.ln(2)
 
+    def draw_floating_badge(x: float, y: float, w: float, title: str, font_size: float = 6.2):
+        pdf.set_font("DejaVu", font_style("B"), font_size)
+        badge_text = title.upper()
+        badge_w = max(40, min(w - 16, pdf.get_string_width(badge_text) + 16))
+        badge_h = 7
+        badge_x = x + (w - badge_w) / 2
+        pdf.set_fill_color(68, 133, 255)
+        pdf.rounded_rect(badge_x, y - 3.5, badge_w, badge_h, 2, style="F")
+        pdf.set_xy(badge_x, y - 1.5)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("DejaVu", font_style("B"), font_size)
+        pdf.cell(badge_w, 2.5, badge_text, align="C", ln=False)
+
     def draw_info_card(x: float, y: float, w: float, h: float, title: str, rows: list[tuple[str, str]], columns: int = 1):
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*card_border)
         pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
-        pdf.set_fill_color(*brand_blue)
-        pdf.rounded_rect(x + 4, y + 4, w - 8, 10, 2.4, style="F")
-        pdf.set_xy(x + 8, y + 7)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font("DejaVu", font_style("B"), 9)
-        pdf.cell(w - 16, 4, title, ln=True)
+        draw_floating_badge(x, y, w, title)
 
         rows_per_col = max(1, (len(rows) + columns - 1) // columns)
         inner_x = x + 8
-        inner_y = y + 18
+        inner_y = y + 10
         inner_w = w - 16
         col_gap = 7
         col_w = inner_w if columns == 1 else (inner_w - col_gap * (columns - 1)) / columns
@@ -3135,14 +3143,12 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*(border_color or card_border))
         pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
-        pdf.set_xy(x + 10, y + 4.5)
+        draw_floating_badge(x, y, w, title)
+        pdf.set_xy(x + 10, y + 9.2)
         pdf.set_text_color(*brand_secondary)
-        pdf.set_font("DejaVu", font_style("B"), 6.5)
-        pdf.cell(w - 20, 3.5, title.upper(), ln=True)
-        pdf.set_x(x + 10)
         pdf.set_text_color(*brand_dark)
         pdf.set_font("DejaVu", font_style("B"), 13)
-        pdf.cell(w - 20, 6.8, value, ln=True)
+        pdf.cell(w - 20, 6.2, value, ln=True, align="C")
         if subtitle:
             if subtitle.startswith("PERCENT::"):
                 _, label, percent_value = subtitle.split("::", 2)
@@ -3163,15 +3169,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     def draw_savings_panel(x: float, y: float, w: float, h: float, value: str, percent_value: str):
         pdf.set_fill_color(*brand_blue)
         pdf.rounded_rect(x, y, w, h, 4, style="F")
-        badge_w = 42
-        badge_h = 7
-        badge_x = x + (w - badge_w) / 2
-        pdf.set_fill_color(68, 133, 255)
-        pdf.rounded_rect(badge_x, y - 3.5, badge_w, badge_h, 2, style="F")
-        pdf.set_xy(badge_x, y - 1.5)
-        pdf.set_text_color(255, 255, 255)
-        pdf.set_font("DejaVu", font_style("B"), 6.1)
-        pdf.cell(badge_w, 2.5, texts["annual_savings"].upper(), align="C", ln=False)
+        draw_floating_badge(x, y, w, texts["annual_savings"], font_size=6.1)
         pdf.set_xy(x + 8, y + 11.6)
         pdf.set_font("DejaVu", font_style("B"), 18.5)
         pdf.cell(w - 16, 8.2, value, align="C", ln=True)

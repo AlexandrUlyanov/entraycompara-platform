@@ -3173,8 +3173,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     def draw_client_banner(x: float, y: float, w: float, client_value: str):
         pdf.set_xy(x, y + 1)
-        pdf.set_text_color(*brand_secondary)
-        pdf.set_font("DejaVu", font_style("B"), 8.5)
+        pdf.set_text_color(*brand_muted)
+        pdf.set_font("DejaVu", font_style("B"), 7.6)
         pdf.cell(w, 5, f"{confidential_labels.get(language, confidential_labels['es'])} {format_client_name(client_value)}", ln=True)
 
     def draw_contact_band(x: float, y: float, w: float, h: float, rows: list[tuple[str, str]]):
@@ -3293,29 +3293,29 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     # Page 1: cover + summary
     title_y = 38
-    banner_y = 50
-    intro_y = 62
+    banner_y = 53
+    intro_y = 66
     savings_x = 127
     savings_y = 68
-    summary_y = 108
-    metrics_y = 122
-    current_card_y = 152
+    summary_y = 0
+    metrics_y = 0
+    current_card_y = 0
 
     pdf.set_xy(page_left, title_y)
     pdf.set_text_color(*brand_dark)
-    pdf.set_font("DejaVu", font_style("B"), 14.5)
-    pdf.multi_cell(126, 6.6, texts["title"])
+    pdf.set_font("DejaVu", font_style("B"), 13.2)
+    pdf.multi_cell(122, 5.9, texts["title"])
 
     draw_client_banner(page_left, banner_y, content_w, client_name)
 
     pdf.set_xy(page_left, intro_y)
     pdf.set_text_color(*brand_secondary)
-    pdf.set_font("DejaVu", font_style("B"), 10)
-    pdf.cell(100, 6, f"{texts['greeting']} {client_name},", ln=True)
+    pdf.set_font("DejaVu", font_style("B"), 9.6)
+    pdf.cell(100, 5.4, f"{texts['greeting']} {client_name},", ln=True)
     pdf.set_x(page_left)
-    pdf.set_font("DejaVu", font_style(), 8.6)
+    pdf.set_font("DejaVu", font_style(), 8.35)
     pdf.set_text_color(*brand_dark)
-    pdf.multi_cell(100, 4.4, texts["intro_paragraph"])
+    pdf.multi_cell(100, 4.15, texts["intro_paragraph"])
 
     draw_savings_panel(
         savings_x,
@@ -3326,6 +3326,10 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         f"{texts['savings_percentage']}: {savings_percent}%" if savings_percent is not None else texts["savings_percentage"],
         f"{texts['monthly_reduction']}: {fmt_money(savings_monthly)}",
     )
+
+    summary_y = max(pdf.get_y() + 8, savings_y + 42)
+    metrics_y = summary_y + 14
+    current_card_y = metrics_y + 30
 
     pdf.set_xy(page_left, summary_y)
     draw_section_title(texts["summary_title"], texts["summary_subtitle"])
@@ -3350,9 +3354,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     proposal_title_y = 40
     proposal_cards_y = 62
     comment_y = 120
-    steps_title_y = 130
-    steps_y = 144
-    disclaimer_y = 202
+    steps_title_y = 122
+    steps_y = 136
+    disclaimer_y = 194
 
     pdf.set_xy(page_left, proposal_title_y)
     draw_section_title(texts["our_proposal"], texts.get("proposal_subtitle") or texts["summary_subtitle"])
@@ -3377,9 +3381,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     if proposal_comment:
         draw_comment_band(page_left, comment_y, content_w, proposal_comment)
-        steps_title_y = 158
-        steps_y = 172
-        disclaimer_y = 228
+        steps_title_y = 156
+        steps_y = 170
+        disclaimer_y = 226
 
     pdf.set_xy(page_left, steps_title_y)
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])
@@ -3387,12 +3391,12 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     draw_step_row(steps_y + 17, "2", texts["step2_title"], texts["step2_desc"])
     draw_step_row(steps_y + 34, "3", texts["step3_title"], texts["step3_desc"])
     pdf.set_xy(page_left, disclaimer_y)
-    pdf.set_text_color(*brand_secondary)
-    pdf.set_font("DejaVu", font_style("B"), 6.7)
+    pdf.set_text_color(*brand_muted)
+    pdf.set_font("DejaVu", font_style("B"), 6.1)
     pdf.cell(content_w, 3.6, texts.get("proposal_disclaimer_title", ""), ln=True)
     pdf.set_x(page_left)
-    pdf.set_font("DejaVu", font_style(), 6.7)
-    pdf.multi_cell(content_w, 3.6, texts["proposal_disclaimer"])
+    pdf.set_font("DejaVu", font_style(), 6.15)
+    pdf.multi_cell(content_w, 3.3, texts["proposal_disclaimer"])
     
     return bytes(pdf.output(dest="S"))
 

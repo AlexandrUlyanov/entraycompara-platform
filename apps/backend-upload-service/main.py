@@ -2937,44 +2937,44 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
         def header(self):
             self.set_fill_color(11, 95, 255)
-            header_h = 20
+            header_h = 17
             self.rect(0, 0, 210, header_h, style="F")
 
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 13)
-            self.set_xy(15, 3.4)
-            self.cell(0, 5, "Entra y Compara", ln=False)
+            self.set_font("DejaVu", font_style("B"), 12.5)
+            self.set_xy(15, 2.6)
+            self.cell(0, 4.8, "Entra y Compara", ln=False)
 
-            self.set_xy(15, 9.2)
+            self.set_xy(15, 8.0)
             self.set_text_color(219, 234, 254)
-            self.set_font("DejaVu", font_style("B"), 6.5)
-            self.cell(72, 3.3, texts["free_service"], ln=False)
+            self.set_font("DejaVu", font_style(), 5.9)
+            self.cell(72, 2.9, texts["free_service"], ln=False)
 
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 13)
+            self.set_font("DejaVu", font_style("B"), 12.5)
             today = datetime.datetime.now().strftime("%d.%m.%Y")
-            self.set_xy(132, 3.4)
-            self.cell(63, 5, COMPANY_CONTACTS["phone"], align="R", ln=True)
+            self.set_xy(132, 2.6)
+            self.cell(63, 4.8, COMPANY_CONTACTS["phone"], align="R", ln=True)
 
             self.set_text_color(219, 234, 254)
-            self.set_xy(132, 9.2)
-            self.set_font("DejaVu", font_style("B"), 6.5)
-            self.cell(63, 3.3, f"{texts['date']}: {today}", align="R", ln=True)
+            self.set_xy(132, 8.0)
+            self.set_font("DejaVu", font_style(), 5.9)
+            self.cell(63, 2.9, f"{texts['date']}: {today}", align="R", ln=True)
 
             cta_text = whatsapp_cta_labels.get(language, whatsapp_cta_labels["es"])
             cta_link = application.get("proposal_whatsapp_link", "")
             button_w = 66
-            button_h = 7.8
+            button_h = 6.8
             button_x = (210 - button_w) / 2
             button_y = (header_h - button_h) / 2
             self.set_fill_color(37, 211, 102)
             self.rounded_rect(button_x, button_y, button_w, button_h, 2.7, style="F")
             if cta_link:
                 self.link(button_x, button_y, button_w, button_h, cta_link)
-            self.set_xy(button_x, button_y + 1.7)
+            self.set_xy(button_x, button_y + 1.45)
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 6.7)
-            self.cell(button_w, 3.8, cta_text, align="C", ln=False, link=cta_link or None)
+            self.set_font("DejaVu", font_style("B"), 6.2)
+            self.cell(button_w, 3.2, cta_text, align="C", ln=False, link=cta_link or None)
             self.set_y(header_h + 4)
         
         def footer(self):

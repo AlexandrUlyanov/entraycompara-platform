@@ -2975,7 +2975,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 6.2)
             self.cell(button_w, 3.2, cta_text, align="C", ln=False, link=cta_link or None)
-            self.set_y(header_h + 4)
+            self.set_y(header_h + 2)
         
         def footer(self):
             self.set_y(-16)
@@ -3308,9 +3308,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     yearly_savings = round(savings_monthly * 12, 2) if savings_monthly is not None else None
 
     # Page 1: cover + summary
-    title_y = 38
-    banner_y = 53
-    intro_y = 66
+    title_y = 34
+    banner_y = 48
+    intro_y = 60
     savings_x = 127
     savings_y = 68
     summary_y = 0

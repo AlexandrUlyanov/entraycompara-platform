@@ -3101,15 +3101,9 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.set_font("DejaVu", font_style("B"), font_size)
         pdf.cell(badge_w, 2.5, badge_text, align="C", ln=False)
 
-    def draw_info_card(x: float, y: float, w: float, h: float, title: str, rows: list[tuple[str, str]], columns: int = 1):
-        pdf.set_fill_color(255, 255, 255)
-        pdf.set_draw_color(*brand_blue_light)
-        pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
-        draw_floating_badge(x, y, w, title)
-
+    def measure_info_card_content_height(rows: list[tuple[str, str]], width: float, columns: int = 1) -> float:
         rows_per_col = max(1, (len(rows) + columns - 1) // columns)
-        inner_x = x + 8
-        inner_w = w - 16
+        inner_w = width - 16
         col_gap = 7
         col_w = inner_w if columns == 1 else (inner_w - col_gap * (columns - 1)) / columns
         row_gap = 2.4
@@ -3127,11 +3121,30 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             if (index // rows_per_col) < rows_per_col - 1:
                 col_heights[col] += row_gap
 
-        content_h = max(col_heights) if col_heights else 0
-        inner_y = y + ((h - content_h) / 2 if content_h else 0)
+        return max(col_heights) if col_heights else 0
+
+    def draw_info_card(x: float, y: float, w: float, h: float, title: str, rows: list[tuple[str, str]], columns: int = 1):
+        pdf.set_fill_color(255, 255, 255)
+        pdf.set_draw_color(*brand_blue_light)
+        pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
+        draw_floating_badge(x, y, w, title)
+
+        rows_per_col = max(1, (len(rows) + columns - 1) // columns)
+        inner_x = x + 8
+        inner_w = w - 16
+        col_gap = 7
+        col_w = inner_w if columns == 1 else (inner_w - col_gap * (columns - 1)) / columns
+        row_gap = 2.4
+        content_h = measure_info_card_content_height(rows, w, columns)
+        inner_pad = ((h - content_h) / 2) if content_h else 10.0
+        inner_y = y + inner_pad
         col_y = [inner_y for _ in range(columns)]
 
-        for index, (label, value_text, _) in enumerate(measured_rows):
+        measured_rows: list[tuple[str, str]] = []
+        for label, value in rows:
+            measured_rows.append((label, fmt_value(value)))
+
+        for index, (label, value_text) in enumerate(measured_rows):
             col = min(columns - 1, index // rows_per_col)
             current_x = inner_x + col * (col_w + col_gap)
             current_y = col_y[col]
@@ -3407,24 +3420,22 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["average_monthly_consumption"], consumption),
         (texts["cups_label"], contract_num),
     ]
-    current_card_h = 50
+    current_card_h = max(50, measure_info_card_content_height(current_rows, content_w, 2) + 20)
     draw_info_card(page_left, current_card_y, content_w, current_card_h, texts["current_situation"], current_rows, columns=2)
 
     proposal_title_y_page1 = current_card_y + current_card_h + 12
     proposal_cards_y_page1 = proposal_title_y_page1 + 12
     pdf.set_xy(page_left, proposal_title_y_page1)
     draw_section_title(texts["our_proposal"], None)
-    proposal_rows_left = [
+    proposal_rows_merged = [
         (texts["recommended_provider_label"], new_provider),
         (texts["tariff"], new_tariff),
         (texts["monthly_cost"], fmt_money(new_cost)),
-    ]
-    proposal_rows_right = [
         (texts["monthly_savings"], fmt_money(savings_monthly)),
         (texts["savings_percentage"], f"{savings_percent}%" if savings_percent is not None else "—"),
     ]
-    draw_info_card(page_left, proposal_cards_y_page1, half_w, 36, texts["recommended_plan"], proposal_rows_left)
-    draw_info_card(page_left + half_w + gutter, proposal_cards_y_page1, half_w, 36, texts["estimated_savings"], proposal_rows_right)
+    proposal_card_h = max(36, measure_info_card_content_height(proposal_rows_merged, content_w, 2) + 20)
+    draw_info_card(page_left, proposal_cards_y_page1, content_w, proposal_card_h, texts["recommended_plan"], proposal_rows_merged, columns=2)
 
     # Page 2: next steps + legal
     pdf.add_page()

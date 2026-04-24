@@ -3420,11 +3420,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["average_monthly_consumption"], consumption),
         (texts["cups_label"], contract_num),
     ]
-    current_card_h = max(50, measure_info_card_content_height(current_rows, content_w, 2) + 20)
+    current_card_h = max(44, measure_info_card_content_height(current_rows, content_w, 2) + 16)
     draw_info_card(page_left, current_card_y, content_w, current_card_h, texts["current_situation"], current_rows, columns=2)
 
-    proposal_title_y_page1 = current_card_y + current_card_h + 12
-    proposal_cards_y_page1 = proposal_title_y_page1 + 12
+    proposal_title_y_page1 = current_card_y + current_card_h + 8
+    proposal_cards_y_page1 = proposal_title_y_page1 + 9
     pdf.set_xy(page_left, proposal_title_y_page1)
     draw_section_title(texts["our_proposal"], None)
     proposal_rows_merged = [
@@ -3434,7 +3434,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         (texts["monthly_savings"], fmt_money(savings_monthly)),
         (texts["savings_percentage"], f"{savings_percent}%" if savings_percent is not None else "—"),
     ]
-    proposal_card_h = max(36, measure_info_card_content_height(proposal_rows_merged, content_w, 2) + 20)
+    proposal_card_h = max(30, measure_info_card_content_height(proposal_rows_merged, content_w, 2) + 16)
     draw_info_card(page_left, proposal_cards_y_page1, content_w, proposal_card_h, texts["recommended_plan"], proposal_rows_merged, columns=2)
 
     # Page 2: next steps + legal

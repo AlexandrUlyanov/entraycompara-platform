@@ -3416,12 +3416,14 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     steps_y = 48
     legal_h = 30
     legal_y = 257 - legal_h
-    comment_y = 114
-    comment_h = max(34, legal_y - comment_y - 8)
+    steps_block_end_y = steps_y + 34 + 15
+    comment_y = steps_block_end_y + 10
+    available_comment_h = max(28, legal_y - comment_y - 8)
+    comment_h = 0
 
     if proposal_comment:
         comment_text_h = estimate_text_height(proposal_comment[:1800], content_w - 16, 3.7, 7.25)
-        comment_h = min(max(34, comment_text_h + 16), legal_y - comment_y - 8)
+        comment_h = min(max(28, comment_text_h + 16), available_comment_h)
 
     pdf.set_xy(page_left, steps_title_y)
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])

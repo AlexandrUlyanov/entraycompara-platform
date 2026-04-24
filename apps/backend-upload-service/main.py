@@ -2717,6 +2717,7 @@ PROPOSAL_PDF_TEXTS = {
         "provider": "Proveedor",
         "tariff": "Tarifa",
         "monthly_cost": "Coste mensual",
+        "period_cost": "Coste del período",
         "contract_end": "Fin de contrato",
         "billing_period": "Período facturado",
         "power": "Potencia",
@@ -2774,6 +2775,7 @@ PROPOSAL_PDF_TEXTS = {
         "provider": "Поставщик",
         "tariff": "Тариф",
         "monthly_cost": "Ежемесячная стоимость",
+        "period_cost": "Стоимость за период",
         "contract_end": "Окончание договора",
         "billing_period": "Период счёта",
         "power": "Мощность",
@@ -2831,6 +2833,7 @@ PROPOSAL_PDF_TEXTS = {
         "provider": "Постачальник",
         "tariff": "Тариф",
         "monthly_cost": "Щомісячна вартість",
+        "period_cost": "Вартість за період",
         "contract_end": "Закінчення договору",
         "billing_period": "Період рахунку",
         "power": "Потужність",
@@ -2888,6 +2891,7 @@ PROPOSAL_PDF_TEXTS = {
         "provider": "Hornitzailea",
         "tariff": "Tarifa",
         "monthly_cost": "Hileko kostua",
+        "period_cost": "Aldiko kostua",
         "contract_end": "Kontratuaren amaiera",
         "billing_period": "Fakturatutako aldia",
         "power": "Potentzia",
@@ -3542,7 +3546,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     current_rows = [
         (texts["current_provider_label"], current_provider),
         (texts["tariff"], current_tariff),
-        (texts["monthly_cost"], fmt_money(current_cost)),
+        (texts.get("period_cost", texts["monthly_cost"]), fmt_money(period_current_cost)),
         (texts.get("billing_period", texts["contract_end"]), format_billing_period_value(billing_days, period_savings)),
         (texts["service"], service),
         (texts["contracted_power"], power),
@@ -3558,7 +3562,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         texts["current_situation"],
         current_rows,
         columns=2,
-        highlight_rows={texts["monthly_cost"]: (255, 226, 236)},
+        highlight_rows={texts.get("period_cost", texts["monthly_cost"]): (255, 226, 236)},
     )
 
     proposal_title_y_page1 = current_card_y + current_card_h + 8
@@ -3568,7 +3572,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     proposal_rows_merged = [
         (texts["recommended_provider_label"], new_provider),
         (texts["tariff"], new_tariff),
-        (texts["monthly_cost"], fmt_money(new_cost)),
+        (texts.get("period_cost", texts["monthly_cost"]), fmt_money(period_new_cost)),
         (texts["monthly_savings"], fmt_money(savings_monthly)),
         (texts["savings_percentage"], f"{savings_percent}%" if savings_percent is not None else "—"),
     ]
@@ -3581,7 +3585,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         texts["recommended_plan"],
         proposal_rows_merged,
         columns=2,
-        highlight_rows={texts["monthly_cost"]: (223, 255, 225)},
+        highlight_rows={texts.get("period_cost", texts["monthly_cost"]): (223, 255, 225)},
     )
 
     # Page 2: next steps + legal

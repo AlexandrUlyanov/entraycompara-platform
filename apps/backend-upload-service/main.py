@@ -2626,8 +2626,8 @@ async def select_tariff_for_auto_simulation(application_id: str, task_id: str, b
 # PDF Texts by language
 PROPOSAL_PDF_TEXTS = {
     "es": {
-        "title": "Propuesta Comercial",
-        "greeting": "Estimado/a",
+        "title": "Propuesta personalizada para reducir su factura eléctrica sin coste ni gestiones",
+        "greeting": "Estimada",
         "current_situation": "Su situación actual",
         "our_proposal": "Nuestra propuesta",
         "savings": "Su ahorro",
@@ -2637,18 +2637,19 @@ PROPOSAL_PDF_TEXTS = {
         "contact_site_label": "Web",
         "contact_social_label": "Redes",
         "summary_title": "Resumen de ahorro",
-        "summary_subtitle": "Comparativa clara entre su tarifa actual y la propuesta recomendada.",
+        "summary_subtitle": "Le presentamos una alternativa pensada para reducir su factura eléctrica de forma clara, segura y sin complicaciones.",
+        "proposal_subtitle": "Comparativa entre su situación actual y la alternativa recomendada.",
         "current_plan": "Tarifa actual",
         "recommended_plan": "Tarifa recomendada",
         "annual_savings": "Ahorro anual estimado",
         "next_steps_subtitle": "Le acompañamos en todo el cambio, sin coste para usted.",
         "step1_title": "1. Confirmación",
-        "step1_desc": "Confirme por WhatsApp o email que quiere cambiar a la nueva tarifa.",
+        "step1_desc": "Confirme que desea seguir adelante con el cambio a la nueva tarifa.",
         "step2_title": "2. Gestión del cambio",
         "step2_desc": "Nuestro equipo prepara y envía toda la documentación a la comercializadora.",
         "step3_title": "3. Activación y ahorro",
         "step3_desc": "Se activa la nueva tarifa y empieza a ahorrar desde las siguientes facturas.",
-        "intro_paragraph": "Hemos analizado su situación energética actual y le presentamos una propuesta personalizada que le permitirá reducir su factura eléctrica sin ningún coste ni gestión por su parte.",
+        "intro_paragraph": "Hemos analizado su factura actual y detectado una alternativa que puede ayudarle a reducir su gasto en electricidad sin coste adicional y sin que tenga que ocuparse de la gestión.\n\nLa propuesta se ha preparado a partir de los datos de su suministro actual y está enfocada en un objetivo muy claro: pagar menos con un proceso de cambio sencillo, acompañado y transparente.",
         "estimated_savings": "Ahorro estimado",
         "monthly_reduction": "Menor coste mensual",
         "current_provider_label": "Proveedor actual",
@@ -2658,7 +2659,8 @@ PROPOSAL_PDF_TEXTS = {
         "cups_label": "Nº de contrato (CUPS)",
         "monthly_savings": "Ahorro mensual",
         "savings_percentage": "Ahorro porcentual",
-        "proposal_disclaimer": "Esta propuesta es orientativa y se basa en los datos de consumo facilitados. El ahorro real puede variar según el consumo efectivo. EntrayCompara actúa como intermediario independiente sin coste para el cliente.",
+        "proposal_disclaimer_title": "Cierre legal breve",
+        "proposal_disclaimer": "Esta propuesta es orientativa y se basa en los datos de consumo facilitados. El ahorro real puede variar según el consumo efectivo, las condiciones del suministro y la evolución de la tarifa aplicable.\n\nEntraycompara actúa como intermediario independiente y el servicio no tiene coste para el cliente.",
         "per_month": "al mes",
         "per_year": "al año",
         "next_steps": "Próximos pasos",
@@ -2692,6 +2694,7 @@ PROPOSAL_PDF_TEXTS = {
         "contact_social_label": "Соцсети",
         "summary_title": "Сводка по экономии",
         "summary_subtitle": "Наглядное сравнение текущего тарифа и рекомендованного предложения.",
+        "proposal_subtitle": "Сравнение вашей текущей ситуации и рекомендованной альтернативы.",
         "current_plan": "Текущий тариф",
         "recommended_plan": "Рекомендуемый тариф",
         "annual_savings": "Ожидаемая экономия в год",
@@ -2712,7 +2715,8 @@ PROPOSAL_PDF_TEXTS = {
         "cups_label": "№ договора (CUPS)",
         "monthly_savings": "Экономия в месяц",
         "savings_percentage": "Экономия в процентах",
-        "proposal_disclaimer": "Это предложение носит ориентировочный характер и основано на предоставленных данных о потреблении. Фактическая экономия может отличаться в зависимости от реального профиля потребления. EntrayCompara действует как независимый посредник без оплаты со стороны клиента.",
+        "proposal_disclaimer_title": "Краткое юридическое примечание",
+        "proposal_disclaimer": "Это предложение носит ориентировочный характер и основано на предоставленных данных о потреблении. Фактическая экономия может отличаться в зависимости от реального потребления, условий снабжения и изменения применяемого тарифа.\n\nEntraycompara действует как независимый посредник, и сервис не имеет стоимости для клиента.",
         "per_month": "в месяц",
         "per_year": "в год",
         "next_steps": "Следующие шаги",
@@ -2746,6 +2750,7 @@ PROPOSAL_PDF_TEXTS = {
         "contact_social_label": "Соцмережі",
         "summary_title": "Підсумок економії",
         "summary_subtitle": "Зрозуміле порівняння поточного тарифу та рекомендованої пропозиції.",
+        "proposal_subtitle": "Порівняння вашої поточної ситуації та рекомендованої альтернативи.",
         "current_plan": "Поточний тариф",
         "recommended_plan": "Рекомендований тариф",
         "annual_savings": "Очікувана економія на рік",
@@ -2766,7 +2771,8 @@ PROPOSAL_PDF_TEXTS = {
         "cups_label": "№ договору (CUPS)",
         "monthly_savings": "Економія на місяць",
         "savings_percentage": "Економія у відсотках",
-        "proposal_disclaimer": "Ця пропозиція має орієнтовний характер і базується на наданих даних про споживання. Реальна економія може відрізнятися залежно від фактичного профілю споживання. EntrayCompara діє як незалежний посередник без оплати з боку клієнта.",
+        "proposal_disclaimer_title": "Коротке юридичне застереження",
+        "proposal_disclaimer": "Ця пропозиція має орієнтовний характер і базується на наданих даних про споживання. Реальна економія може відрізнятися залежно від фактичного споживання, умов постачання та зміни застосовного тарифу.\n\nEntraycompara діє як незалежний посередник, і сервіс не має вартості для клієнта.",
         "per_month": "на місяць",
         "per_year": "на рік",
         "next_steps": "Наступні кроки",
@@ -2800,6 +2806,7 @@ PROPOSAL_PDF_TEXTS = {
         "contact_social_label": "Sareak",
         "summary_title": "Aurrezkiaren laburpena",
         "summary_subtitle": "Zure uneko tarifaren eta gomendatutako proposamenaren arteko alderaketa argia.",
+        "proposal_subtitle": "Zure egungo egoeraren eta gomendatutako aukeraren arteko alderaketa.",
         "current_plan": "Uneko tarifa",
         "recommended_plan": "Gomendatutako tarifa",
         "annual_savings": "Urteko aurrezki estimatua",
@@ -2820,7 +2827,8 @@ PROPOSAL_PDF_TEXTS = {
         "cups_label": "Kontratu zk. (CUPS)",
         "monthly_savings": "Hileko aurrezkia",
         "savings_percentage": "Aurrezki portzentuala",
-        "proposal_disclaimer": "Proposamen hau orientagarria da eta emandako kontsumo-datuetan oinarritzen da. Benetako aurrezkia aldatu daiteke benetako kontsumoaren arabera. EntrayCompara bezeroarentzat kosturik gabeko bitartekari independente gisa jarduten du.",
+        "proposal_disclaimer_title": "Legezko ohar laburra",
+        "proposal_disclaimer": "Proposamen hau orientagarria da eta emandako kontsumo-datuetan oinarritzen da. Benetako aurrezkia aldatu daiteke benetako kontsumoaren, horniduraren baldintzen eta aplikatu beharreko tarifaren bilakaeraren arabera.\n\nEntraycompara bitartekari independente gisa jarduten du, eta zerbitzuak ez du kosturik bezeroarentzat.",
         "per_month": "hilean",
         "per_year": "urtean",
         "next_steps": "Hurrengo pausoak",
@@ -2858,10 +2866,10 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     texts = PROPOSAL_PDF_TEXTS.get(language, PROPOSAL_PDF_TEXTS["es"])
     proposal_comment = (application.get("proposal_comment") or "").strip()
     whatsapp_cta_labels = {
-        "es": "Confirmar por WhatsApp",
-        "ru": "Подтвердить в WhatsApp",
-        "uk": "Підтвердити у WhatsApp",
-        "eu": "Baieztatu WhatsApp bidez",
+        "es": "Confirmo el cambio de tarifa",
+        "ru": "Подтверждаю смену тарифа",
+        "uk": "Підтверджую зміну тарифу",
+        "eu": "Tarifa aldaketa berresten dut",
     }
     whatsapp_prefill_messages = {
         "es": "Hola, confirmo que quiero iniciar el cambio a la nueva tarifa.",
@@ -2924,44 +2932,49 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
         def header(self):
             self.set_fill_color(11, 95, 255)
-            self.rect(0, 0, 210, 36, style="F")
+            self.rect(0, 0, 210, 30, style="F")
 
             self.set_text_color(255, 255, 255)
-            self.set_font("DejaVu", font_style("B"), 17)
-            self.set_xy(15, 7)
-            self.cell(0, 8, "Entray Compara", ln=False)
+            self.set_font("DejaVu", font_style("B"), 15)
+            self.set_xy(15, 5.4)
+            self.cell(0, 6, "Entra y Compara", ln=False)
 
-            self.set_xy(15, 22)
+            self.set_xy(15, 12.4)
             self.set_text_color(219, 234, 254)
             self.set_font("DejaVu", font_style("B"), 7)
-            self.cell(56, 4, texts["free_service"], ln=False)
+            self.cell(72, 4, texts["free_service"], ln=False)
 
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style(), 8)
             today = datetime.datetime.now().strftime("%d.%m.%Y")
-            self.set_xy(132, 6.5)
+            self.set_xy(132, 4.5)
             self.cell(63, 4, f"{texts['date']}: {today}", align="R", ln=True)
 
             self.set_text_color(219, 234, 254)
-            self.set_xy(132, 12.5)
+            self.set_xy(132, 10.2)
             self.set_font("DejaVu", font_style(), 7)
             self.cell(63, 4, COMPANY_CONTACTS["website"], align="R", ln=True)
 
-            self.set_xy(132, 18.5)
+            self.set_xy(132, 15.9)
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 8)
             self.cell(63, 4, COMPANY_CONTACTS["phone"], align="R", ln=True)
 
             cta_text = whatsapp_cta_labels.get(language, whatsapp_cta_labels["es"])
             cta_link = application.get("proposal_whatsapp_link", "")
+            button_w = 66
+            button_h = 8.8
+            button_x = (210 - button_w) / 2
+            button_y = (30 - button_h) / 2
             self.set_fill_color(37, 211, 102)
-            self.rounded_rect(79, 24.8, 52, 8, 2.5, style="F")
-            self.link(79, 24.8, 52, 8, cta_link)
-            self.set_xy(79, 26.5)
+            self.rounded_rect(button_x, button_y, button_w, button_h, 2.7, style="F")
+            if cta_link:
+                self.link(button_x, button_y, button_w, button_h, cta_link)
+            self.set_xy(button_x, button_y + 2.1)
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 7)
-            self.cell(52, 3.8, cta_text, align="C", ln=False, link=cta_link)
-            self.set_y(42)
+            self.cell(button_w, 4.2, cta_text, align="C", ln=False, link=cta_link or None)
+            self.set_y(34)
         
         def footer(self):
             self.set_y(-16)
@@ -3279,19 +3292,19 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     yearly_savings = round(savings_monthly * 12, 2) if savings_monthly is not None else None
 
     # Page 1: cover + summary
-    title_y = 48
-    banner_y = 58
-    intro_y = 72
+    title_y = 38
+    banner_y = 50
+    intro_y = 62
     savings_x = 127
-    savings_y = 80
-    summary_y = 116
-    metrics_y = 130
-    current_card_y = 160
+    savings_y = 68
+    summary_y = 108
+    metrics_y = 122
+    current_card_y = 152
 
     pdf.set_xy(page_left, title_y)
     pdf.set_text_color(*brand_dark)
-    pdf.set_font("DejaVu", font_style("B"), 17)
-    pdf.cell(content_w, 8, texts["title"], ln=True)
+    pdf.set_font("DejaVu", font_style("B"), 14.5)
+    pdf.multi_cell(126, 6.6, texts["title"])
 
     draw_client_banner(page_left, banner_y, content_w, client_name)
 
@@ -3334,16 +3347,15 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     # Page 2: proposal + contacts + next steps
     pdf.add_page()
-    proposal_title_y = 46
+    proposal_title_y = 40
     proposal_cards_y = 62
     comment_y = 120
-    steps_title_y = 128
-    steps_y = 142
-    disclaimer_y = 200
+    steps_title_y = 130
+    steps_y = 144
+    disclaimer_y = 202
 
     pdf.set_xy(page_left, proposal_title_y)
-
-    draw_section_title(texts["our_proposal"], texts["summary_subtitle"])
+    draw_section_title(texts["our_proposal"], texts.get("proposal_subtitle") or texts["summary_subtitle"])
     proposal_rows_left = [
         (texts["recommended_provider_label"], new_provider),
         (texts["tariff"], new_tariff),
@@ -3376,7 +3388,10 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     draw_step_row(steps_y + 34, "3", texts["step3_title"], texts["step3_desc"])
     pdf.set_xy(page_left, disclaimer_y)
     pdf.set_text_color(*brand_secondary)
-    pdf.set_font("DejaVu", font_style(), 6.8)
+    pdf.set_font("DejaVu", font_style("B"), 6.7)
+    pdf.cell(content_w, 3.6, texts.get("proposal_disclaimer_title", ""), ln=True)
+    pdf.set_x(page_left)
+    pdf.set_font("DejaVu", font_style(), 6.7)
     pdf.multi_cell(content_w, 3.6, texts["proposal_disclaimer"])
     
     return bytes(pdf.output(dest="S"))

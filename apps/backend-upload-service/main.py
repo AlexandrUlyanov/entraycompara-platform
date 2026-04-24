@@ -3217,6 +3217,37 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.set_font("DejaVu", font_style(), 7.25)
         pdf.multi_cell(w - 16, 3.7, text[:1800])
 
+    def draw_legal_band(x: float, y: float, w: float, h: float, title: str, text: str):
+        pdf.set_fill_color(255, 255, 255)
+        pdf.set_draw_color(*card_border)
+        pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
+        draw_floating_badge(x, y, w, title)
+        pdf.set_xy(x + 8, y + 10)
+        pdf.set_text_color(*brand_secondary)
+        pdf.set_font("DejaVu", font_style(), 6.5)
+        pdf.multi_cell(w - 16, 3.4, text)
+
+    def estimate_text_height(text: str, width: float, line_height: float, font_size: float) -> float:
+        if not text:
+            return 0
+        current_family = pdf.font_family
+        current_style = pdf.font_style
+        current_size = pdf.font_size_pt
+        try:
+            pdf.set_font("DejaVu", font_style(), font_size)
+            try:
+                lines = pdf.multi_cell(width, line_height, text, split_only=True)
+                line_count = max(1, len(lines))
+            except TypeError:
+                approx_chars = max(18, int(width * 1.7))
+                wrapped = []
+                for paragraph in text.splitlines() or [""]:
+                    wrapped.extend(textwrap.wrap(paragraph, approx_chars) or [""])
+                line_count = max(1, len(wrapped))
+            return line_count * line_height
+        finally:
+            pdf.set_font(current_family or "DejaVu", current_style or "", current_size or 12)
+
     def draw_step_row(y: float, number: str, title: str, description: str):
         circle_x = 16
         card_x = 30
@@ -3382,28 +3413,23 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
     pdf.add_page()
     steps_title_y = 28
     steps_y = 42
-    disclaimer_y = 98
-    comment_y = 116
-    comment_h = 150
+    legal_h = 30
+    legal_y = 257 - legal_h
+    comment_y = 114
+    comment_h = max(34, legal_y - comment_y - 8)
 
     if proposal_comment:
-        comment_y = 116
-        comment_h = 150
+        comment_text_h = estimate_text_height(proposal_comment[:1800], content_w - 16, 3.7, 7.25)
+        comment_h = min(max(34, comment_text_h + 16), legal_y - comment_y - 8)
 
     pdf.set_xy(page_left, steps_title_y)
     draw_section_title(texts["next_steps"], texts["next_steps_subtitle"])
     draw_step_row(steps_y, "1", texts["step1_title"], texts["step1_desc"])
     draw_step_row(steps_y + 17, "2", texts["step2_title"], texts["step2_desc"])
     draw_step_row(steps_y + 34, "3", texts["step3_title"], texts["step3_desc"])
-    pdf.set_xy(page_left, disclaimer_y)
-    pdf.set_text_color(*brand_muted)
-    pdf.set_font("DejaVu", font_style("B"), 6.1)
-    pdf.cell(content_w, 3.6, texts.get("proposal_disclaimer_title", ""), ln=True)
-    pdf.set_x(page_left)
-    pdf.set_font("DejaVu", font_style(), 6.15)
-    pdf.multi_cell(content_w, 3.3, texts["proposal_disclaimer"])
     if proposal_comment:
         draw_comment_band(page_left, comment_y, content_w, comment_h, proposal_comment)
+    draw_legal_band(page_left, legal_y, content_w, legal_h, texts.get("proposal_disclaimer_title", ""), texts["proposal_disclaimer"])
     
     return bytes(pdf.output(dest="S"))
 

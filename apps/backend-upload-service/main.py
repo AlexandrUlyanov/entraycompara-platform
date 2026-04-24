@@ -3109,13 +3109,29 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
         rows_per_col = max(1, (len(rows) + columns - 1) // columns)
         inner_x = x + 8
-        inner_y = y + 10
         inner_w = w - 16
         col_gap = 7
         col_w = inner_w if columns == 1 else (inner_w - col_gap * (columns - 1)) / columns
+        row_gap = 2.4
+
+        measured_rows: list[tuple[str, str, float]] = []
+        for label, value in rows:
+            value_text = fmt_value(value)
+            value_h = estimate_text_height(value_text, col_w, 4.5, 8.5)
+            measured_rows.append((label, value_text, 3.5 + value_h))
+
+        col_heights = [0.0 for _ in range(columns)]
+        for index, (_, _, row_h) in enumerate(measured_rows):
+            col = min(columns - 1, index // rows_per_col)
+            col_heights[col] += row_h
+            if (index // rows_per_col) < rows_per_col - 1:
+                col_heights[col] += row_gap
+
+        content_h = max(col_heights) if col_heights else 0
+        inner_y = y + ((h - content_h) / 2 if content_h else 0)
         col_y = [inner_y for _ in range(columns)]
 
-        for index, (label, value) in enumerate(rows):
+        for index, (label, value_text, _) in enumerate(measured_rows):
             col = min(columns - 1, index // rows_per_col)
             current_x = inner_x + col * (col_w + col_gap)
             current_y = col_y[col]
@@ -3126,8 +3142,8 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             pdf.set_x(current_x)
             pdf.set_text_color(*brand_dark)
             pdf.set_font("DejaVu", font_style(), 8.5)
-            pdf.multi_cell(col_w, 4.5, fmt_value(value))
-            col_y[col] = pdf.get_y() + 2.4
+            pdf.multi_cell(col_w, 4.5, value_text)
+            col_y[col] = pdf.get_y() + row_gap
 
     def draw_metric_card(
         x: float,

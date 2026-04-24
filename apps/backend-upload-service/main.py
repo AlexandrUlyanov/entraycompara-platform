@@ -2942,10 +2942,10 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 12.5)
-            self.set_xy(15, 2.6)
+            self.set_xy(15, 3.3)
             self.cell(0, 4.8, "Entra y Compara", ln=False)
 
-            self.set_xy(15, 8.0)
+            self.set_xy(15, 9.0)
             self.set_text_color(219, 234, 254)
             self.set_font("DejaVu", font_style(), 5.9)
             self.cell(72, 2.9, texts["free_service"], ln=False)
@@ -2953,11 +2953,11 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
             self.set_text_color(255, 255, 255)
             self.set_font("DejaVu", font_style("B"), 12.5)
             today = datetime.datetime.now().strftime("%d.%m.%Y")
-            self.set_xy(132, 2.6)
+            self.set_xy(132, 3.3)
             self.cell(63, 4.8, COMPANY_CONTACTS["phone"], align="R", ln=True)
 
             self.set_text_color(219, 234, 254)
-            self.set_xy(132, 8.0)
+            self.set_xy(132, 9.0)
             self.set_font("DejaVu", font_style(), 5.9)
             self.cell(63, 2.9, f"{texts['date']}: {today}", align="R", ln=True)
 

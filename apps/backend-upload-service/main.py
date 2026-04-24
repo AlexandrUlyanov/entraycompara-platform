@@ -3103,7 +3103,7 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
 
     def draw_info_card(x: float, y: float, w: float, h: float, title: str, rows: list[tuple[str, str]], columns: int = 1):
         pdf.set_fill_color(255, 255, 255)
-        pdf.set_draw_color(*card_border)
+        pdf.set_draw_color(*brand_blue_light)
         pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
         draw_floating_badge(x, y, w, title)
 
@@ -3143,12 +3143,14 @@ def generate_proposal_pdf(application: dict, extracted_data: dict, simulation: d
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*(border_color or card_border))
         pdf.rounded_rect(x, y, w, h, 3.2, style="DF")
-        draw_floating_badge(x, y, w, title)
-        pdf.set_xy(x + 10, y + 9.2)
+        pdf.set_xy(x + 10, y + 4.8)
         pdf.set_text_color(*brand_secondary)
+        pdf.set_font("DejaVu", font_style("B"), 6.5)
+        pdf.cell(w - 20, 3.5, title.upper(), ln=True)
+        pdf.set_x(x + 10)
         pdf.set_text_color(*brand_dark)
         pdf.set_font("DejaVu", font_style("B"), 13)
-        pdf.cell(w - 20, 6.2, value, ln=True, align="C")
+        pdf.cell(w - 20, 6.4, value, ln=True)
         if subtitle:
             if subtitle.startswith("PERCENT::"):
                 _, label, percent_value = subtitle.split("::", 2)

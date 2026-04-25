@@ -90,6 +90,20 @@ const getCUPSErrorKey = (input?: string | null): string | null => {
   return null;
 };
 
+const translateReason = (reason: string, t: (key: string) => string): string => {
+  const key = `fieldReason.${reason}`;
+  const translated = t(key);
+  return translated === key ? reason.replace(/_/g, ' ') : translated;
+};
+
+const translateExtractionMessage = (message: string, status: string, t: (key: string) => string): string => {
+  if (!message) return t('proposalBuilder.extractData.task.inProgress');
+  if (status === 'completed' && message === 'Извлечение данных завершено.') {
+    return t('proposalBuilder.extractData.step.completed');
+  }
+  return message;
+};
+
 const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, uploadedFiles }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -242,7 +256,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
   const renderFieldReasons = (field: string) => {
     const reasons = getFieldAssessment(field)?.reasons;
     if (!reasons || reasons.length === 0) return null;
-    return <p className="mt-1 text-[11px] text-slate-500">{reasons.join(', ')}</p>;
+    return <p className="mt-1 text-[11px] text-slate-500">{reasons.map((reason) => translateReason(reason, t)).join(', ')}</p>;
   };
 
   const handleExtract = () => {
@@ -363,7 +377,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
             {extractStatus === 'completed' && (
               <span className="entray-success-check inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-white text-[11px] font-bold">✓</span>
             )}
-            <span className="font-medium">{extractMessage || t('proposalBuilder.extractData.task.inProgress')}</span>
+            <span className="font-medium">{translateExtractionMessage(extractMessage, extractStatus, t)}</span>
           </div>
 
           {(extractStatus === 'pending' || extractStatus === 'running' || extractStatus === 'completed') && (
@@ -490,7 +504,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
               )}
               {cupsAssessment?.reasons && cupsAssessment.reasons.length > 0 && (
                 <p className="mt-1 text-[11px] text-slate-500">
-                  {cupsAssessment.reasons.join(', ')}
+                  {cupsAssessment.reasons.map((reason) => translateReason(reason, t)).join(', ')}
                 </p>
               )}
             </div>

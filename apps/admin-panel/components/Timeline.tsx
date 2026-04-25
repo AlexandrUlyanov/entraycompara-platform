@@ -135,6 +135,38 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
     });
   };
 
+  const translateSalesCode = (value: string) => {
+    const key = `sales.value.${value.trim()}`;
+    const translated = t(key);
+    return translated === key ? value.replace(/_/g, ' ') : translated;
+  };
+
+  const localizeSystemNote = (content: string) => {
+    if (content.startsWith('Отдел продаж пересчитал состояние лида.')) {
+      const clientState = content.match(/Состояние клиента: ([^.]+)\./)?.[1] || '';
+      const nextAction = content.match(/Следующее действие: ([^.]+)\./)?.[1] || '';
+      const pipelineHealth = content.match(/Pipeline health: ([^.]+)\./)?.[1] || '';
+
+      return [
+        t('timeline.salesDepartment.recalculated'),
+        clientState ? t('timeline.salesDepartment.clientState', { value: translateSalesCode(clientState) }) : '',
+        nextAction ? t('timeline.salesDepartment.nextAction', { value: translateSalesCode(nextAction) }) : '',
+        pipelineHealth ? t('timeline.salesDepartment.pipelineHealth', { value: translateSalesCode(pipelineHealth) }) : '',
+      ].filter(Boolean).join('\n');
+    }
+
+    if (content.startsWith('Данные скорректированы оператором.')) {
+      const count = content.match(/Изменено полей: (\d+)/)?.[1] || '0';
+      const fields = content.match(/Изменённые поля: ([^.]+)\./)?.[1] || '';
+      return [
+        t('timeline.extraction.corrected', { count }),
+        t('timeline.extraction.changedFields', { fields }),
+      ].join('\n');
+    }
+
+    return content;
+  };
+
   // Helper function to parse and render note content
   const renderNoteContent = (note: ApplicationNote) => {
     if (note.content.startsWith('SYSTEM_STATUS_CHANGE:')) {
@@ -145,7 +177,7 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
     }
     
     // Localize statuses in plain text notes
-    let content = note.content;
+    let content = localizeSystemNote(note.content);
     Object.values(Status).forEach(statusEng => {
         if (content.includes(statusEng)) {
             const translated = t(`status.${statusEng.replace(' ', '')}`);

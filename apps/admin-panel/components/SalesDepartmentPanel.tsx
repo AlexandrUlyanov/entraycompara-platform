@@ -26,6 +26,60 @@ interface SalesDepartmentPanelProps {
   onInsertMessage?: (message: string) => void;
 }
 
+type TFunction = (key: string, values?: Record<string, string | number>) => string;
+
+const translateIfExists = (t: TFunction, key: string, fallback: string, values?: Record<string, string | number>): string => {
+  const translated = t(key, values);
+  return translated === key ? fallback : translated;
+};
+
+const translateSalesValue = (value: string | number | null | undefined, t: TFunction): string => {
+  if (value === null || value === undefined || value === '') return 'n/a';
+  if (typeof value === 'number') return String(value);
+  if (value === 'None') return 'n/a';
+
+  const normalized = value.trim();
+  const key = `sales.value.${normalized}`;
+  return translateIfExists(t, key, normalized.replace(/_/g, ' '));
+};
+
+const translateSalesText = (text: string | null | undefined, t: TFunction): string => {
+  if (!text) return '';
+
+  const trimmed = text.trim();
+  const exactMatches: Record<string, string> = {
+    'Based on current lead status, documents, proposal data and recent timeline.': 'sales.text.whyNow.default',
+    'Client understands the next step and stays in the process.': 'sales.text.expectedOutcome.default',
+    'No automatic send is allowed in the current safety phase.': 'sales.text.agent.noAutoSend',
+    'Manual mode is active. No automatic actions are allowed.': 'sales.text.autopilot.manual',
+    'Manual mode is active. AI can analyze, but cannot prepare or send actions automatically.': 'sales.text.autopilot.manualAnalyzeOnly',
+  };
+
+  if (exactMatches[trimmed]) {
+    return translateIfExists(t, exactMatches[trimmed], trimmed);
+  }
+
+  const patternMatches: Array<{ regex: RegExp; key: string }> = [
+    { regex: /^Friction point is (.+)$/i, key: 'sales.text.agent.frictionPoint' },
+    { regex: /^Goal is (.+)$/i, key: 'sales.text.agent.goal' },
+    { regex: /^CTA is (.+)$/i, key: 'sales.text.agent.cta' },
+    { regex: /^ETA hours: (.+)$/i, key: 'sales.text.agent.eta' },
+    { regex: /^Pipeline health is (.+)$/i, key: 'sales.text.agent.pipelineHealth' },
+  ];
+
+  for (const item of patternMatches) {
+    const match = trimmed.match(item.regex);
+    if (match) {
+      return translateIfExists(t, item.key, trimmed, { value: translateSalesValue(match[1], t) });
+    }
+  }
+
+  return trimmed;
+};
+
+const translateTraceStep = (step: string, t: TFunction): string =>
+  translateIfExists(t, `sales.trace.step.${step}`, step.replace(/_/g, ' '));
+
 const formatPercent = (value?: number): string => {
   if (typeof value !== 'number' || Number.isNaN(value)) return 'n/a';
   return `${Math.round(value * 100)}%`;
@@ -43,17 +97,8 @@ const formatDateTime = (value?: string): string => {
   });
 };
 
-const getAgentLabel = (agentKey: string): string => {
-  const labels: Record<string, string> = {
-    lead_state_analyst: 'Lead State Analyst',
-    sales_strategist: 'Sales Strategist',
-    message_composer: 'Message Composer',
-    trust_guard: 'Trust Guard',
-    followup_scheduler: 'Follow-up Scheduler',
-    deal_control: 'Deal Control',
-  };
-  return labels[agentKey] || agentKey.replace(/_/g, ' ');
-};
+const getAgentLabel = (agentKey: string, t: TFunction): string =>
+  translateIfExists(t, `sales.agent.${agentKey}`, agentKey.replace(/_/g, ' '));
 
 const getStatusTone = (status?: string): string => {
   switch (status) {
@@ -96,7 +141,7 @@ const SalesControlHud: React.FC<{
   state: SalesDepartmentState;
   autopilot?: SalesDepartmentAutopilotState;
   isAnalyzing: boolean;
-  t: (key: string, values?: Record<string, string | number>) => string;
+  t: TFunction;
 }> = ({ state, autopilot, isAnalyzing, t }) => {
   const pulseTone = isAnalyzing ? 'bg-blue-400 shadow-blue-400/50' : 'bg-emerald-400 shadow-emerald-400/40';
 
@@ -117,7 +162,7 @@ const SalesControlHud: React.FC<{
         <div className="grid min-w-[260px] grid-cols-2 gap-2 text-sm">
           <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">{t('sales.hud.autopilot')}</div>
-            <div className="mt-1 font-semibold">{autopilot?.mode || 'manual'}</div>
+            <div className="mt-1 font-semibold">{translateSalesValue(autopilot?.mode || 'manual', t)}</div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">{t('sales.hud.safeToSend')}</div>
@@ -125,7 +170,7 @@ const SalesControlHud: React.FC<{
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">{t('sales.hud.pipeline')}</div>
-            <div className="mt-1 font-semibold">{state.pipeline_health || t('common.ready')}</div>
+            <div className="mt-1 font-semibold">{translateSalesValue(state.pipeline_health || 'ready', t)}</div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">{t('sales.hud.updated')}</div>
@@ -137,7 +182,7 @@ const SalesControlHud: React.FC<{
   );
 };
 
-const AgentStep: React.FC<{ agent: SalesDepartmentAgentStep }> = ({ agent }) => {
+const AgentStep: React.FC<{ agent: SalesDepartmentAgentStep; t: TFunction }> = ({ agent, t }) => {
   const statusTone = getStatusTone(agent.status);
 
   return (
@@ -145,15 +190,15 @@ const AgentStep: React.FC<{ agent: SalesDepartmentAgentStep }> = ({ agent }) => 
       <div className={`mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full border ${statusTone}`} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold text-slate-800">{getAgentLabel(agent.agent_key)}</span>
+          <span className="text-sm font-semibold text-slate-800">{getAgentLabel(agent.agent_key, t)}</span>
           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${statusTone}`}>
-            {agent.status}
+            {translateSalesValue(agent.status, t)}
           </span>
           {typeof agent.confidence === 'number' && (
-            <span className="text-[11px] font-medium text-slate-400">confidence {formatPercent(agent.confidence)}</span>
+            <span className="text-[11px] font-medium text-slate-400">{t('sales.agent.confidence', { value: formatPercent(agent.confidence) })}</span>
           )}
         </div>
-        {agent.summary && <p className="mt-1 text-xs leading-relaxed text-slate-500">{agent.summary}</p>}
+        {agent.summary && <p className="mt-1 text-xs leading-relaxed text-slate-500">{translateSalesText(agent.summary, t)}</p>}
       </div>
     </div>
   );
@@ -161,7 +206,7 @@ const AgentStep: React.FC<{ agent: SalesDepartmentAgentStep }> = ({ agent }) => 
 
 const DecisionTracePanel: React.FC<{
   state: SalesDepartmentState;
-  t: (key: string, values?: Record<string, string | number>) => string;
+  t: TFunction;
 }> = ({ state, t }) => {
   const trace = state.decision_trace || state.molecule?.decision_trace || [];
 
@@ -173,7 +218,7 @@ const DecisionTracePanel: React.FC<{
           <h4 className="mt-1 text-lg font-bold text-slate-900">{t('sales.trace.title')}</h4>
         </div>
         <span className="rounded-full border border-slate-100 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">
-          {trace.length} signals
+          {t('sales.trace.signals', { count: trace.length })}
         </span>
       </div>
       {trace.length > 0 ? (
@@ -184,9 +229,9 @@ const DecisionTracePanel: React.FC<{
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
                   {index + 1}
                 </span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{item.step.replace(/_/g, ' ')}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{translateTraceStep(item.step, t)}</span>
               </div>
-              <div className="mt-3 text-xs font-semibold leading-relaxed text-slate-700">{item.value || 'n/a'}</div>
+              <div className="mt-3 text-xs font-semibold leading-relaxed text-slate-700">{translateSalesValue(item.value, t)}</div>
             </div>
           ))}
         </div>
@@ -202,7 +247,7 @@ const DecisionTracePanel: React.FC<{
 const FollowUpDealPanel: React.FC<{
   state: SalesDepartmentState;
   autopilot?: SalesDepartmentAutopilotState;
-  t: (key: string, values?: Record<string, string | number>) => string;
+  t: TFunction;
 }> = ({ state, autopilot, t }) => (
   <div className="rounded-[24px] border border-slate-100 bg-gradient-to-br from-white to-slate-50 p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -211,38 +256,38 @@ const FollowUpDealPanel: React.FC<{
         <h4 className="mt-1 text-lg font-bold text-slate-900">{t('sales.followup.title')}</h4>
       </div>
       <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusTone(autopilot?.handoff_required ? 'needs_attention' : state.pipeline_health)}`}>
-        {autopilot?.handoff_required ? 'handoff required' : state.pipeline_health || 'ready'}
+        {translateSalesValue(autopilot?.handoff_required ? 'handoff_required' : state.pipeline_health || 'ready', t)}
       </span>
     </div>
     <div className="mt-4 grid gap-3 md:grid-cols-4">
       <RadarTile label={t('sales.followup.needed')} value={state.followup_needed ? t('common.yes') : t('common.no')} tone={state.followup_needed ? 'amber' : 'green'} />
       <RadarTile label={t('sales.followup.eta')} value={state.followup_eta_hours ? t('sales.followup.hours', { hours: state.followup_eta_hours }) : 'n/a'} tone="blue" />
-      <RadarTile label={t('sales.followup.dealTemperature')} value={state.deal_temperature} tone="indigo" />
+      <RadarTile label={t('sales.followup.dealTemperature')} value={translateSalesValue(state.deal_temperature, t)} tone="indigo" />
       <RadarTile label={t('sales.followup.trustLevel')} value={formatPercent(state.trust_level)} tone="green" />
     </div>
     {autopilot?.last_decision && (
       <div className="mt-4 rounded-2xl border border-white bg-white/80 p-3 text-sm leading-relaxed text-slate-600">
-        {autopilot.last_decision}
+        {translateSalesText(autopilot.last_decision, t)}
       </div>
     )}
   </div>
 );
 
-const MoleculeRoleCard: React.FC<{ role: SalesDepartmentMoleculeRole }> = ({ role }) => {
+const MoleculeRoleCard: React.FC<{ role: SalesDepartmentMoleculeRole; t: TFunction }> = ({ role, t }) => {
   const statusTone = getStatusTone(role.status);
 
   return (
     <div className="rounded-2xl border border-white/70 bg-white/80 p-3 shadow-sm">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{role.name || getAgentLabel(role.key)}</span>
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{getAgentLabel(role.key, t)}</span>
         <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${statusTone}`}>
-          {role.status || 'ready'}
+          {translateSalesValue(role.status || 'ready', t)}
         </span>
       </div>
-      {role.decision && <p className="mt-2 text-xs leading-relaxed text-slate-600">{role.decision}</p>}
+      {role.decision && <p className="mt-2 text-xs leading-relaxed text-slate-600">{translateSalesText(role.decision, t)}</p>}
       {role.output && (
         <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
-          {role.output}
+          {translateSalesValue(role.output, t)}
         </div>
       )}
     </div>
@@ -251,7 +296,7 @@ const MoleculeRoleCard: React.FC<{ role: SalesDepartmentMoleculeRole }> = ({ rol
 
 const SalesMoleculePanel: React.FC<{
   molecule?: SalesDepartmentMolecule;
-  t: (key: string, values?: Record<string, string | number>) => string;
+  t: TFunction;
 }> = ({ molecule, t }) => {
   const roles = molecule?.roles || [];
 
@@ -259,7 +304,7 @@ const SalesMoleculePanel: React.FC<{
     <div className="rounded-[24px] border border-indigo-100 bg-gradient-to-br from-indigo-50 via-blue-50 to-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-500">Sales Molecule</div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-500">{t('sales.molecule.kicker')}</div>
           <h4 className="mt-1 text-lg font-bold text-slate-900">{t('sales.molecule.title')}</h4>
           <p className="mt-1 text-sm text-slate-500">
             {t('sales.molecule.description')}
@@ -267,10 +312,10 @@ const SalesMoleculePanel: React.FC<{
         </div>
         <div className="flex flex-wrap gap-2 text-xs font-semibold">
           <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-emerald-700">
-            human approval
+            {t('sales.molecule.humanApproval')}
           </span>
           <span className="rounded-full border border-red-100 bg-red-50 px-3 py-1 text-red-700">
-            auto-send off
+            {t('sales.molecule.autoSendOff')}
           </span>
         </div>
       </div>
@@ -278,7 +323,7 @@ const SalesMoleculePanel: React.FC<{
       {roles.length > 0 ? (
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {roles.map((role) => (
-            <MoleculeRoleCard key={role.key} role={role} />
+            <MoleculeRoleCard key={role.key} role={role} t={t} />
           ))}
         </div>
       ) : (
@@ -292,26 +337,26 @@ const SalesMoleculePanel: React.FC<{
 
 const ActionPanel: React.FC<{
   state: SalesDepartmentState;
-  t: (key: string, values?: Record<string, string | number>) => string;
+  t: TFunction;
 }> = ({ state, t }) => (
   <div className="rounded-[24px] border border-blue-100 bg-blue-50/60 p-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <div className="text-[11px] font-bold uppercase tracking-wider text-blue-500">{t('sales.action.title')}</div>
-        <h4 className="mt-1 text-lg font-bold text-slate-900">{state.recommended_action || t('sales.action.needsRefresh')}</h4>
+        <h4 className="mt-1 text-lg font-bold text-slate-900">{state.recommended_action ? translateSalesValue(state.recommended_action, t) : t('sales.action.needsRefresh')}</h4>
       </div>
       <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusTone(state.action_priority)}`}>
-        {state.action_priority || 'normal'}
+        {translateSalesValue(state.action_priority || 'normal', t)}
       </span>
     </div>
     <div className="mt-4 grid gap-3 md:grid-cols-3">
-      <RadarTile label={t('sales.action.goal')} value={state.goal} tone="blue" />
-      <RadarTile label={t('sales.action.whyNow')} value={state.why_now} tone="amber" />
-      <RadarTile label={t('sales.action.expectedOutcome')} value={state.expected_outcome} tone="green" />
+      <RadarTile label={t('sales.action.goal')} value={translateSalesValue(state.goal, t)} tone="blue" />
+      <RadarTile label={t('sales.action.whyNow')} value={translateSalesText(state.why_now, t)} tone="amber" />
+      <RadarTile label={t('sales.action.expectedOutcome')} value={translateSalesText(state.expected_outcome, t)} tone="green" />
     </div>
     {state.suggested_cta && (
       <div className="mt-4 rounded-2xl border border-white/80 bg-white/80 p-3 text-sm font-medium text-slate-700">
-        CTA: {state.suggested_cta}
+        CTA: {translateSalesValue(state.suggested_cta, t)}
       </div>
     )}
   </div>
@@ -321,7 +366,7 @@ const MessageStudio: React.FC<{
   message?: string | null;
   isBusy: boolean;
   onInsert: () => void;
-  t: (key: string, values?: Record<string, string | number>) => string;
+  t: TFunction;
 }> = ({ message, isBusy, onInsert, t }) => (
   <div className="rounded-[24px] border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -354,7 +399,7 @@ const AutopilotControl: React.FC<{
   onRecalculate: () => void;
   onHandoff: () => void;
   isBusy: boolean;
-  t: (key: string, values?: Record<string, string | number>) => string;
+  t: TFunction;
 }> = ({ autopilot, isLoading, onModeChange, onRecalculate, onHandoff, isBusy, t }) => {
   const currentMode = autopilot?.mode || 'manual';
   const modes: Array<{ mode: SalesDepartmentAutopilotMode; title: string; description: string }> = [
@@ -374,7 +419,7 @@ const AutopilotControl: React.FC<{
           </p>
         </div>
         <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusTone(autopilot?.status)}`}>
-          {isLoading ? 'loading' : autopilot?.status || 'manual_control'}
+          {translateSalesValue(isLoading ? 'loading' : autopilot?.status || 'manual_control', t)}
         </span>
       </div>
 
@@ -402,13 +447,13 @@ const AutopilotControl: React.FC<{
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <RadarTile label={t('sales.autopilot.safeToSend')} value={autopilot?.safe_to_send ? t('common.yes') : t('common.no')} tone={autopilot?.safe_to_send ? 'green' : 'amber'} />
-        <RadarTile label={t('sales.autopilot.handoff')} value={autopilot?.handoff_required ? 'required' : t('common.no')} tone={autopilot?.handoff_required ? 'amber' : 'green'} />
+        <RadarTile label={t('sales.autopilot.handoff')} value={autopilot?.handoff_required ? translateSalesValue('required', t) : t('common.no')} tone={autopilot?.handoff_required ? 'amber' : 'green'} />
         <RadarTile label={t('sales.autopilot.lastUpdate')} value={formatDateTime(autopilot?.updated_at)} />
       </div>
 
       {autopilot?.last_decision && (
         <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-3 text-sm leading-relaxed text-slate-600">
-          {autopilot.last_decision}
+          {translateSalesText(autopilot.last_decision, t)}
         </div>
       )}
 
@@ -420,7 +465,7 @@ const AutopilotControl: React.FC<{
               <div className="mt-2 flex flex-wrap gap-2">
                 {autopilot?.blocked_reasons?.map((reason) => (
                   <span key={reason} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-red-700">
-                    {reason}
+                    {translateSalesValue(reason, t)}
                   </span>
                 ))}
               </div>
@@ -432,7 +477,7 @@ const AutopilotControl: React.FC<{
               <div className="mt-2 flex flex-wrap gap-2">
                 {autopilot?.warnings?.map((warning) => (
                   <span key={warning} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-amber-700">
-                    {warning}
+                    {translateSalesValue(warning, t)}
                   </span>
                 ))}
               </div>
@@ -466,7 +511,7 @@ const AutopilotControl: React.FC<{
 const EmptyState: React.FC<{
   onAnalyze: () => void;
   isPending: boolean;
-  t: (key: string, values?: Record<string, string | number>) => string;
+  t: TFunction;
 }> = ({ onAnalyze, isPending, t }) => (
   <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center">
     <h4 className="text-base font-bold text-slate-800">{t('sales.empty.title')}</h4>
@@ -560,7 +605,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
           <div className="flex items-center gap-3">
             {state && (
               <span className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${getStatusTone(state.pipeline_health)}`}>
-                {state.pipeline_health || state.status || 'ready'}
+                {translateSalesValue(state.pipeline_health || state.status || 'ready', t)}
               </span>
             )}
             <button
@@ -596,14 +641,14 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
             <SalesControlHud state={state} autopilot={autopilot} isAnalyzing={analyzeMutation.isPending} t={t} />
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <RadarTile label={t('sales.radar.clientState')} value={state.client_state} tone="blue" />
-              <RadarTile label={t('sales.radar.friction')} value={state.friction_point} tone="amber" />
+              <RadarTile label={t('sales.radar.clientState')} value={translateSalesValue(state.client_state, t)} tone="blue" />
+              <RadarTile label={t('sales.radar.friction')} value={translateSalesValue(state.friction_point, t)} tone="amber" />
               <RadarTile label={t('sales.radar.replyProbability')} value={formatPercent(state.reply_probability)} tone="green" />
-              <RadarTile label={t('sales.radar.dealStage')} value={state.deal_stage} tone="slate" />
-              <RadarTile label={t('sales.radar.engagement')} value={state.engagement_level} tone="indigo" />
+              <RadarTile label={t('sales.radar.dealStage')} value={translateSalesValue(state.deal_stage, t)} tone="slate" />
+              <RadarTile label={t('sales.radar.engagement')} value={translateSalesValue(state.engagement_level, t)} tone="indigo" />
               <RadarTile label={t('sales.radar.trust')} value={formatPercent(state.trust_level)} tone="green" />
-              <RadarTile label={t('sales.radar.dealTemperature')} value={state.deal_temperature} tone="amber" />
-              <RadarTile label={t('sales.radar.actionPriority')} value={state.action_priority} tone="blue" />
+              <RadarTile label={t('sales.radar.dealTemperature')} value={translateSalesValue(state.deal_temperature, t)} tone="amber" />
+              <RadarTile label={t('sales.radar.actionPriority')} value={translateSalesValue(state.action_priority, t)} tone="blue" />
             </div>
 
             <ActionPanel state={state} t={t} />
@@ -643,7 +688,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
                 </div>
                 <div className="mt-4 space-y-3">
                   {agents.length > 0 ? (
-                    agents.map((agent) => <AgentStep key={agent.agent_key} agent={agent} />)
+                    agents.map((agent) => <AgentStep key={agent.agent_key} agent={agent} t={t} />)
                   ) : (
                     <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
                       {t('sales.pipeline.empty')}

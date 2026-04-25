@@ -1,5 +1,5 @@
 
-import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse } from '../types';
+import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun } from '../types';
 
 const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
@@ -303,6 +303,33 @@ export const generateAIResponse = async (applicationId: string): Promise<{ succe
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ application_id: applicationId }),
+  });
+  return handleApiError(response);
+};
+
+// --- Sales Department API ---
+
+export const getSalesDepartmentState = async (applicationId: string): Promise<SalesDepartmentStateResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/state`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const analyzeSalesDepartment = async (applicationId: string): Promise<SalesDepartmentAnalyzeResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/analyze`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ trigger: 'operator' }),
+  });
+  return handleApiError(response);
+};
+
+export const getLatestSalesDepartmentRun = async (applicationId: string): Promise<{ success: boolean; run: SalesDepartmentRun | null }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/latest-run`, {
+    method: 'GET',
+    headers: getHeaders(),
   });
   return handleApiError(response);
 };

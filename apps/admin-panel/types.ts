@@ -165,6 +165,77 @@ export interface LatestAutoSimulationTaskResponse {
   task: AutoSimulationTaskStatus | null;
 }
 
+export type SalesDepartmentAgentStatus = 'pending' | 'running' | 'completed' | 'needs_attention' | 'failed' | string;
+
+export interface SalesDepartmentAgentStep {
+  agent_key: string;
+  status: SalesDepartmentAgentStatus;
+  summary?: string | null;
+  confidence?: number | null;
+}
+
+export interface SalesDepartmentSnapshotSummary {
+  status?: string;
+  uploaded_files_count?: number;
+  has_extracted_data?: boolean;
+  has_selected_simulation?: boolean;
+  has_proposal?: boolean;
+  timeline_events_count?: number;
+}
+
+export interface SalesDepartmentState {
+  version?: number;
+  status?: string;
+  client_state?: string;
+  friction_point?: string;
+  reply_probability?: number;
+  engagement_level?: string;
+  trust_level?: number;
+  deal_temperature?: string;
+  recommended_action?: string;
+  action_priority?: string;
+  goal?: string;
+  why_now?: string;
+  expected_outcome?: string;
+  suggested_cta?: string;
+  suggested_message?: string | null;
+  language_used?: string;
+  followup_needed?: boolean;
+  followup_eta_hours?: number | null;
+  deal_stage?: string;
+  pipeline_health?: string;
+  agents?: SalesDepartmentAgentStep[];
+  last_inputs_hash?: string;
+  last_run_id?: string;
+  updated_at?: string;
+  snapshot_summary?: SalesDepartmentSnapshotSummary;
+}
+
+export interface SalesDepartmentRun {
+  run_id?: string;
+  status?: string;
+  trigger?: string;
+  started_at?: string;
+  completed_at?: string | null;
+  agents?: SalesDepartmentAgentStep[];
+  result?: SalesDepartmentState;
+  snapshot?: unknown;
+}
+
+export interface SalesDepartmentStateResponse {
+  success: boolean;
+  exists: boolean;
+  state: SalesDepartmentState | null;
+  latest_run?: SalesDepartmentRun | null;
+}
+
+export interface SalesDepartmentAnalyzeResponse {
+  success: boolean;
+  run_id: string;
+  state: SalesDepartmentState;
+  run: SalesDepartmentRun;
+}
+
 export interface CursorPaginatedApplications {
   applications: Application[];
   next_cursor: string | null;

@@ -188,6 +188,35 @@ const AutopilotControl: React.FC<{
         </div>
       )}
 
+      {((autopilot?.blocked_reasons?.length || 0) > 0 || (autopilot?.warnings?.length || 0) > 0) && (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {(autopilot?.blocked_reasons?.length || 0) > 0 && (
+            <div className="rounded-2xl border border-red-100 bg-red-50/70 p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-red-500">Guardrails blocked</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {autopilot?.blocked_reasons?.map((reason) => (
+                  <span key={reason} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-red-700">
+                    {reason}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {(autopilot?.warnings?.length || 0) > 0 && (
+            <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-3">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-amber-600">Warnings</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {autopilot?.warnings?.map((warning) => (
+                  <span key={warning} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-amber-700">
+                    {warning}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap gap-3">
         <button
           type="button"

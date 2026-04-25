@@ -244,6 +244,9 @@ export interface SalesDepartmentAutopilotState {
   enabled: boolean;
   status?: string;
   safe_to_send?: boolean;
+  allowed_actions?: string[];
+  blocked_reasons?: string[];
+  warnings?: string[];
   full_auto_enabled?: boolean;
   handoff_required?: boolean;
   handoff_reason?: string;

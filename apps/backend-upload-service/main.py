@@ -960,7 +960,26 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
     confidence = sales_state.get("reply_probability")
     pipeline_health = sales_state.get("pipeline_health")
     has_recommended_action = bool(sales_state.get("recommended_action"))
+    snapshot_summary = sales_state.get("snapshot_summary") or {}
+    uploaded_files_count = snapshot_summary.get("uploaded_files_count") or 0
+    suggested_cta = str(sales_state.get("suggested_cta") or "").casefold()
+    recommended_action = str(sales_state.get("recommended_action") or "").casefold()
     safe_to_prepare = bool(enabled and has_recommended_action and pipeline_health != "blocked")
+    blocked_reasons: list[str] = []
+    warnings: list[str] = []
+
+    if not sales_state:
+        blocked_reasons.append("missing_sales_state")
+    if mode == AutopilotMode.FULL_AUTO.value:
+        blocked_reasons.append("full_auto_locked_until_guardrails")
+    if pipeline_health == "blocked":
+        blocked_reasons.append("pipeline_blocked")
+    if isinstance(confidence, (int, float)) and confidence < 0.55:
+        blocked_reasons.append("low_confidence")
+    if uploaded_files_count > 0 and any(token in suggested_cta or token in recommended_action for token in ["factura", "invoice", "document"]):
+        blocked_reasons.append("would_request_existing_documents")
+    if snapshot_summary.get("has_proposal") and not snapshot_summary.get("has_selected_simulation"):
+        warnings.append("proposal_exists_without_selected_simulation")
 
     # Full Auto stays locked until the safety engine and explicit approval are implemented.
     safe_to_send = (
@@ -968,6 +987,7 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
         and safe_to_prepare
         and isinstance(confidence, (int, float))
         and confidence >= 0.55
+        and not blocked_reasons
     )
     if mode == AutopilotMode.FULL_AUTO.value:
         safe_to_send = False
@@ -988,8 +1008,11 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
         "enabled": enabled,
         "status": status_value,
         "safe_to_send": safe_to_send,
+        "allowed_actions": ["analyze", "draft_message"] if enabled else ["analyze"],
+        "blocked_reasons": blocked_reasons,
+        "warnings": warnings,
         "full_auto_enabled": mode == AutopilotMode.FULL_AUTO.value and enabled,
-        "handoff_required": pipeline_health == "blocked" or confidence == 0,
+        "handoff_required": pipeline_health == "blocked" or confidence == 0 or len(blocked_reasons) > 0,
         "last_decision": decision,
         "last_evaluated_state": {
             "pipeline_health": pipeline_health,

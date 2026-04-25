@@ -761,6 +761,59 @@ def _estimate_sales_confidence(snapshot: dict) -> float:
     return round(max(0.1, min(score, 0.95)), 2)
 
 
+def compose_sales_department_draft(lead: dict, recommended_action: str, language: str | None) -> str:
+    client_name = (lead.get("client_name") or "").strip()
+    greeting_name = f" {client_name.split()[0]}" if client_name else ""
+    lang = (language or "es").lower()
+
+    drafts = {
+        "ask_for_invoice": {
+            "es": f"Hola{greeting_name}. Si le parece, puede enviarnos su factura por aquí y la revisamos sin coste. Con una foto o PDF es suficiente.",
+            "ru": f"Здравствуйте{greeting_name}. Если вам удобно, отправьте сюда счёт, и мы бесплатно его проверим. Достаточно фото или PDF.",
+            "uk": f"Вітаю{greeting_name}. Якщо вам зручно, надішліть сюди рахунок, і ми безкоштовно його перевіримо. Достатньо фото або PDF.",
+            "eu": f"Kaixo{greeting_name}. Nahi baduzu, bidali faktura hemen eta kosturik gabe aztertuko dugu. Argazki bat edo PDF bat nahikoa da.",
+        },
+        "confirm_receipt_and_analysis": {
+            "es": f"Hola{greeting_name}. Ya hemos recibido la documentación y nuestro equipo está revisando su caso. En cuanto tengamos el análisis preparado, le escribimos.",
+            "ru": f"Здравствуйте{greeting_name}. Документы получили, сейчас команда проверяет ваш случай. Как только анализ будет готов, сразу напишем.",
+            "uk": f"Вітаю{greeting_name}. Документи отримали, зараз команда перевіряє ваш випадок. Щойно аналіз буде готовий, ми напишемо.",
+            "eu": f"Kaixo{greeting_name}. Dokumentazioa jaso dugu eta gure taldea zure kasua aztertzen ari da. Analisia prest dagoenean idatziko dizugu.",
+        },
+        "create_simulation": {
+            "es": f"Hola{greeting_name}. Ya tenemos los datos principales de su factura y estamos preparando la comparación. Le avisamos en cuanto tengamos una alternativa clara.",
+            "ru": f"Здравствуйте{greeting_name}. Основные данные счёта уже есть, готовим сравнение. Напишем, как только будет понятная альтернатива.",
+            "uk": f"Вітаю{greeting_name}. Основні дані рахунку вже є, готуємо порівняння. Напишемо, щойно буде зрозуміла альтернатива.",
+            "eu": f"Kaixo{greeting_name}. Zure fakturako datu nagusiak baditugu eta konparazioa prestatzen ari gara. Aukera argia dugunean jakinaraziko dizugu.",
+        },
+        "prepare_and_send_proposal": {
+            "es": f"Hola{greeting_name}. Ya tenemos una alternativa preparada y estamos terminando la propuesta para que pueda verla con claridad. Se la enviaremos en breve.",
+            "ru": f"Здравствуйте{greeting_name}. Мы уже подготовили альтернативу и заканчиваем предложение, чтобы всё было понятно. Скоро отправим его вам.",
+            "uk": f"Вітаю{greeting_name}. Ми вже підготували альтернативу і завершуємо пропозицію, щоб усе було зрозуміло. Невдовзі надішлемо її вам.",
+            "eu": f"Kaixo{greeting_name}. Alternatiba bat prest dugu eta proposamena amaitzen ari gara, argi ikus dezazun. Laster bidaliko dizugu.",
+        },
+        "invite_questions_about_proposal": {
+            "es": f"Hola{greeting_name}. Le escribo por si ha podido ver la propuesta que le enviamos. Si quiere, le aclaramos cualquier duda sin compromiso.",
+            "ru": f"Здравствуйте{greeting_name}. Пишу уточнить, удалось ли посмотреть предложение. Если есть вопросы, спокойно всё поясним без обязательств.",
+            "uk": f"Вітаю{greeting_name}. Пишу уточнити, чи вдалося переглянути пропозицію. Якщо є питання, спокійно все пояснимо без зобов’язань.",
+            "eu": f"Kaixo{greeting_name}. Bidali genizun proposamena ikusteko aukerarik izan duzun jakiteko idazten dizut. Zalantzarik baduzu, argituko dizugu konpromisorik gabe.",
+        },
+        "confirm_next_steps": {
+            "es": f"Muchas gracias por la confianza{greeting_name}. Seguimos con la gestión y le iremos informando de los siguientes pasos.",
+            "ru": f"Спасибо за доверие{greeting_name}. Мы продолжаем оформление и будем держать вас в курсе следующих шагов.",
+            "uk": f"Дякуємо за довіру{greeting_name}. Ми продовжуємо оформлення і будемо повідомляти про наступні кроки.",
+            "eu": f"Eskerrik asko konfiantzagatik{greeting_name}. Kudeaketarekin jarraitzen dugu eta hurrengo urratsen berri emango dizugu.",
+        },
+        "close_without_pressure": {
+            "es": f"Entendido{greeting_name}, muchas gracias por su tiempo. Si más adelante quiere que revisemos su factura, estaremos encantados de ayudarle.",
+            "ru": f"Понял{greeting_name}, спасибо за ваше время. Если позже захотите вернуться к проверке счёта, будем рады помочь.",
+            "uk": f"Зрозуміло{greeting_name}, дякуємо за ваш час. Якщо пізніше захочете повернутися до перевірки рахунку, будемо раді допомогти.",
+            "eu": f"Ulertuta{greeting_name}, eskerrik asko zure denboragatik. Aurrerago faktura berrikusi nahi baduzu, pozik lagunduko dizugu.",
+        },
+    }
+    selected = drafts.get(recommended_action) or drafts["ask_for_invoice"]
+    return selected.get(lang) or selected.get("es")
+
+
 def analyze_sales_department_snapshot(snapshot: dict) -> dict:
     lead = snapshot.get("lead", {})
     signals = snapshot.get("signals", {})
@@ -886,6 +939,12 @@ def analyze_sales_department_snapshot(snapshot: dict) -> dict:
         },
     ]
 
+    suggested_message = compose_sales_department_draft(
+        lead=lead,
+        recommended_action=recommended_action,
+        language=lead.get("language") or "es",
+    )
+
     return {
         "version": 1,
         "status": "active",
@@ -901,7 +960,7 @@ def analyze_sales_department_snapshot(snapshot: dict) -> dict:
         "why_now": "Based on current lead status, documents, proposal data and recent timeline.",
         "expected_outcome": "Client understands the next step and stays in the process.",
         "suggested_cta": suggested_cta,
-        "suggested_message": None,
+        "suggested_message": suggested_message,
         "language_used": lead.get("language") or "es",
         "followup_needed": followup_needed,
         "followup_eta_hours": 24 if followup_needed else None,

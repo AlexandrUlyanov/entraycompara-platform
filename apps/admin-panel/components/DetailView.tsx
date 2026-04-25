@@ -43,6 +43,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     language: 'es',
   });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [salesDraft, setSalesDraft] = useState<{ message: string; source: string } | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -394,7 +395,13 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
             </div>
             
             {/* Sales Department AI */}
-            <SalesDepartmentPanel appId={appId} />
+            <SalesDepartmentPanel
+              appId={appId}
+              onInsertMessage={(message) => {
+                setSalesDraft({ message, source: `sales-${Date.now()}` });
+                showToast('Черновик вставлен в WhatsApp');
+              }}
+            />
 
             {/* Proposal Builder */}
             <ProposalBuilder
@@ -409,6 +416,8 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
               clientName={application.client_name}
               clientPhone={application.client_phone}
               firstMessageSent={application.whatsapp_first_message_sent || false}
+              draftMessage={salesDraft?.message}
+              draftSource={salesDraft?.source}
             />
 
             {/* Timeline Component */}

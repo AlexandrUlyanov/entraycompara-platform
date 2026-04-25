@@ -2,17 +2,19 @@ import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   analyzeSalesDepartment,
+  createTimelineNote,
   getSalesDepartmentAutopilot,
   getSalesDepartmentState,
   handoffSalesDepartment,
   recalculateSalesDepartmentAutopilot,
   updateSalesDepartmentAutopilot,
 } from '../services/api';
-import { SalesDepartmentAgentStep, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotState, SalesDepartmentState } from '../types';
+import { NoteType, SalesDepartmentAgentStep, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotState, SalesDepartmentState } from '../types';
 import Spinner from './Spinner';
 
 interface SalesDepartmentPanelProps {
   appId: string;
+  onInsertMessage?: (message: string) => void;
 }
 
 const formatPercent = (value?: number): string => {
@@ -121,6 +123,35 @@ const ActionPanel: React.FC<{ state: SalesDepartmentState }> = ({ state }) => (
         CTA: {state.suggested_cta}
       </div>
     )}
+  </div>
+);
+
+const MessageStudio: React.FC<{
+  message?: string | null;
+  isBusy: boolean;
+  onInsert: () => void;
+}> = ({ message, isBusy, onInsert }) => (
+  <div className="rounded-[24px] border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">Message Studio</div>
+        <h4 className="mt-1 text-lg font-bold text-slate-900">Черновик следующего сообщения</h4>
+        <p className="mt-1 text-sm text-slate-500">
+          AI готовит текст, оператор проверяет и отправляет вручную. Автоотправки здесь нет.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onInsert}
+        disabled={!message || isBusy}
+        className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {isBusy ? <Spinner size="h-4 w-4" /> : 'Вставить в WhatsApp'}
+      </button>
+    </div>
+    <div className="mt-4 rounded-2xl border border-white/80 bg-white/90 p-4 text-sm leading-relaxed text-slate-700">
+      {message || 'Черновик появится после анализа отдела продаж.'}
+    </div>
   </div>
 );
 
@@ -255,7 +286,7 @@ const EmptyState: React.FC<{ onAnalyze: () => void; isPending: boolean }> = ({ o
   </div>
 );
 
-const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId }) => {
+const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onInsertMessage }) => {
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['salesDepartment', appId],
@@ -297,6 +328,17 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId }) =>
     mutationFn: () => handoffSalesDepartment(appId, 'Operator requested manual handoff from CRM'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const logDraftInsertedMutation = useMutation({
+    mutationFn: (message: string) =>
+      createTimelineNote(
+        appId,
+        `SALES_DEPARTMENT_DRAFT_INSERTED:${message.slice(0, 240)}`,
+        NoteType.System,
+      ),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -361,6 +403,16 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId }) =>
             </div>
 
             <ActionPanel state={state} />
+
+            <MessageStudio
+              message={state.suggested_message}
+              isBusy={logDraftInsertedMutation.isPending}
+              onInsert={() => {
+                if (!state.suggested_message) return;
+                onInsertMessage?.(state.suggested_message);
+                logDraftInsertedMutation.mutate(state.suggested_message);
+              }}
+            />
 
             <AutopilotControl
               autopilot={autopilot}

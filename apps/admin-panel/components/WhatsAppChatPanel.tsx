@@ -10,6 +10,8 @@ interface WhatsAppChatPanelProps {
   clientName: string;
   clientPhone: string;
   firstMessageSent?: boolean;
+  draftMessage?: string | null;
+  draftSource?: string | null;
 }
 
 const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
@@ -17,6 +19,8 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
   clientName,
   clientPhone,
   firstMessageSent = false,
+  draftMessage,
+  draftSource,
 }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -30,6 +34,13 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
   useEffect(() => {
     setFirstMessageStatus(firstMessageSent ? 'sent' : 'idle');
   }, [firstMessageSent]);
+
+  useEffect(() => {
+    if (draftMessage) {
+      setNewMessage(draftMessage);
+      setAiError(null);
+    }
+  }, [draftMessage, draftSource]);
 
   const { data: allNotes, isLoading, isError } = useQuery({
     queryKey: ['timeline', appId],

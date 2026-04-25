@@ -30,6 +30,8 @@ const formatPercent = (value?: number): string => {
   return `${Math.round(value * 100)}%`;
 };
 
+const formatBoolean = (value?: boolean): string => (value ? 'yes' : 'no');
+
 const formatDateTime = (value?: string): string => {
   if (!value) return 'n/a';
   const date = new Date(value);
@@ -78,6 +80,8 @@ const RadarTile: React.FC<{ label: string; value?: string | number | null; tone?
     blue: 'from-blue-50 to-white border-blue-100',
     green: 'from-emerald-50 to-white border-emerald-100',
     amber: 'from-amber-50 to-white border-amber-100',
+    indigo: 'from-indigo-50 to-white border-indigo-100',
+    red: 'from-red-50 to-white border-red-100',
     slate: 'from-slate-50 to-white border-slate-100',
   };
 
@@ -85,6 +89,50 @@ const RadarTile: React.FC<{ label: string; value?: string | number | null; tone?
     <div className={`rounded-2xl border bg-gradient-to-br ${toneClasses[tone]} p-4`}>
       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
       <div className="mt-1 text-sm font-semibold text-slate-800">{value || 'n/a'}</div>
+    </div>
+  );
+};
+
+const SalesControlHud: React.FC<{
+  state: SalesDepartmentState;
+  autopilot?: SalesDepartmentAutopilotState;
+  isAnalyzing: boolean;
+}> = ({ state, autopilot, isAnalyzing }) => {
+  const pulseTone = isAnalyzing ? 'bg-blue-400 shadow-blue-400/50' : 'bg-emerald-400 shadow-emerald-400/40';
+
+  return (
+    <div className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.35),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.22),transparent_32%)]" />
+      <div className="relative flex flex-wrap items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.24em] text-blue-100">
+            <span className={`h-2.5 w-2.5 rounded-full ${pulseTone} shadow-lg ${isAnalyzing ? 'animate-pulse' : ''}`} />
+            Live sales control
+          </div>
+          <h4 className="mt-2 text-xl font-bold">AI-отдел ведёт лид до следующего безопасного шага</h4>
+          <p className="mt-1 max-w-3xl text-sm leading-relaxed text-slate-300">
+            Сейчас система анализирует состояние клиента, контекст лида, готовность документов и safety-ограничения.
+          </p>
+        </div>
+        <div className="grid min-w-[260px] grid-cols-2 gap-2 text-sm">
+          <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Autopilot</div>
+            <div className="mt-1 font-semibold">{autopilot?.mode || 'manual'}</div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Safe to send</div>
+            <div className="mt-1 font-semibold">{formatBoolean(autopilot?.safe_to_send)}</div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Pipeline</div>
+            <div className="mt-1 font-semibold">{state.pipeline_health || 'ready'}</div>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">Updated</div>
+            <div className="mt-1 font-semibold">{formatDateTime(state.updated_at)}</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
@@ -110,6 +158,68 @@ const AgentStep: React.FC<{ agent: SalesDepartmentAgentStep }> = ({ agent }) => 
     </div>
   );
 };
+
+const DecisionTracePanel: React.FC<{ state: SalesDepartmentState }> = ({ state }) => {
+  const trace = state.decision_trace || state.molecule?.decision_trace || [];
+
+  return (
+    <div className="rounded-[24px] border border-slate-100 bg-white/80 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Decision Trace</div>
+          <h4 className="mt-1 text-lg font-bold text-slate-900">Как AI пришёл к следующему шагу</h4>
+        </div>
+        <span className="rounded-full border border-slate-100 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500">
+          {trace.length} signals
+        </span>
+      </div>
+      {trace.length > 0 ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-5">
+          {trace.map((item, index) => (
+            <div key={`${item.step}-${index}`} className="relative rounded-2xl border border-slate-100 bg-slate-50/80 p-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+                  {index + 1}
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{item.step.replace(/_/g, ' ')}</span>
+              </div>
+              <div className="mt-3 text-xs font-semibold leading-relaxed text-slate-700">{item.value || 'n/a'}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+          Decision trace появится после следующего анализа.
+        </div>
+      )}
+    </div>
+  );
+};
+
+const FollowUpDealPanel: React.FC<{ state: SalesDepartmentState; autopilot?: SalesDepartmentAutopilotState }> = ({ state, autopilot }) => (
+  <div className="rounded-[24px] border border-slate-100 bg-gradient-to-br from-white to-slate-50 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Follow-up & Deal Control</div>
+        <h4 className="mt-1 text-lg font-bold text-slate-900">Контроль следующего касания</h4>
+      </div>
+      <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusTone(autopilot?.handoff_required ? 'needs_attention' : state.pipeline_health)}`}>
+        {autopilot?.handoff_required ? 'handoff required' : state.pipeline_health || 'ready'}
+      </span>
+    </div>
+    <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <RadarTile label="Follow-up нужен" value={state.followup_needed ? 'да' : 'нет'} tone={state.followup_needed ? 'amber' : 'green'} />
+      <RadarTile label="ETA" value={state.followup_eta_hours ? `${state.followup_eta_hours} ч` : 'n/a'} tone="blue" />
+      <RadarTile label="Температура сделки" value={state.deal_temperature} tone="indigo" />
+      <RadarTile label="Trust level" value={formatPercent(state.trust_level)} tone="green" />
+    </div>
+    {autopilot?.last_decision && (
+      <div className="mt-4 rounded-2xl border border-white bg-white/80 p-3 text-sm leading-relaxed text-slate-600">
+        {autopilot.last_decision}
+      </div>
+    )}
+  </div>
+);
 
 const MoleculeRoleCard: React.FC<{ role: SalesDepartmentMoleculeRole }> = ({ role }) => {
   const statusTone = getStatusTone(role.status);
@@ -463,16 +573,24 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
 
         {state && (
           <div className="space-y-5">
+            <SalesControlHud state={state} autopilot={autopilot} isAnalyzing={analyzeMutation.isPending} />
+
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <RadarTile label="Состояние клиента" value={state.client_state} tone="blue" />
               <RadarTile label="Главное препятствие" value={state.friction_point} tone="amber" />
               <RadarTile label="Вероятность ответа" value={formatPercent(state.reply_probability)} tone="green" />
               <RadarTile label="Стадия сделки" value={state.deal_stage} tone="slate" />
+              <RadarTile label="Engagement" value={state.engagement_level} tone="indigo" />
+              <RadarTile label="Trust" value={formatPercent(state.trust_level)} tone="green" />
+              <RadarTile label="Deal temperature" value={state.deal_temperature} tone="amber" />
+              <RadarTile label="Action priority" value={state.action_priority} tone="blue" />
             </div>
 
             <ActionPanel state={state} />
 
             <SalesMoleculePanel molecule={state.molecule} />
+
+            <DecisionTracePanel state={state} />
 
             <MessageStudio
               message={state.suggested_message}
@@ -492,6 +610,8 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
               onRecalculate={() => recalculateAutopilotMutation.mutate()}
               onHandoff={() => handoffMutation.mutate()}
             />
+
+            <FollowUpDealPanel state={state} autopilot={autopilot} />
 
             <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
               <div className="rounded-[24px] border border-slate-100 bg-white/70 p-5">

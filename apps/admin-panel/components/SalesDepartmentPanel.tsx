@@ -9,7 +9,15 @@ import {
   recalculateSalesDepartmentAutopilot,
   updateSalesDepartmentAutopilot,
 } from '../services/api';
-import { NoteType, SalesDepartmentAgentStep, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotState, SalesDepartmentState } from '../types';
+import {
+  NoteType,
+  SalesDepartmentAgentStep,
+  SalesDepartmentAutopilotMode,
+  SalesDepartmentAutopilotState,
+  SalesDepartmentMolecule,
+  SalesDepartmentMoleculeRole,
+  SalesDepartmentState,
+} from '../types';
 import Spinner from './Spinner';
 
 interface SalesDepartmentPanelProps {
@@ -36,11 +44,12 @@ const formatDateTime = (value?: string): string => {
 
 const getAgentLabel = (agentKey: string): string => {
   const labels: Record<string, string> = {
-    intake_analyst: 'Intake Analyst',
-    context_builder: 'Context Builder',
+    lead_state_analyst: 'Lead State Analyst',
     sales_strategist: 'Sales Strategist',
-    message_coach: 'Message Coach',
-    safety_guard: 'Safety Guard',
+    message_composer: 'Message Composer',
+    trust_guard: 'Trust Guard',
+    followup_scheduler: 'Follow-up Scheduler',
+    deal_control: 'Deal Control',
   };
   return labels[agentKey] || agentKey.replace(/_/g, ' ');
 };
@@ -98,6 +107,65 @@ const AgentStep: React.FC<{ agent: SalesDepartmentAgentStep }> = ({ agent }) => 
         </div>
         {agent.summary && <p className="mt-1 text-xs leading-relaxed text-slate-500">{agent.summary}</p>}
       </div>
+    </div>
+  );
+};
+
+const MoleculeRoleCard: React.FC<{ role: SalesDepartmentMoleculeRole }> = ({ role }) => {
+  const statusTone = getStatusTone(role.status);
+
+  return (
+    <div className="rounded-2xl border border-white/70 bg-white/80 p-3 shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-500">{role.name || getAgentLabel(role.key)}</span>
+        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase ${statusTone}`}>
+          {role.status || 'ready'}
+        </span>
+      </div>
+      {role.decision && <p className="mt-2 text-xs leading-relaxed text-slate-600">{role.decision}</p>}
+      {role.output && (
+        <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700">
+          {role.output}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const SalesMoleculePanel: React.FC<{ molecule?: SalesDepartmentMolecule }> = ({ molecule }) => {
+  const roles = molecule?.roles || [];
+
+  return (
+    <div className="rounded-[24px] border border-indigo-100 bg-gradient-to-br from-indigo-50 via-blue-50 to-white p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-500">Sales Molecule</div>
+          <h4 className="mt-1 text-lg font-bold text-slate-900">Виртуальный отдел продаж</h4>
+          <p className="mt-1 text-sm text-slate-500">
+            Роли работают как единая команда: анализируют лид, выбирают микро-шаг, готовят сообщение и держат safety-контур.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs font-semibold">
+          <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-emerald-700">
+            human approval
+          </span>
+          <span className="rounded-full border border-red-100 bg-red-50 px-3 py-1 text-red-700">
+            auto-send off
+          </span>
+        </div>
+      </div>
+
+      {roles.length > 0 ? (
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {roles.map((role) => (
+            <MoleculeRoleCard key={role.key} role={role} />
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 rounded-2xl border border-dashed border-indigo-200 bg-white/60 p-4 text-sm text-slate-500">
+          Молекула появится после следующего анализа отдела продаж.
+        </div>
+      )}
     </div>
   );
 };
@@ -403,6 +471,8 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
             </div>
 
             <ActionPanel state={state} />
+
+            <SalesMoleculePanel molecule={state.molecule} />
 
             <MessageStudio
               message={state.suggested_message}

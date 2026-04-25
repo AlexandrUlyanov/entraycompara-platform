@@ -183,6 +183,29 @@ export interface SalesDepartmentSnapshotSummary {
   timeline_events_count?: number;
 }
 
+export interface SalesDepartmentDecisionTraceItem {
+  step: string;
+  value?: string | null;
+}
+
+export interface SalesDepartmentMoleculeRole {
+  key: string;
+  name?: string;
+  status?: SalesDepartmentAgentStatus;
+  output?: string | null;
+  decision?: string | null;
+  confidence?: number | null;
+}
+
+export interface SalesDepartmentMolecule {
+  mode?: string;
+  roles?: SalesDepartmentMoleculeRole[];
+  decision_trace?: SalesDepartmentDecisionTraceItem[];
+  next_action?: string;
+  human_approval_required?: boolean;
+  auto_send_allowed?: boolean;
+}
+
 export interface SalesDepartmentState {
   version?: number;
   status?: string;
@@ -205,6 +228,8 @@ export interface SalesDepartmentState {
   deal_stage?: string;
   pipeline_health?: string;
   agents?: SalesDepartmentAgentStep[];
+  molecule?: SalesDepartmentMolecule;
+  decision_trace?: SalesDepartmentDecisionTraceItem[];
   last_inputs_hash?: string;
   last_run_id?: string;
   updated_at?: string;

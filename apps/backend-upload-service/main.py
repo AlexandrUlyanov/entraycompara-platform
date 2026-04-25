@@ -900,50 +900,101 @@ def analyze_sales_department_snapshot(snapshot: dict) -> dict:
     elif pipeline_health == "needs_input":
         reply_probability = min(reply_probability, 0.48)
 
-    agent_summaries = [
-        {
-            "agent_key": "lead_state_analyst",
-            "status": "completed",
-            "summary": f"Client state: {client_state}",
-            "confidence": confidence,
-        },
-        {
-            "agent_key": "sales_strategist",
-            "status": "completed",
-            "summary": f"Recommended action: {recommended_action}",
-            "confidence": confidence,
-        },
-        {
-            "agent_key": "message_composer",
-            "status": "pending",
-            "summary": "Message text will be generated in Message Studio phase.",
-            "confidence": None,
-        },
-        {
-            "agent_key": "trust_guard",
-            "status": "completed",
-            "summary": "No auto-send enabled in foundation phase.",
-            "confidence": 1.0,
-        },
-        {
-            "agent_key": "followup_scheduler",
-            "status": "completed",
-            "summary": "Follow-up recommended." if followup_needed else "No follow-up needed right now.",
-            "confidence": confidence,
-        },
-        {
-            "agent_key": "deal_control",
-            "status": "completed",
-            "summary": f"Deal stage: {deal_stage}; health: {pipeline_health}",
-            "confidence": confidence,
-        },
-    ]
-
     suggested_message = compose_sales_department_draft(
         lead=lead,
         recommended_action=recommended_action,
         language=lead.get("language") or "es",
     )
+    molecule_roles = {
+        "lead_state_analyst": {
+            "name": "Lead State Analyst",
+            "status": "completed",
+            "output": client_state,
+            "decision": f"Friction point is {friction_point}",
+            "confidence": confidence,
+        },
+        "sales_strategist": {
+            "name": "Sales Strategist",
+            "status": "completed",
+            "output": recommended_action,
+            "decision": f"Goal is {goal}",
+            "confidence": confidence,
+        },
+        "message_composer": {
+            "name": "Message Composer",
+            "status": "completed",
+            "output": suggested_message,
+            "decision": f"CTA is {suggested_cta}",
+            "confidence": confidence,
+        },
+        "trust_guard": {
+            "name": "Trust Guard",
+            "status": "completed",
+            "output": "manual_approval_required",
+            "decision": "No automatic send is allowed in the current safety phase.",
+            "confidence": 1.0,
+        },
+        "followup_scheduler": {
+            "name": "Follow-up Scheduler",
+            "status": "completed",
+            "output": "followup_needed" if followup_needed else "no_followup_now",
+            "decision": f"ETA hours: {24 if followup_needed else None}",
+            "confidence": confidence,
+        },
+        "deal_control": {
+            "name": "Deal Control",
+            "status": "completed",
+            "output": deal_stage,
+            "decision": f"Pipeline health is {pipeline_health}",
+            "confidence": confidence,
+        },
+    }
+    decision_trace = [
+        {"step": "lead_state", "value": client_state},
+        {"step": "friction_point", "value": friction_point},
+        {"step": "recommended_action", "value": recommended_action},
+        {"step": "suggested_cta", "value": suggested_cta},
+        {"step": "safety", "value": "manual_approval_required"},
+    ]
+
+    agent_summaries = [
+        {
+            "agent_key": "lead_state_analyst",
+            "status": "completed",
+            "summary": molecule_roles["lead_state_analyst"]["decision"],
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "sales_strategist",
+            "status": "completed",
+            "summary": molecule_roles["sales_strategist"]["decision"],
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "message_composer",
+            "status": "completed",
+            "summary": molecule_roles["message_composer"]["decision"],
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "trust_guard",
+            "status": "completed",
+            "summary": molecule_roles["trust_guard"]["decision"],
+            "confidence": 1.0,
+        },
+        {
+            "agent_key": "followup_scheduler",
+            "status": "completed",
+            "summary": molecule_roles["followup_scheduler"]["decision"],
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "deal_control",
+            "status": "completed",
+            "summary": molecule_roles["deal_control"]["decision"],
+            "confidence": confidence,
+        },
+    ]
 
     return {
         "version": 1,
@@ -967,6 +1018,19 @@ def analyze_sales_department_snapshot(snapshot: dict) -> dict:
         "deal_stage": deal_stage,
         "pipeline_health": pipeline_health,
         "agents": agent_summaries,
+        "molecule_roles": molecule_roles,
+        "molecule": {
+            "mode": "sales_department",
+            "roles": [
+                {"key": key, **role}
+                for key, role in molecule_roles.items()
+            ],
+            "decision_trace": decision_trace,
+            "next_action": recommended_action,
+            "human_approval_required": True,
+            "auto_send_allowed": False,
+        },
+        "decision_trace": decision_trace,
         "last_inputs_hash": hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode("utf-8")).hexdigest(),
     }
 

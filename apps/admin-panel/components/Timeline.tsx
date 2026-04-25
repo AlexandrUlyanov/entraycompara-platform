@@ -265,7 +265,7 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
             {isLoading ? (
                  <div className="flex justify-center py-8"><Spinner /></div>
             ) : isError ? (
-                <div className="text-center text-red-500 py-4">Failed to load timeline.</div>
+                <div className="text-center text-red-500 py-4">{t('timeline.loadError')}</div>
             ) : !notes || notes.length === 0 ? (
                 <div className="text-center py-8 text-slate-400 text-sm italic pl-8">
                     {t('timeline.empty')}

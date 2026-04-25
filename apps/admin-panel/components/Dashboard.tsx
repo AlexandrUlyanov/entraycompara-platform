@@ -204,7 +204,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectApplication }) => {
             {viewMode === 'table' ? (
                 <div className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden animate-fade-in">
                     <div className="px-8 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
-                    <span className="text-xs font-bold uppercase tracking-widest text-secondary-light">All Applications</span>
+                    <span className="text-xs font-bold uppercase tracking-widest text-secondary-light">{t('dashboard.allApplications')}</span>
                     <span className="text-xs font-medium text-secondary-light/80 bg-white px-2 py-1 rounded-md shadow-sm">
                         {data && t('dashboard.showingCount', { count: data.applications.length })}
                     </span>
@@ -257,7 +257,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectApplication }) => {
                             </tr>
                             ))}
                             {data?.applications.length === 0 && (
-                                <tr><td colSpan={6} className="text-center py-20 text-slate-400">No applications found.</td></tr>
+                                <tr><td colSpan={6} className="text-center py-20 text-slate-400">{t('dashboard.empty')}</td></tr>
                             )}
                         </tbody>
                     </table>

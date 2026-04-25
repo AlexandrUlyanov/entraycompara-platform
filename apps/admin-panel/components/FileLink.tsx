@@ -40,7 +40,7 @@ const FileLink: React.FC<FileLinkProps> = ({ uri }) => {
     return (
       <div className="flex items-center p-3 rounded-lg border border-slate-100 bg-slate-50">
         <Spinner size="h-5 w-5" />
-        <span className="ml-3 text-sm text-slate-400">Generating secure link...</span>
+        <span className="ml-3 text-sm text-slate-400">{t('fileLink.generating')}</span>
       </div>
     );
   }
@@ -51,7 +51,7 @@ const FileLink: React.FC<FileLinkProps> = ({ uri }) => {
         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <span>Error loading link</span>
+        <span>{t('fileLink.error')}</span>
       </div>
     );
   }
@@ -75,9 +75,9 @@ const FileLink: React.FC<FileLinkProps> = ({ uri }) => {
             {isGcs ? (
                 <>
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-                    Secure Link
+                    {t('fileLink.secureLink')}
                 </>
-            ) : 'Click to download'}
+            ) : t('fileLink.download')}
         </p>
       </div>
     </a>

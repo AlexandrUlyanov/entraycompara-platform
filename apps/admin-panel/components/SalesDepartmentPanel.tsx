@@ -39,8 +39,16 @@ const translateSalesValue = (value: string | number | null | undefined, t: TFunc
   if (value === 'None') return 'n/a';
 
   const normalized = value.trim();
-  const key = `sales.value.${normalized}`;
-  return translateIfExists(t, key, normalized.replace(/_/g, ' '));
+  const directKey = `sales.value.${normalized}`;
+  const directTranslation = t(directKey);
+  if (directTranslation !== directKey) return directTranslation;
+
+  const slug = normalized
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  const slugKey = `sales.value.${slug}`;
+  return translateIfExists(t, slugKey, normalized.replace(/_/g, ' '));
 };
 
 const translateSalesText = (text: string | null | undefined, t: TFunction): string => {
@@ -57,6 +65,11 @@ const translateSalesText = (text: string | null | undefined, t: TFunction): stri
 
   if (exactMatches[trimmed]) {
     return translateIfExists(t, exactMatches[trimmed], trimmed);
+  }
+
+  const translatedValue = translateSalesValue(trimmed, t);
+  if (translatedValue !== trimmed.replace(/_/g, ' ')) {
+    return translatedValue;
   }
 
   const patternMatches: Array<{ regex: RegExp; key: string }> = [

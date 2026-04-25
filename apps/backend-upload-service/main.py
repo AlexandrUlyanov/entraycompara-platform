@@ -11,6 +11,7 @@ import asyncio
 import threading
 import difflib
 import unicodedata
+import hashlib
 from typing import List, Optional, Dict, Any 
 from enum import Enum 
 from email.mime.multipart import MIMEMultipart
@@ -244,6 +245,9 @@ class WhatsAppFirstMessageRequest(BaseModel):
 
 class AIGenerateRequest(BaseModel):
     application_id: str
+
+class SalesDepartmentAnalyzeRequest(BaseModel):
+    force_recalculate: bool = False
 
 # 1.6. Модели для Proposal Builder (Extracted Data)
 class ExtractedData(BaseModel):
@@ -576,6 +580,329 @@ def _build_live_lead_snapshot(doc_ref, app_data: dict) -> str:
         print(f"[AI Context] Failed to build live lead snapshot from selected simulation: {exc}")
 
     return "\n".join(lines)
+
+
+SALES_DEPARTMENT_AGENT_KEYS = [
+    "lead_state_analyst",
+    "sales_strategist",
+    "message_composer",
+    "trust_guard",
+    "followup_scheduler",
+    "deal_control",
+]
+
+
+def get_sales_department_state_ref(application_id: str):
+    return (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("sales_department")
+        .document("state")
+    )
+
+
+def normalize_firestore_value(value):
+    if isinstance(value, datetime.datetime):
+        return value.isoformat()
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    if isinstance(value, list):
+        return [normalize_firestore_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: normalize_firestore_value(item) for key, item in value.items()}
+    return value
+
+
+def _get_recent_timeline_items(doc_ref, max_events: int = 20) -> list[dict]:
+    docs = (
+        doc_ref.collection("timeline")
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .limit(max_events)
+        .stream()
+    )
+    items: list[dict] = []
+    for tdoc in docs:
+        data = tdoc.to_dict() or {}
+        data["id"] = tdoc.id
+        items.append(normalize_firestore_value(data))
+    return list(reversed(items))
+
+
+def _get_proposal_data_snapshot(doc_ref) -> dict:
+    try:
+        proposal_doc = doc_ref.collection("proposal_data").document("data").get()
+        if not proposal_doc.exists:
+            return {}
+        data = proposal_doc.to_dict() or {}
+        return normalize_firestore_value({
+            "extracted_data": data.get("extracted_data") or {},
+            "overall_confidence": data.get("overall_confidence"),
+            "needs_review": data.get("needs_review", False),
+            "needs_review_fields": data.get("needs_review_fields", []),
+            "extracted_at": data.get("extracted_at"),
+        })
+    except Exception as exc:
+        print(f"[Sales Department] Failed to read proposal data: {exc}")
+        return {}
+
+
+def _get_simulations_snapshot(doc_ref, max_items: int = 5) -> list[dict]:
+    try:
+        docs = (
+            doc_ref.collection("proposal_simulations")
+            .order_by("created_at", direction=firestore.Query.DESCENDING)
+            .limit(max_items)
+            .stream()
+        )
+        simulations = []
+        for sim_doc in docs:
+            data = sim_doc.to_dict() or {}
+            data["id"] = sim_doc.id
+            simulations.append(normalize_firestore_value(data))
+        return simulations
+    except Exception as exc:
+        print(f"[Sales Department] Failed to read simulations: {exc}")
+        return []
+
+
+def build_sales_department_snapshot(application_id: str, doc_ref, app_data: dict) -> dict:
+    timeline = _get_recent_timeline_items(doc_ref)
+    proposal_data = _get_proposal_data_snapshot(doc_ref)
+    simulations = _get_simulations_snapshot(doc_ref)
+    selected_simulation = next((item for item in simulations if item.get("is_selected")), None)
+    incoming_whatsapp = [
+        item for item in timeline
+        if item.get("type") == EventType.WHATSAPP.value
+        and (item.get("direction") == "incoming" or item.get("created_by") == "Client")
+    ]
+    outgoing_whatsapp = [
+        item for item in timeline
+        if item.get("type") == EventType.WHATSAPP.value
+        and item not in incoming_whatsapp
+    ]
+    uploaded_files = app_data.get("uploaded_files", []) or []
+    extracted_data = proposal_data.get("extracted_data") or {}
+
+    return {
+        "application_id": application_id,
+        "lead": normalize_firestore_value({
+            "client_name": app_data.get("client_name"),
+            "client_phone": app_data.get("client_phone"),
+            "client_email": app_data.get("client_email"),
+            "service_type": app_data.get("service_type"),
+            "status": app_data.get("status", Status.NEW_LEAD.value),
+            "language": app_data.get("language", "es"),
+            "notes": app_data.get("notes"),
+            "created_at": app_data.get("created_at"),
+            "updated_at": app_data.get("updated_at"),
+            "uploaded_files_count": len(uploaded_files),
+            "uploaded_files": uploaded_files,
+            "proposal_file_url": app_data.get("proposal_file_url"),
+            "proposal_uploaded": app_data.get("proposal_uploaded", False),
+        }),
+        "timeline": timeline,
+        "whatsapp": {
+            "incoming_count": len(incoming_whatsapp),
+            "outgoing_count": len(outgoing_whatsapp),
+            "last_incoming": incoming_whatsapp[-1] if incoming_whatsapp else None,
+            "last_outgoing": outgoing_whatsapp[-1] if outgoing_whatsapp else None,
+        },
+        "proposal_data": proposal_data,
+        "simulations": simulations,
+        "selected_simulation": selected_simulation,
+        "signals": {
+            "has_files": len(uploaded_files) > 0,
+            "has_extracted_data": bool(extracted_data),
+            "has_selected_simulation": selected_simulation is not None,
+            "has_proposal": bool(app_data.get("proposal_file_url") or app_data.get("proposal_uploaded")),
+            "needs_extraction_review": bool(proposal_data.get("needs_review")),
+        },
+    }
+
+
+def _estimate_sales_confidence(snapshot: dict) -> float:
+    score = 0.35
+    signals = snapshot.get("signals", {})
+    if signals.get("has_files"):
+        score += 0.12
+    if signals.get("has_extracted_data"):
+        score += 0.16
+    if signals.get("has_selected_simulation"):
+        score += 0.12
+    if signals.get("has_proposal"):
+        score += 0.12
+    if snapshot.get("whatsapp", {}).get("incoming_count", 0) > 0:
+        score += 0.08
+    if signals.get("needs_extraction_review"):
+        score -= 0.12
+    return round(max(0.1, min(score, 0.95)), 2)
+
+
+def analyze_sales_department_snapshot(snapshot: dict) -> dict:
+    lead = snapshot.get("lead", {})
+    signals = snapshot.get("signals", {})
+    whatsapp = snapshot.get("whatsapp", {})
+    status = lead.get("status") or Status.NEW_LEAD.value
+    confidence = _estimate_sales_confidence(snapshot)
+
+    if status == Status.DEAL_LOST.value:
+        client_state = "lost"
+        friction_point = "deal_lost"
+        recommended_action = "close_without_pressure"
+        goal = "preserve_brand_trust"
+        suggested_cta = "leave_door_open"
+        deal_stage = "lost"
+        pipeline_health = "closed"
+        followup_needed = False
+    elif status == Status.CONTRACT_WON.value:
+        client_state = "contract_won"
+        friction_point = "needs_onboarding_confidence"
+        recommended_action = "confirm_next_steps"
+        goal = "reinforce_trust"
+        suggested_cta = "reassure_next_stage"
+        deal_stage = "won"
+        pipeline_health = "healthy"
+        followup_needed = True
+    elif signals.get("has_proposal"):
+        client_state = "reviewing_proposal"
+        friction_point = "client_may_need_clarity_or_reassurance"
+        recommended_action = "invite_questions_about_proposal"
+        goal = "get_reply_after_proposal"
+        suggested_cta = "soft_question"
+        deal_stage = "proposal_review"
+        pipeline_health = "watch"
+        followup_needed = True
+    elif signals.get("has_selected_simulation"):
+        client_state = "waiting_for_proposal"
+        friction_point = "proposal_not_sent_yet"
+        recommended_action = "prepare_and_send_proposal"
+        goal = "move_to_proposal"
+        suggested_cta = "send_proposal"
+        deal_stage = "simulation_ready"
+        pipeline_health = "healthy"
+        followup_needed = False
+    elif signals.get("has_extracted_data"):
+        client_state = "analysis_ready"
+        friction_point = "needs_simulation_or_offer"
+        recommended_action = "create_simulation"
+        goal = "prepare_comparison"
+        suggested_cta = "continue_analysis"
+        deal_stage = "analysis"
+        pipeline_health = "healthy" if not signals.get("needs_extraction_review") else "watch"
+        followup_needed = False
+    elif signals.get("has_files"):
+        client_state = "waiting_for_analysis"
+        friction_point = "client_waiting_for_result"
+        recommended_action = "confirm_receipt_and_analysis"
+        goal = "reassure_progress"
+        suggested_cta = "we_are_reviewing"
+        deal_stage = "documents_received"
+        pipeline_health = "healthy"
+        followup_needed = True
+    else:
+        client_state = "new_lead_needs_invoice"
+        friction_point = "invoice_missing"
+        recommended_action = "ask_for_invoice"
+        goal = "get_invoice_upload"
+        suggested_cta = "send_invoice"
+        deal_stage = "new_lead"
+        pipeline_health = "needs_input"
+        followup_needed = True
+
+    if whatsapp.get("incoming_count", 0) > whatsapp.get("outgoing_count", 0):
+        reply_probability = 0.72
+        engagement_level = "active"
+    elif whatsapp.get("incoming_count", 0) == 0:
+        reply_probability = 0.38
+        engagement_level = "unknown"
+    else:
+        reply_probability = 0.54
+        engagement_level = "warm"
+
+    if pipeline_health == "closed":
+        reply_probability = 0.2
+    elif pipeline_health == "needs_input":
+        reply_probability = min(reply_probability, 0.48)
+
+    agent_summaries = [
+        {
+            "agent_key": "lead_state_analyst",
+            "status": "completed",
+            "summary": f"Client state: {client_state}",
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "sales_strategist",
+            "status": "completed",
+            "summary": f"Recommended action: {recommended_action}",
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "message_composer",
+            "status": "pending",
+            "summary": "Message text will be generated in Message Studio phase.",
+            "confidence": None,
+        },
+        {
+            "agent_key": "trust_guard",
+            "status": "completed",
+            "summary": "No auto-send enabled in foundation phase.",
+            "confidence": 1.0,
+        },
+        {
+            "agent_key": "followup_scheduler",
+            "status": "completed",
+            "summary": "Follow-up recommended." if followup_needed else "No follow-up needed right now.",
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "deal_control",
+            "status": "completed",
+            "summary": f"Deal stage: {deal_stage}; health: {pipeline_health}",
+            "confidence": confidence,
+        },
+    ]
+
+    return {
+        "version": 1,
+        "status": "active",
+        "client_state": client_state,
+        "friction_point": friction_point,
+        "reply_probability": round(reply_probability, 2),
+        "engagement_level": engagement_level,
+        "trust_level": confidence,
+        "deal_temperature": "warm" if pipeline_health in {"healthy", "watch"} else "cold",
+        "recommended_action": recommended_action,
+        "action_priority": "high" if pipeline_health in {"needs_input", "watch"} else "normal",
+        "goal": goal,
+        "why_now": "Based on current lead status, documents, proposal data and recent timeline.",
+        "expected_outcome": "Client understands the next step and stays in the process.",
+        "suggested_cta": suggested_cta,
+        "suggested_message": None,
+        "language_used": lead.get("language") or "es",
+        "followup_needed": followup_needed,
+        "followup_eta_hours": 24 if followup_needed else None,
+        "deal_stage": deal_stage,
+        "pipeline_health": pipeline_health,
+        "agents": agent_summaries,
+        "last_inputs_hash": hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode("utf-8")).hexdigest(),
+    }
+
+
+def get_latest_sales_department_run(application_id: str) -> dict | None:
+    state_ref = get_sales_department_state_ref(application_id)
+    runs = (
+        state_ref.collection("runs")
+        .order_by("started_at", direction=firestore.Query.DESCENDING)
+        .limit(1)
+        .stream()
+    )
+    for run in runs:
+        data = run.to_dict() or {}
+        data["run_id"] = data.get("run_id") or run.id
+        return normalize_firestore_value(data)
+    return None
+
 
 def download_gcs_file(gcs_path: str) -> tuple[bytes, str]:
     """Скачивает файл из GCS по пути вида gs://bucket/path, https://storage.googleapis.com/... или path внутри bucket."""
@@ -1796,6 +2123,137 @@ async def get_application_details(application_id: str):
     except Exception as e:
         print(f"Firestore Detail Error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении данных заявки.")
+
+
+@app.get("/api/applications/{application_id}/sales-department/state", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def get_sales_department_state(application_id: str):
+    """Возвращает текущее состояние AI-отдела продаж по лиду."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        state_doc = get_sales_department_state_ref(application_id).get()
+        if not state_doc.exists:
+            return {
+                "success": True,
+                "exists": False,
+                "state": None,
+                "latest_run": None,
+            }
+
+        return {
+            "success": True,
+            "exists": True,
+            "state": normalize_firestore_value(state_doc.to_dict() or {}),
+            "latest_run": get_latest_sales_department_run(application_id),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department state error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении состояния отдела продаж.")
+
+
+@app.post("/api/applications/{application_id}/sales-department/analyze", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def analyze_sales_department(application_id: str, payload: SalesDepartmentAnalyzeRequest | None = Body(default=None)):
+    """Собирает lead snapshot, пересчитывает sales state и сохраняет run для аудита/HUD."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        app_data = doc.to_dict() or {}
+        state_ref = get_sales_department_state_ref(application_id)
+        started_at = datetime.datetime.utcnow()
+        run_ref = state_ref.collection("runs").document()
+        run_ref.set({
+            "run_id": run_ref.id,
+            "status": "running",
+            "trigger": "manual_analyze",
+            "started_at": started_at,
+            "completed_at": None,
+            "agents": [
+                {"agent_key": key, "status": "pending", "summary": None, "confidence": None}
+                for key in SALES_DEPARTMENT_AGENT_KEYS
+            ],
+        })
+
+        snapshot = build_sales_department_snapshot(application_id, doc_ref, app_data)
+        state_payload = analyze_sales_department_snapshot(snapshot)
+        completed_at = datetime.datetime.utcnow()
+        state_payload.update({
+            "updated_at": completed_at,
+            "last_run_id": run_ref.id,
+            "snapshot_summary": {
+                "status": snapshot.get("lead", {}).get("status"),
+                "uploaded_files_count": snapshot.get("lead", {}).get("uploaded_files_count", 0),
+                "has_extracted_data": snapshot.get("signals", {}).get("has_extracted_data", False),
+                "has_selected_simulation": snapshot.get("signals", {}).get("has_selected_simulation", False),
+                "has_proposal": snapshot.get("signals", {}).get("has_proposal", False),
+                "timeline_events_count": len(snapshot.get("timeline", [])),
+            },
+        })
+
+        run_payload = {
+            "run_id": run_ref.id,
+            "status": "completed",
+            "trigger": "manual_analyze",
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "snapshot": snapshot,
+            "agents": state_payload.get("agents", []),
+            "result": state_payload,
+        }
+
+        state_ref.set(state_payload, merge=True)
+        run_ref.set(run_payload, merge=True)
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Отдел продаж пересчитал состояние лида.\n"
+                f"Состояние клиента: {state_payload.get('client_state')}.\n"
+                f"Следующее действие: {state_payload.get('recommended_action')}.\n"
+                f"Pipeline health: {state_payload.get('pipeline_health')}."
+            ),
+            event_type=EventType.NOTE,
+            created_by="System"
+        )
+
+        return {
+            "success": True,
+            "run_id": run_ref.id,
+            "state": normalize_firestore_value(state_payload),
+            "run": normalize_firestore_value(run_payload),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department analyze error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка анализа отдела продаж: {str(e)}")
+
+
+@app.get("/api/applications/{application_id}/sales-department/latest-run", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def get_sales_department_latest_run(application_id: str):
+    """Возвращает последний run AI-отдела продаж."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        latest_run = get_latest_sales_department_run(application_id)
+        if not latest_run:
+            return {"success": True, "exists": False, "run": None}
+        return {"success": True, "exists": True, "run": latest_run}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department latest run error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении последнего run отдела продаж.")
 
 # --- 3. PUT /api/applications/{id}/status (Обновление статуса) ---
 

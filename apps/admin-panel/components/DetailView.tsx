@@ -131,10 +131,10 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['application', appId] });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
-      showToast('КП загружено');
+      showToast(t('detail.toast.proposalUploaded'));
     },
     onError: (error) => {
-      showToast((error as Error).message || 'Ошибка загрузки КП');
+      showToast((error as Error).message || t('detail.toast.proposalUploadError'));
     },
   });
 
@@ -144,10 +144,10 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
       queryClient.invalidateQueries({ queryKey: ['application', appId] });
       queryClient.invalidateQueries({ queryKey: ['applications'] });
-      showToast('КП отправлено');
+      showToast(t('detail.toast.proposalSent'));
     },
     onError: (error) => {
-      showToast((error as Error).message || 'Ошибка отправки КП');
+      showToast((error as Error).message || t('detail.toast.proposalSendError'));
     },
   });
 
@@ -399,7 +399,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
               appId={appId}
               onInsertMessage={(message) => {
                 setSalesDraft({ message, source: `sales-${Date.now()}` });
-                showToast('Черновик вставлен в WhatsApp');
+                showToast(t('detail.toast.draftInserted'));
               }}
             />
 
@@ -464,10 +464,10 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                 </div>
             </div>
 
-            {/* Proposal / КП Card */}
+            {/* Proposal Card */}
             <div className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">
                 <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between">
-                    <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">Коммерческое предложение</h3>
+                    <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">{t('proposalBuilder.proposal.title')}</h3>
                     <input
                         type="file"
                         accept=".pdf"
@@ -493,7 +493,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                                 <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
                             </svg>
                         )}
-                        {proposalUploadMutation.isPending ? 'Загрузка...' : 'Загрузить КП'}
+                        {proposalUploadMutation.isPending ? t('detail.proposal.uploading') : t('detail.proposal.upload')}
                     </button>
                 </div>
                 <div className="p-5">
@@ -517,7 +517,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                                 onClick={() => proposalSendMutation.mutate()}
                                 disabled={proposalSendMutation.isPending}
                                 className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-full bg-green-50 text-green-600 hover:bg-green-100 disabled:opacity-50 transition-all whitespace-nowrap"
-                                title="Отправить КП в WhatsApp"
+                                title={t('detail.proposal.sendTitle')}
                             >
                                 {proposalSendMutation.isPending ? (
                                     <Spinner size="h-3 w-3" />
@@ -526,12 +526,12 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                                         <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2zM12.05 20.21c-1.5 0-2.97-.4-4.26-1.16l-.3-.18-3.11.82.83-3.03-.19-.31a8.19 8.19 0 01-1.26-4.38c0-4.54 3.7-8.24 8.24-8.24 2.2 0 4.27.86 5.82 2.42a8.183 8.183 0 012.41 5.83c.02 4.54-3.68 8.23-8.18 8.23zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.12-.17.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.12-.14.16-.24.24-.4.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.86.84-.86 2.05 0 1.21.88 2.37 1 2.7.12.33 3.46 5.27 8.38 7.41 2.85 1.24 3.97 1.02 4.72.95.83-.07 1.87-.76 2.13-1.5.27-.74.27-1.37.19-1.5-.08-.13-.29-.21-.54-.33z" />
                                     </svg>
                                 )}
-                                Отправить КП
+                                {t('detail.proposal.send')}
                             </button>
                         </div>
                     ) : (
                         <div className="text-sm text-slate-400 italic text-center py-6 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
-                            КП не загружено. Загрузите PDF, чтобы отправить клиенту.
+                            {t('detail.proposal.empty')}
                         </div>
                     )}
                 </div>
@@ -566,7 +566,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                                 <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
                             </svg>
                         )}
-                        {uploadFilesMutation.isPending ? 'Загрузка...' : 'Загрузить'}
+                        {uploadFilesMutation.isPending ? t('detail.documents.uploading') : t('detail.documents.upload')}
                     </button>
                 </div>
                 <div className="p-6">
@@ -593,7 +593,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                                     }}
                                     disabled={sendDocMutation.isPending}
                                     className="ml-2 p-1.5 rounded-full bg-green-50 text-green-600 hover:bg-green-100 disabled:opacity-50 opacity-0 group-hover:opacity-100 transition-all"
-                                    title="Отправить в WhatsApp"
+                                    title={t('detail.documents.sendTitle')}
                                 >
                                     {sendDocMutation.isPending ? (
                                         <Spinner size="h-3.5 w-3.5" />

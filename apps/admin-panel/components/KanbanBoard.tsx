@@ -248,7 +248,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ applications, onSelectApplica
                                                                             ? 'bg-amber-500'
                                                                             : 'bg-emerald-500'
                                                                     }`}>
-                                                                        КП
+                                                                        {t('proposalBuilder.step.proposal')}
                                                                     </span>
                                                                 )}
                                                                 <span className="text-[10px] font-medium text-slate-400">

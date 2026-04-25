@@ -28,22 +28,22 @@ type AutoTaskStatus = 'idle' | 'pending' | 'running' | 'awaiting_tariff_selectio
 const MANAGER_SELECTION_TIMEOUT_SECONDS = 180;
 
 const AUTO_SIMULATION_STEPS = [
-  { key: 'job_started', label: 'Запускаем задачу' },
-  { key: 'open_referral', label: 'Открываем сайт Eni' },
-  { key: 'open_simulator', label: 'Открываем симулятор' },
-  { key: 'select_client_type', label: 'Выбираем тип клиента' },
-  { key: 'select_supply_type', label: 'Выбираем тип счёта' },
-  { key: 'validate_cups', label: 'Проверяем CUPS' },
-  { key: 'retry_cups', label: 'Повторно проверяем CUPS' },
-  { key: 'start_simulation', label: 'Запускаем симуляцию' },
-  { key: 'fill_form', label: 'Заполняем данные счёта' },
-  { key: 'submit_form', label: 'Отправляем форму' },
-  { key: 'parse_tariffs', label: 'Загружаем тарифы' },
-  { key: 'await_manager_choice', label: 'Ждём выбор тарифа' },
-  { key: 'apply_selected_tariff', label: 'Применяем выбранный тариф' },
-  { key: 'auto_select_tariff', label: 'Выбираем тариф автоматически' },
-  { key: 'download_pdf', label: 'Генерируем и скачиваем PDF' },
-  { key: 'completed', label: 'Симуляция завершена' },
+  { key: 'job_started' },
+  { key: 'open_referral' },
+  { key: 'open_simulator' },
+  { key: 'select_client_type' },
+  { key: 'select_supply_type' },
+  { key: 'validate_cups' },
+  { key: 'retry_cups' },
+  { key: 'start_simulation' },
+  { key: 'fill_form' },
+  { key: 'submit_form' },
+  { key: 'parse_tariffs' },
+  { key: 'await_manager_choice' },
+  { key: 'apply_selected_tariff' },
+  { key: 'auto_select_tariff' },
+  { key: 'download_pdf' },
+  { key: 'completed' },
 ] as const;
 
 const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
@@ -226,11 +226,11 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
       setAutoMessage(t('proposalBuilder.simulation.cupsRequired'));
       return;
     }
-    setAutoStatus('pending');
-    setAutoMessage(t('proposalBuilder.simulation.autoCreatePending'));
+      setAutoStatus('pending');
+      setAutoMessage(t('proposalBuilder.simulation.autoCreatePending'));
       setAutoStepKey('job_started');
-      setAutoStepLabel('Запускаем задачу');
-      setAutoStepDetails('Подготавливаем Cloud Run Job и Playwright.');
+      setAutoStepLabel(t('proposalBuilder.simulation.step.job_started'));
+      setAutoStepDetails(t('proposalBuilder.simulation.stepDetails.jobStarted'));
       setAutoProgressPercent(3);
       setTariffSelectionDeadline(null);
       setTariffSecondsLeft(null);
@@ -265,17 +265,17 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
     try {
       await selectAutoSimulationTariff(appId, autoTaskId, selectedTariffIndex);
       setAutoStatus('running');
-      setAutoMessage('Тариф выбран, продолжаем симуляцию...');
+      setAutoMessage(t('proposalBuilder.simulation.tariffSelected'));
       setAutoStepKey('apply_selected_tariff');
-      setAutoStepLabel('Применяем выбранный тариф');
-      setAutoStepDetails(`Передали в Eni тариф #${selectedTariffIndex + 1}.`);
+      setAutoStepLabel(t('proposalBuilder.simulation.step.apply_selected_tariff'));
+      setAutoStepDetails(t('proposalBuilder.simulation.stepDetails.tariffApplied', { number: selectedTariffIndex + 1 }));
       setAutoProgressPercent(88);
       setTariffSelectionDeadline(null);
       setTariffSecondsLeft(null);
       setAutoTariffs(null);
       setSelectedTariffIndex(null);
     } catch (e: any) {
-      setAutoMessage(e.message || 'Ошибка при выборе тарифа');
+      setAutoMessage(e.message || t('proposalBuilder.simulation.tariffSelectionError'));
     } finally {
       setIsSelectingTariff(false);
     }
@@ -348,7 +348,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
             <div className="mt-3 space-y-3">
               <div>
                 <div className="flex items-center justify-between text-[11px] text-secondary-light mb-1">
-                  <span>{autoStepLabel || 'Выполняем симуляцию'}</span>
+                  <span>{autoStepLabel || t('proposalBuilder.simulation.step.default')}</span>
                   <span>{autoProgressPercent}%</span>
                 </div>
                 <div className="entray-progress-track h-2 rounded-full bg-white/60 overflow-hidden">
@@ -385,7 +385,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                         >
                           {isDone ? '✓' : index + 1}
                         </div>
-                        <span className={`text-xs ${isCurrent ? 'font-semibold' : ''}`}>{step.label}</span>
+                        <span className={`text-xs ${isCurrent ? 'font-semibold' : ''}`}>{t(`proposalBuilder.simulation.step.${step.key}`)}</span>
                       </div>
                       {showLine && (isDone || isCurrent) && (
                         <div className={`ml-4 mt-1 h-3 w-[2px] ${isCurrent ? 'entray-progress-line text-emerald-400' : 'bg-current/25'}`} />
@@ -402,7 +402,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
             <div className="mt-3 space-y-2">
               <div className="rounded-xl bg-white/60 border border-white/70 px-3 py-2">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-semibold text-secondary">Выберите тариф вручную</p>
+                  <p className="text-xs font-semibold text-secondary">{t('proposalBuilder.simulation.selectTariffManually')}</p>
                   {formattedTariffCountdown && (
                     <span className={`text-xs font-bold tabular-nums px-2 py-1 rounded-lg bg-white/80 ${tariffSecondsLeft !== null && tariffSecondsLeft <= 30 ? 'text-red-600 entray-countdown-urgent' : 'text-primary'}`}>
                       {formattedTariffCountdown}
@@ -410,10 +410,10 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                   )}
                 </div>
                 <p className="mt-1 text-[11px] text-secondary-light">
-                  Если менеджер не подтвердит выбор за {MANAGER_SELECTION_TIMEOUT_SECONDS / 60} минуты, скрипт автоматически выберет 3-й тариф снизу и продолжит симуляцию.
+                  {t('proposalBuilder.simulation.autoTariffHint', { minutes: MANAGER_SELECTION_TIMEOUT_SECONDS / 60 })}
                 </p>
               </div>
-              <p className="text-xs font-semibold text-secondary-light uppercase tracking-wide">Доступные тарифы:</p>
+              <p className="text-xs font-semibold text-secondary-light uppercase tracking-wide">{t('proposalBuilder.simulation.availableTariffs')}</p>
               <div className="space-y-1.5 max-h-60 overflow-y-auto">
                 {autoTariffs.map((tariff) => (
                   <label
@@ -435,7 +435,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-bold text-secondary truncate">{tariff.name}</p>
                       <div className="flex items-center gap-3 mt-0.5">
-                        <span className="text-[10px] text-slate-400">Сейчас: {tariff.current_price}</span>
+                        <span className="text-[10px] text-slate-400">{t('proposalBuilder.simulation.currentPrice', { price: tariff.current_price })}</span>
                         <span className="text-[10px] text-green-600 font-semibold">Plenitude: {tariff.plenitude_price}</span>
                       </div>
                     </div>
@@ -448,7 +448,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                 className="w-full mt-2 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
               >
                 {isSelectingTariff && <Spinner size="h-3 w-3" />}
-                {isSelectingTariff ? 'Отправка...' : 'Подтвердить выбор'}
+                {isSelectingTariff ? t('proposalBuilder.simulation.submitting') : t('proposalBuilder.simulation.submitSelection')}
               </button>
             </div>
           )}
@@ -458,7 +458,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
               onClick={() => { setAutoStatus('idle'); setAutoTaskId(null); setAutoTariffs(null); setSelectedTariffIndex(null); setAutoStepKey(null); setAutoStepLabel(''); setAutoStepDetails(''); setAutoProgressPercent(0); setTariffSelectionDeadline(null); setTariffSecondsLeft(null); }}
               className="mt-2 text-xs underline"
             >
-              Очистить
+              {t('common.clear')}
             </button>
           )}
           {autoStatus === 'failed' && (
@@ -466,7 +466,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
               onClick={() => { setAutoStatus('idle'); setAutoTaskId(null); setAutoStepKey(null); setAutoStepLabel(''); setAutoStepDetails(''); setAutoProgressPercent(0); setTariffSelectionDeadline(null); setTariffSecondsLeft(null); }}
               className="mt-2 text-xs underline"
             >
-              Закрыть
+              {t('common.close')}
             </button>
           )}
         </div>

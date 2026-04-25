@@ -83,7 +83,7 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
       setNewMessage(data.response);
     },
     onError: (error: Error) => {
-      setAiError(error.message || 'Ошибка генерации ответа');
+      setAiError(error.message || t('whatsappChat.aiError'));
     },
   });
 
@@ -187,7 +187,7 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
             onClick={() => aiMutation.mutate()}
             disabled={aiMutation.isPending}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary bg-primary-50 hover:bg-primary-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-primary-100"
-            title="Сгенерировать ответ ИИ"
+            title={t('whatsappChat.aiTitle')}
           >
             {aiMutation.isPending ? (
               <Spinner size="h-3.5 w-3.5" />
@@ -196,7 +196,7 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             )}
-            {aiMutation.isPending ? 'Думаю...' : 'ИИ ответ'}
+            {aiMutation.isPending ? t('whatsappChat.aiThinking') : t('whatsappChat.aiReply')}
           </button>
         </div>
       </div>
@@ -208,7 +208,7 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
             <Spinner size="h-10 w-10" />
           </div>
         ) : isError ? (
-          <div className="text-center text-red-500 py-8">{t('dashboard.error.generic', { message: 'Failed to load chat' })}</div>
+          <div className="text-center text-red-500 py-8">{t('dashboard.error.generic', { message: t('whatsappChat.loadError') })}</div>
         ) : whatsAppNotes.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-500">
             <div className="h-16 w-16 rounded-full bg-slate-200 flex items-center justify-center mb-3">
@@ -323,7 +323,7 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
       <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50">
         {(sendMutation.isError || aiError) && (
           <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-            {(sendMutation.error as Error)?.message || aiError || 'Ошибка'}
+            {(sendMutation.error as Error)?.message || aiError || t('common.error')}
           </div>
         )}
         <form onSubmit={handleSend} className="flex items-end gap-2">
@@ -338,7 +338,7 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
             onClick={() => fileInputRef.current?.click()}
             disabled={sendMutation.isPending}
             className="p-2.5 bg-white text-slate-500 rounded-full hover:bg-slate-100 disabled:opacity-50 transition-colors border border-slate-200"
-            title="Прикрепить файл"
+            title={t('whatsappChat.attachFile')}
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />

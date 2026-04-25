@@ -236,6 +236,35 @@ export interface SalesDepartmentAnalyzeResponse {
   run: SalesDepartmentRun;
 }
 
+export type SalesDepartmentAutopilotMode = 'manual' | 'assisted_auto' | 'full_auto';
+
+export interface SalesDepartmentAutopilotState {
+  application_id?: string;
+  mode: SalesDepartmentAutopilotMode;
+  enabled: boolean;
+  status?: string;
+  safe_to_send?: boolean;
+  full_auto_enabled?: boolean;
+  handoff_required?: boolean;
+  handoff_reason?: string;
+  assigned_to?: string | null;
+  last_decision?: string;
+  last_reason?: string | null;
+  updated_at?: string;
+  created_at?: string;
+  last_evaluated_state?: {
+    pipeline_health?: string;
+    reply_probability?: number;
+    recommended_action?: string;
+    deal_stage?: string;
+  };
+}
+
+export interface SalesDepartmentAutopilotResponse {
+  success: boolean;
+  autopilot: SalesDepartmentAutopilotState;
+}
+
 export interface CursorPaginatedApplications {
   applications: Application[];
   next_cursor: string | null;

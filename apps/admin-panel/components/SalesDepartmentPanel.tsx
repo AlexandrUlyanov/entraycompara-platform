@@ -1,7 +1,14 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { analyzeSalesDepartment, getSalesDepartmentState } from '../services/api';
-import { SalesDepartmentAgentStep, SalesDepartmentState } from '../types';
+import {
+  analyzeSalesDepartment,
+  getSalesDepartmentAutopilot,
+  getSalesDepartmentState,
+  handoffSalesDepartment,
+  recalculateSalesDepartmentAutopilot,
+  updateSalesDepartmentAutopilot,
+} from '../services/api';
+import { SalesDepartmentAgentStep, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotState, SalesDepartmentState } from '../types';
 import Spinner from './Spinner';
 
 interface SalesDepartmentPanelProps {
@@ -117,6 +124,92 @@ const ActionPanel: React.FC<{ state: SalesDepartmentState }> = ({ state }) => (
   </div>
 );
 
+const AutopilotControl: React.FC<{
+  autopilot?: SalesDepartmentAutopilotState;
+  isLoading: boolean;
+  onModeChange: (mode: SalesDepartmentAutopilotMode, enabled: boolean) => void;
+  onRecalculate: () => void;
+  onHandoff: () => void;
+  isBusy: boolean;
+}> = ({ autopilot, isLoading, onModeChange, onRecalculate, onHandoff, isBusy }) => {
+  const currentMode = autopilot?.mode || 'manual';
+  const modes: Array<{ mode: SalesDepartmentAutopilotMode; title: string; description: string }> = [
+    { mode: 'manual', title: 'Manual', description: 'AI только анализирует, оператор решает всё сам.' },
+    { mode: 'assisted_auto', title: 'Assisted Auto', description: 'AI готовит следующий шаг, отправка только после подтверждения.' },
+    { mode: 'full_auto', title: 'Full Auto', description: 'Пилотный режим заблокирован до guardrails.' },
+  ];
+
+  return (
+    <div className="rounded-[24px] border border-slate-100 bg-white/70 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Autopilot Control</div>
+          <h4 className="mt-1 text-lg font-bold text-slate-900">Режим обработки лида</h4>
+          <p className="mt-1 text-sm text-slate-500">
+            Сейчас автопилот ничего не отправляет сам. Это безопасная панель управления режимами и handoff.
+          </p>
+        </div>
+        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusTone(autopilot?.status)}`}>
+          {isLoading ? 'loading' : autopilot?.status || 'manual_control'}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {modes.map((item) => {
+          const active = currentMode === item.mode;
+          return (
+            <button
+              key={item.mode}
+              type="button"
+              disabled={isBusy}
+              onClick={() => onModeChange(item.mode, item.mode !== 'manual')}
+              className={`rounded-2xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                active
+                  ? 'border-blue-200 bg-blue-50 shadow-sm'
+                  : 'border-slate-100 bg-slate-50/70 hover:border-blue-100 hover:bg-white'
+              }`}
+            >
+              <div className="text-sm font-bold text-slate-900">{item.title}</div>
+              <div className="mt-1 text-xs leading-relaxed text-slate-500">{item.description}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <RadarTile label="Safe to send" value={autopilot?.safe_to_send ? 'yes' : 'no'} tone={autopilot?.safe_to_send ? 'green' : 'amber'} />
+        <RadarTile label="Handoff" value={autopilot?.handoff_required ? 'required' : 'no'} tone={autopilot?.handoff_required ? 'amber' : 'green'} />
+        <RadarTile label="Last update" value={formatDateTime(autopilot?.updated_at)} />
+      </div>
+
+      {autopilot?.last_decision && (
+        <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/80 p-3 text-sm leading-relaxed text-slate-600">
+          {autopilot.last_decision}
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-3">
+        <button
+          type="button"
+          disabled={isBusy}
+          onClick={onRecalculate}
+          className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Пересчитать режим
+        </button>
+        <button
+          type="button"
+          disabled={isBusy}
+          onClick={onHandoff}
+          className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          Handoff оператору
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const EmptyState: React.FC<{ onAnalyze: () => void; isPending: boolean }> = ({ onAnalyze, isPending }) => (
   <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center">
     <h4 className="text-base font-bold text-slate-800">AI-отдел продаж ещё не анализировал этот лид</h4>
@@ -140,17 +233,49 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId }) =>
     queryFn: () => getSalesDepartmentState(appId),
     enabled: !!appId,
   });
+  const {
+    data: autopilotData,
+    isLoading: isAutopilotLoading,
+  } = useQuery({
+    queryKey: ['salesDepartmentAutopilot', appId],
+    queryFn: () => getSalesDepartmentAutopilot(appId),
+    enabled: !!appId,
+  });
 
   const analyzeMutation = useMutation({
     mutationFn: () => analyzeSalesDepartment(appId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const updateAutopilotMutation = useMutation({
+    mutationFn: ({ mode, enabled }: { mode: SalesDepartmentAutopilotMode; enabled: boolean }) =>
+      updateSalesDepartmentAutopilot(appId, mode, enabled, `Operator selected ${mode}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const recalculateAutopilotMutation = useMutation({
+    mutationFn: () => recalculateSalesDepartmentAutopilot(appId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
+    },
+  });
+  const handoffMutation = useMutation({
+    mutationFn: () => handoffSalesDepartment(appId, 'Operator requested manual handoff from CRM'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
 
   const state = data?.state || null;
   const agents = state?.agents || data?.latest_run?.agents || [];
+  const autopilot = autopilotData?.autopilot;
+  const isAutopilotBusy = updateAutopilotMutation.isPending || recalculateAutopilotMutation.isPending || handoffMutation.isPending;
 
   return (
     <section className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">
@@ -207,6 +332,15 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId }) =>
             </div>
 
             <ActionPanel state={state} />
+
+            <AutopilotControl
+              autopilot={autopilot}
+              isLoading={isAutopilotLoading}
+              isBusy={isAutopilotBusy}
+              onModeChange={(mode, enabled) => updateAutopilotMutation.mutate({ mode, enabled })}
+              onRecalculate={() => recalculateAutopilotMutation.mutate()}
+              onHandoff={() => handoffMutation.mutate()}
+            />
 
             <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
               <div className="rounded-[24px] border border-slate-100 bg-white/70 p-5">

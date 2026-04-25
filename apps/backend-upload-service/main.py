@@ -249,6 +249,20 @@ class AIGenerateRequest(BaseModel):
 class SalesDepartmentAnalyzeRequest(BaseModel):
     force_recalculate: bool = False
 
+class AutopilotMode(str, Enum):
+    MANUAL = "manual"
+    ASSISTED_AUTO = "assisted_auto"
+    FULL_AUTO = "full_auto"
+
+class SalesDepartmentAutopilotUpdate(BaseModel):
+    mode: AutopilotMode
+    enabled: bool = True
+    reason: str | None = None
+
+class SalesDepartmentHandoffRequest(BaseModel):
+    reason: str = "Operator handoff"
+    assigned_to: str | None = None
+
 # 1.6. Модели для Proposal Builder (Extracted Data)
 class ExtractedData(BaseModel):
     # Поля для симуляции испанских электрических счетов (facturas de luz)
@@ -601,6 +615,15 @@ def get_sales_department_state_ref(application_id: str):
     )
 
 
+def get_sales_department_autopilot_ref(application_id: str):
+    return (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("sales_department")
+        .document("autopilot")
+    )
+
+
 def normalize_firestore_value(value):
     if isinstance(value, datetime.datetime):
         return value.isoformat()
@@ -902,6 +925,80 @@ def get_latest_sales_department_run(application_id: str) -> dict | None:
         data["run_id"] = data.get("run_id") or run.id
         return normalize_firestore_value(data)
     return None
+
+
+def build_default_autopilot_state(application_id: str) -> dict:
+    now = datetime.datetime.utcnow()
+    return {
+        "application_id": application_id,
+        "mode": AutopilotMode.MANUAL.value,
+        "enabled": False,
+        "status": "manual_control",
+        "safe_to_send": False,
+        "full_auto_enabled": False,
+        "handoff_required": False,
+        "last_decision": "Manual mode is active. No automatic actions are allowed.",
+        "last_reason": None,
+        "updated_at": now,
+        "created_at": now,
+    }
+
+
+def get_sales_department_autopilot_state(application_id: str) -> dict:
+    ref = get_sales_department_autopilot_ref(application_id)
+    doc = ref.get()
+    if doc.exists:
+        return normalize_firestore_value(doc.to_dict() or {})
+
+    state = build_default_autopilot_state(application_id)
+    ref.set(state)
+    return normalize_firestore_value(state)
+
+
+def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sales_state: dict | None = None) -> dict:
+    sales_state = sales_state or {}
+    confidence = sales_state.get("reply_probability")
+    pipeline_health = sales_state.get("pipeline_health")
+    has_recommended_action = bool(sales_state.get("recommended_action"))
+    safe_to_prepare = bool(enabled and has_recommended_action and pipeline_health != "blocked")
+
+    # Full Auto stays locked until the safety engine and explicit approval are implemented.
+    safe_to_send = (
+        mode == AutopilotMode.ASSISTED_AUTO.value
+        and safe_to_prepare
+        and isinstance(confidence, (int, float))
+        and confidence >= 0.55
+    )
+    if mode == AutopilotMode.FULL_AUTO.value:
+        safe_to_send = False
+
+    if mode == AutopilotMode.MANUAL.value or not enabled:
+        status_value = "manual_control"
+        decision = "Manual mode is active. AI can analyze, but cannot prepare or send actions automatically."
+    elif mode == AutopilotMode.ASSISTED_AUTO.value:
+        status_value = "assisted_ready" if safe_to_prepare else "assisted_waiting"
+        decision = "Assisted Auto can prepare recommendations for operator approval. Sending remains manual."
+    else:
+        status_value = "full_auto_pilot_locked"
+        decision = "Full Auto is selected but locked until safety guardrails are implemented and approved."
+
+    return {
+        "application_id": application_id,
+        "mode": mode,
+        "enabled": enabled,
+        "status": status_value,
+        "safe_to_send": safe_to_send,
+        "full_auto_enabled": mode == AutopilotMode.FULL_AUTO.value and enabled,
+        "handoff_required": pipeline_health == "blocked" or confidence == 0,
+        "last_decision": decision,
+        "last_evaluated_state": {
+            "pipeline_health": pipeline_health,
+            "reply_probability": confidence,
+            "recommended_action": sales_state.get("recommended_action"),
+            "deal_stage": sales_state.get("deal_stage"),
+        },
+        "updated_at": datetime.datetime.utcnow(),
+    }
 
 
 def download_gcs_file(gcs_path: str) -> tuple[bytes, str]:
@@ -2254,6 +2351,146 @@ async def get_sales_department_latest_run(application_id: str):
     except Exception as e:
         print(f"Sales department latest run error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении последнего run отдела продаж.")
+
+
+@app.get("/api/applications/{application_id}/sales-department/autopilot", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def get_sales_department_autopilot(application_id: str):
+    """Возвращает режим автоматической обработки лида."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        return {
+            "success": True,
+            "autopilot": get_sales_department_autopilot_state(application_id),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department autopilot state error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении режима автопилота.")
+
+
+@app.put("/api/applications/{application_id}/sales-department/autopilot", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def update_sales_department_autopilot(application_id: str, payload: SalesDepartmentAutopilotUpdate):
+    """Обновляет режим автопилота без выполнения внешних действий."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        state_doc = get_sales_department_state_ref(application_id).get()
+        sales_state = state_doc.to_dict() if state_doc.exists else {}
+        autopilot_payload = evaluate_autopilot_control(
+            application_id=application_id,
+            mode=payload.mode.value,
+            enabled=payload.enabled,
+            sales_state=sales_state,
+        )
+        autopilot_payload.update({
+            "last_reason": payload.reason,
+            "updated_by": "Operator",
+        })
+        get_sales_department_autopilot_ref(application_id).set(autopilot_payload, merge=True)
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                f"Autopilot mode changed to {payload.mode.value}. "
+                f"Status: {autopilot_payload.get('status')}. "
+                f"Safe to send: {autopilot_payload.get('safe_to_send')}."
+            ),
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+
+        return {
+            "success": True,
+            "autopilot": normalize_firestore_value(autopilot_payload),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department autopilot update error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка обновления режима автопилота: {str(e)}")
+
+
+@app.post("/api/applications/{application_id}/sales-department/autopilot/recalculate", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def recalculate_sales_department_autopilot(application_id: str):
+    """Пересчитывает режим автопилота от последнего sales state без отправки сообщений."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        current = get_sales_department_autopilot_state(application_id)
+        state_doc = get_sales_department_state_ref(application_id).get()
+        sales_state = state_doc.to_dict() if state_doc.exists else {}
+        autopilot_payload = evaluate_autopilot_control(
+            application_id=application_id,
+            mode=current.get("mode") or AutopilotMode.MANUAL.value,
+            enabled=bool(current.get("enabled")),
+            sales_state=sales_state,
+        )
+        autopilot_payload["last_reason"] = "Recalculated from current sales state"
+        get_sales_department_autopilot_ref(application_id).set(autopilot_payload, merge=True)
+
+        return {
+            "success": True,
+            "autopilot": normalize_firestore_value(autopilot_payload),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department autopilot recalculate error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка пересчёта режима автопилота: {str(e)}")
+
+
+@app.post("/api/applications/{application_id}/sales-department/handoff", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def handoff_sales_department(application_id: str, payload: SalesDepartmentHandoffRequest):
+    """Переводит лид в ручной режим и фиксирует причину handoff."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        now = datetime.datetime.utcnow()
+        handoff_payload = {
+            "application_id": application_id,
+            "mode": AutopilotMode.MANUAL.value,
+            "enabled": False,
+            "status": "handoff_required",
+            "safe_to_send": False,
+            "full_auto_enabled": False,
+            "handoff_required": True,
+            "handoff_reason": payload.reason,
+            "assigned_to": payload.assigned_to,
+            "last_decision": "Lead is under manual operator control after handoff.",
+            "updated_at": now,
+        }
+        get_sales_department_autopilot_ref(application_id).set(handoff_payload, merge=True)
+
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"Autopilot handoff: {payload.reason}",
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+
+        return {
+            "success": True,
+            "autopilot": normalize_firestore_value(handoff_payload),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department handoff error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка handoff отдела продаж: {str(e)}")
 
 # --- 3. PUT /api/applications/{id}/status (Обновление статуса) ---
 

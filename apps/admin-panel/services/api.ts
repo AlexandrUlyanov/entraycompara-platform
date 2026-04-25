@@ -1,5 +1,5 @@
 
-import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun } from '../types';
+import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotResponse } from '../types';
 
 const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
@@ -330,6 +330,45 @@ export const getLatestSalesDepartmentRun = async (applicationId: string): Promis
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/latest-run`, {
     method: 'GET',
     headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const getSalesDepartmentAutopilot = async (applicationId: string): Promise<SalesDepartmentAutopilotResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/autopilot`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const updateSalesDepartmentAutopilot = async (
+  applicationId: string,
+  mode: SalesDepartmentAutopilotMode,
+  enabled: boolean,
+  reason?: string
+): Promise<SalesDepartmentAutopilotResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/autopilot`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify({ mode, enabled, reason }),
+  });
+  return handleApiError(response);
+};
+
+export const recalculateSalesDepartmentAutopilot = async (applicationId: string): Promise<SalesDepartmentAutopilotResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/autopilot/recalculate`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const handoffSalesDepartment = async (applicationId: string, reason: string): Promise<SalesDepartmentAutopilotResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/handoff`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ reason }),
   });
   return handleApiError(response);
 };

@@ -1554,6 +1554,8 @@ def _normalize_extracted_value(field: str, value: Any) -> Any:
         return str(value).strip()
 
     if field in {"cups", "access_tariff"}:
+        if field == "cups":
+            return _normalize_cups_from_ocr(str(value))
         return str(value).strip().upper()
 
     if field == "retailer":
@@ -1596,26 +1598,55 @@ def _compact_cups(value: str | None) -> str | None:
     return re.sub(r"[^A-Za-z0-9]", "", str(value)).upper()
 
 
-def _is_structurally_valid_cups(value: str | None) -> bool:
+def _normalize_cups_from_ocr(value: str | None) -> str | None:
     compact = _compact_cups(value)
+    if not compact:
+        return None
+
+    chars = list(compact)
+    for index in range(2, min(18, len(chars))):
+        if chars[index] == "O":
+            chars[index] = "0"
+
+    if len(chars) == 22 and chars[20] == "O":
+        chars[20] = "0"
+
+    return "".join(chars)
+
+
+def _calculate_cups_control_letters(number_part: str) -> str:
+    letters = "TRWAGMYFPDXBNJZSQVHLCKE"
+    remainder = int(number_part) % 529
+    return letters[remainder // 23] + letters[remainder % 23]
+
+
+def _is_structurally_valid_cups(value: str | None) -> bool:
+    compact = _normalize_cups_from_ocr(value)
     if not compact:
         return False
-    return bool(re.fullmatch(r"ES\d{16}[A-Z]{2}(\d[A-Z])?", compact))
+    return bool(re.fullmatch(r"ES\d{16}[A-Z]{2}(\d[A-Z])?", compact)) and len(compact) in {20, 22}
 
 
-def _validate_cups(value: str | None) -> tuple[bool, str | None, str]:
-    compact = _compact_cups(value)
+def _validate_cups(value: str | None) -> tuple[bool, str | None, str, bool]:
+    raw_compact = _compact_cups(value)
+    compact = _normalize_cups_from_ocr(value)
     if not compact:
-        return False, None, "missing"
+        return False, None, "missing", False
 
-    if stdnum_cups is not None:
-        try:
-            validated = stdnum_cups.validate(compact)
-            return True, validated, "checksum"
-        except Exception:
-            return False, compact, "checksum"
+    was_ocr_corrected = raw_compact != compact
+    if not compact.startswith("ES"):
+        return False, compact, "country", was_ocr_corrected
 
-    return _is_structurally_valid_cups(compact), compact, "structure"
+    if len(compact) not in {20, 22}:
+        return False, compact, "length", was_ocr_corrected
+
+    match = re.fullmatch(r"ES(\d{16})([A-Z]{2})(\d[A-Z])?", compact)
+    if not match:
+        return False, compact, "format", was_ocr_corrected
+
+    number_part, control_letters, _extension = match.groups()
+    expected_control = _calculate_cups_control_letters(number_part)
+    return control_letters == expected_control, compact, "checksum", was_ocr_corrected
 
 
 def _apply_provider_specific_rules(extracted: dict) -> tuple[dict, list[str]]:
@@ -1643,17 +1674,23 @@ def _assess_field(field: str, value: Any, extracted: dict) -> dict:
         }
 
     if field == "cups":
-        is_valid, validated_cups, validation_mode = _validate_cups(str(normalized_value))
-        cups = validated_cups or _compact_cups(str(normalized_value))
-        if is_valid and validation_mode == "checksum":
-            confidence = 0.99
-        elif is_valid and validation_mode == "structure":
-            confidence = 0.78
-            reasons.append("cups_checksum_validator_unavailable")
+        is_valid, validated_cups, validation_mode, was_ocr_corrected = _validate_cups(str(normalized_value))
+        cups = validated_cups or _normalize_cups_from_ocr(str(normalized_value))
+        if was_ocr_corrected:
+            reasons.append("cups_ocr_o_to_zero_corrected")
+        if is_valid:
+            confidence = 0.97 if was_ocr_corrected else 0.99
         else:
             confidence = 0.2
             needs_review = True
-            reasons.append("invalid_cups_checksum" if validation_mode == "checksum" else "invalid_cups_format")
+            reason_by_mode = {
+                "missing": "missing_value",
+                "country": "cups_must_start_with_es",
+                "length": "cups_must_have_20_or_22_characters",
+                "format": "invalid_cups_format",
+                "checksum": "invalid_cups_checksum",
+            }
+            reasons.append(reason_by_mode.get(validation_mode, "invalid_cups_format"))
         normalized_value = cups
     elif field == "client_type":
         if normalized_value in {"Hogar", "Empresa"}:
@@ -2964,7 +3001,11 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
         proposal_data_ref = doc_ref.collection("proposal_data").document("data")
         previous_snapshot = proposal_data_ref.get()
         previous_data = previous_snapshot.to_dict() if previous_snapshot.exists else {}
-        corrected = update_data.extracted_data.model_dump()
+        corrected_raw = update_data.extracted_data.model_dump()
+        corrected = {
+            field: _normalize_extracted_value(field, corrected_raw.get(field))
+            for field in INVOICE_EXTRACTION_FIELDS
+        }
         manual_assessments = {
             field: {
                 "value": corrected.get(field),
@@ -2974,6 +3015,12 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
             }
             for field in INVOICE_EXTRACTION_FIELDS
         }
+        cups_assessment = _assess_field("cups", corrected_raw.get("cups"), corrected)
+        cups_assessment.setdefault("reasons", []).append("manual_correction")
+        manual_assessments["cups"] = cups_assessment
+        manual_needs_review_fields = ["cups"] if cups_assessment.get("needs_review") else []
+        confidence_values = [manual_assessments[field]["confidence"] for field in INVOICE_EXTRACTION_FIELDS]
+        manual_overall_confidence = round(sum(confidence_values) / len(confidence_values), 2) if confidence_values else 0.0
         changed_fields = [
             field for field in INVOICE_EXTRACTION_FIELDS
             if previous_data.get("extracted_data", {}).get(field) != corrected.get(field)
@@ -2982,9 +3029,9 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
             "extracted_data": corrected,
             "manual_corrected_data": corrected,
             "field_assessments": manual_assessments,
-            "overall_confidence": 1.0,
-            "needs_review": False,
-            "needs_review_fields": [],
+            "overall_confidence": manual_overall_confidence,
+            "needs_review": bool(manual_needs_review_fields),
+            "needs_review_fields": manual_needs_review_fields,
             "updated_at": datetime.datetime.utcnow(),
             "manually_corrected": True,
             "last_manual_correction": {

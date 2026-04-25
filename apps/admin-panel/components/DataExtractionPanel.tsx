@@ -47,6 +47,49 @@ const normalizeRetailerText = (value: string) =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
+const normalizeCUPSFromOCR = (input?: string | null): string => {
+  if (!input) return '';
+
+  const chars = input
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/-/g, '')
+    .split('');
+
+  for (let index = 2; index <= 17 && index < chars.length; index += 1) {
+    if (chars[index] === 'O') chars[index] = '0';
+  }
+
+  if (chars.length === 22 && chars[20] === 'O') {
+    chars[20] = '0';
+  }
+
+  return chars.join('');
+};
+
+const validateCUPS = (input?: string | null): boolean => {
+  const cups = normalizeCUPSFromOCR(input);
+  const match = cups.match(/^ES(\d{16})([A-Z]{2})(\d[A-Z])?$/);
+  if (!match || ![20, 22].includes(cups.length)) return false;
+
+  const letters = 'TRWAGMYFPDXBNJZSQVHLCKE';
+  const remainder = Number(BigInt(match[1]) % 529n);
+  const expectedControl = letters[Math.floor(remainder / 23)] + letters[remainder % 23];
+  return match[2] === expectedControl;
+};
+
+const getCUPSError = (input?: string | null): string | null => {
+  if (!input) return 'Introduce el CUPS.';
+
+  const cups = normalizeCUPSFromOCR(input);
+  if (!cups.startsWith('ES')) return 'El CUPS debe empezar por ES.';
+  if (![20, 22].includes(cups.length)) return 'El CUPS debe tener 20 o 22 caracteres.';
+  if (!/^ES\d{16}[A-Z]{2}(\d[A-Z])?$/.test(cups)) return 'Formato de CUPS no válido.';
+  if (!validateCUPS(cups)) return 'Las letras de control del CUPS no son correctas.';
+
+  return null;
+};
+
 const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, uploadedFiles }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -159,8 +202,11 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
 
   const getFieldAssessment = (field: string) => existingData?.field_assessments?.[field];
   const cupsAssessment = existingData?.field_assessments?.cups;
-  const cupsLooksValid = !!cupsAssessment && !cupsAssessment.needs_review && (cupsAssessment.confidence || 0) >= 0.9;
-  const cupsNeedsReview = !!cupsAssessment?.needs_review;
+  const cupsError = formData.cups ? getCUPSError(formData.cups) : null;
+  const cupsLooksValid = !cupsError && (
+    !cupsAssessment || (!cupsAssessment.needs_review && (cupsAssessment.confidence || 0) >= 0.9)
+  );
+  const cupsNeedsReview = !!cupsError || !!cupsAssessment?.needs_review;
 
   const renderFieldStatus = (field: string) => {
     const assessment = getFieldAssessment(field);
@@ -434,8 +480,14 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 type="text"
                 value={formData.cups || ''}
                 onChange={e => updateField('cups', e.target.value)}
+                onBlur={() => updateField('cups', normalizeCUPSFromOCR(formData.cups) as ExtractedData['cups'])}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {cupsError && (
+                <p className="mt-1 text-[11px] font-medium text-red-600">
+                  {cupsError}
+                </p>
+              )}
               {cupsAssessment?.reasons && cupsAssessment.reasons.length > 0 && (
                 <p className="mt-1 text-[11px] text-slate-500">
                   {cupsAssessment.reasons.join(', ')}

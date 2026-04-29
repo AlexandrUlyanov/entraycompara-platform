@@ -250,7 +250,11 @@ const SalesControlHud: React.FC<{
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">{t('sales.hud.updated')}</div>
-            <div className="mt-1 font-semibold">{formatDateTime(state.updated_at)}</div>
+            <div className="mt-1 font-semibold">{formatDateTime(state.last_reanalysis_at || state.updated_at)}</div>
+          </div>
+          <div className="col-span-2 rounded-2xl border border-white/10 bg-white/10 p-3">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-300">{t('sales.hud.reason')}</div>
+            <div className="mt-1 font-semibold">{translateSalesValue(state.last_reanalysis_reason || state.last_reanalysis_trigger || 'manual_analyze', t)}</div>
           </div>
         </div>
       </div>

@@ -3,17 +3,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   analyzeSalesDepartment,
   approveSalesDepartmentAction,
-  createTimelineNote,
   getSalesDepartmentActions,
   getSalesDepartmentAutopilot,
   getSalesDepartmentState,
   handoffSalesDepartment,
+  logSalesDepartmentDraftInserted,
   recalculateSalesDepartmentAutopilot,
   skipSalesDepartmentAction,
   updateSalesDepartmentAutopilot,
 } from '../services/api';
 import {
-  NoteType,
   SalesDepartmentAgentStep,
   SalesDepartmentAutopilotMode,
   SalesDepartmentAutopilotState,
@@ -761,13 +760,10 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
   });
   const logDraftInsertedMutation = useMutation({
     mutationFn: (message: string) =>
-      createTimelineNote(
-        appId,
-        `SALES_DEPARTMENT_DRAFT_INSERTED:${message.slice(0, 240)}`,
-        NoteType.System,
-      ),
+      logSalesDepartmentDraftInserted(appId, message, state?.next_action?.action_id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
     },
   });
 

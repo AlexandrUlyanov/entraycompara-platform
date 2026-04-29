@@ -360,6 +360,15 @@ export const skipSalesDepartmentAction = async (applicationId: string, actionId:
   return handleApiError(response);
 };
 
+export const logSalesDepartmentDraftInserted = async (applicationId: string, message: string, actionId?: string): Promise<{ success: boolean }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/draft-inserted`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ message, action_id: actionId }),
+  });
+  return handleApiError(response);
+};
+
 export const getSalesDepartmentAutopilot = async (applicationId: string): Promise<SalesDepartmentAutopilotResponse> => {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/autopilot`, {
     method: 'GET',

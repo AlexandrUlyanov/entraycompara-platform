@@ -292,6 +292,11 @@ class SalesDepartmentActionDecision(BaseModel):
     reason: str | None = None
     actor: str = "Operator"
 
+class SalesDepartmentDraftInsertRequest(BaseModel):
+    message: str
+    action_id: str | None = None
+    actor: str = "Operator"
+
 # 1.6. Модели для Proposal Builder (Extracted Data)
 class ExtractedData(BaseModel):
     # Поля для симуляции испанских электрических счетов (facturas de luz)
@@ -2878,6 +2883,59 @@ async def skip_sales_department_action(application_id: str, action_id: str, payl
     except Exception as e:
         print(f"Sales department action skip error: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка пропуска действия: {str(e)}")
+
+
+@app.post("/api/applications/{application_id}/sales-department/draft-inserted", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def log_sales_department_draft_inserted(application_id: str, payload: SalesDepartmentDraftInsertRequest):
+    """Фиксирует, что оператор вставил AI-черновик в WhatsApp composer."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        message = (payload.message or "").strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="Текст черновика обязателен.")
+
+        state_doc = get_sales_department_state_ref(application_id).get()
+        sales_state = state_doc.to_dict() if state_doc.exists else {}
+        action_id = payload.action_id or (sales_state.get("next_action") or {}).get("action_id")
+        action_snapshot = None
+        if action_id:
+            try:
+                _, action_snapshot = get_sales_action(application_id, action_id)
+            except HTTPException:
+                action_snapshot = None
+
+        create_sales_audit_event(application_id, "message_draft_inserted", {
+            "actor": payload.actor or "Operator",
+            "action_id": action_id,
+            "run_id": sales_state.get("last_run_id"),
+            "snapshot_hash": sales_state.get("last_inputs_hash"),
+            "message": message,
+            "message_preview": message[:240],
+            "message_length": len(message),
+            "guardrail_result": (action_snapshot or {}).get("guardrail_result") or sales_state.get("guardrail_result"),
+            "action_snapshot": action_snapshot,
+        })
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Черновик отдела продаж вставлен в WhatsApp composer.\n"
+                f"Действие: {action_id or 'не указано'}.\n"
+                f"Длина сообщения: {len(message)} символов."
+            ),
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department draft inserted audit error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка фиксации вставки черновика: {str(e)}")
 
 
 @app.get("/api/applications/{application_id}/sales-department/autopilot", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])

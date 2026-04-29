@@ -403,6 +403,18 @@ export const cancelSalesDepartmentFollowup = async (applicationId: string, follo
   return handleApiError(response);
 };
 
+export const rescheduleSalesDepartmentFollowup = async (applicationId: string, followupId: string, scheduledAt?: string, reason?: string): Promise<SalesDepartmentFollowupDecisionResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/followups/${followupId}/reschedule`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({
+      reason: reason || 'operator_rescheduled_followup_from_crm',
+      scheduled_at: scheduledAt,
+    }),
+  });
+  return handleApiError(response);
+};
+
 export const logSalesDepartmentDraftInserted = async (applicationId: string, message: string, actionId?: string): Promise<{ success: boolean }> => {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/draft-inserted`, {
     method: 'POST',

@@ -13,6 +13,7 @@ import {
   handoffSalesDepartment,
   logSalesDepartmentDraftInserted,
   recalculateSalesDepartmentAutopilot,
+  rescheduleSalesDepartmentFollowup,
   skipSalesDepartmentAction,
   skipSalesDepartmentFollowup,
   updateSalesDepartmentAutopilot,
@@ -396,8 +397,9 @@ const FollowupCenterPanel: React.FC<{
   onApprove: (followupId: string) => void;
   onSkip: (followupId: string) => void;
   onCancel: (followupId: string) => void;
+  onReschedule: (followupId: string) => void;
   t: TFunction;
-}> = ({ followups, isLoading, isBusy, onApprove, onSkip, onCancel, t }) => (
+}> = ({ followups, isLoading, isBusy, onApprove, onSkip, onCancel, onReschedule, t }) => (
   <div className="rounded-[24px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-slate-50 p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
@@ -467,6 +469,14 @@ const FollowupCenterPanel: React.FC<{
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 transition hover:border-red-200 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {t('sales.followupCenter.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={!followupId || ['cancelled', 'skipped', 'approved'].includes(followup.status || '') || isBusy}
+                onClick={() => followupId && onReschedule(followupId)}
+                className="rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.followupCenter.reschedule')}
               </button>
             </div>
           </div>
@@ -1100,6 +1110,18 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
+  const rescheduleFollowupMutation = useMutation({
+    mutationFn: (followupId: string) => {
+      const scheduledAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      return rescheduleSalesDepartmentFollowup(appId, followupId, scheduledAt);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
   const updateAutopilotMutation = useMutation({
     mutationFn: ({ mode, enabled }: { mode: SalesDepartmentAutopilotMode; enabled: boolean }) =>
       updateSalesDepartmentAutopilot(appId, mode, enabled, `operator_selected_${mode}`),
@@ -1141,7 +1163,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
   const followups = followupsData?.followups || state?.followups || [];
   const autopilot = autopilotData?.autopilot;
   const isActionBusy = approveActionMutation.isPending || skipActionMutation.isPending;
-  const isFollowupBusy = approveFollowupMutation.isPending || skipFollowupMutation.isPending || cancelFollowupMutation.isPending;
+  const isFollowupBusy = approveFollowupMutation.isPending || skipFollowupMutation.isPending || cancelFollowupMutation.isPending || rescheduleFollowupMutation.isPending;
   const isAutopilotBusy = updateAutopilotMutation.isPending || recalculateAutopilotMutation.isPending || handoffMutation.isPending;
 
   return (
@@ -1260,6 +1282,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
               onApprove={(followupId) => approveFollowupMutation.mutate(followupId)}
               onSkip={(followupId) => skipFollowupMutation.mutate(followupId)}
               onCancel={(followupId) => cancelFollowupMutation.mutate(followupId)}
+              onReschedule={(followupId) => rescheduleFollowupMutation.mutate(followupId)}
               t={t}
             />
 

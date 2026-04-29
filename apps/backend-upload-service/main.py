@@ -304,6 +304,7 @@ class SalesDepartmentActionDecision(BaseModel):
 class SalesDepartmentFollowupDecision(BaseModel):
     reason: str | None = None
     actor: str = "Operator"
+    scheduled_at: str | None = None
 
 class SalesDepartmentDraftInsertRequest(BaseModel):
     message: str
@@ -1638,6 +1639,44 @@ def update_sales_followup_decision(
         "followup_id": followup_id,
         "actor": payload.actor or "Operator",
         "decision": payload.reason,
+        "before_state": before,
+        "after_state": after,
+    })
+    return normalize_firestore_value(after)
+
+
+def reschedule_sales_followup_decision(
+    *,
+    application_id: str,
+    followup_id: str,
+    payload: SalesDepartmentFollowupDecision,
+) -> dict:
+    followup_ref, before = get_sales_followup(application_id, followup_id)
+    now = datetime.datetime.utcnow()
+    scheduled_at = parse_sales_datetime(payload.scheduled_at) if payload.scheduled_at else None
+    if not scheduled_at:
+        scheduled_at = now + datetime.timedelta(hours=24)
+    if scheduled_at <= now:
+        raise HTTPException(status_code=400, detail="Новая дата follow-up должна быть в будущем.")
+
+    update_payload = {
+        "status": SalesFollowupStatus.SCHEDULED.value,
+        "scheduled_at": scheduled_at,
+        "ready_at": None,
+        "decision_reason": payload.reason or "operator_rescheduled_followup_from_crm",
+        "decision_actor": payload.actor or "Operator",
+        "requires_approval": True,
+        "updated_at": now,
+        "rescheduled_at": now,
+        "rescheduled_by": payload.actor or "Operator",
+    }
+
+    followup_ref.set(update_payload, merge=True)
+    after = {**before, **update_payload, "followup_id": followup_id}
+    create_sales_audit_event(application_id, "followup_rescheduled", {
+        "followup_id": followup_id,
+        "actor": payload.actor or "Operator",
+        "decision": payload.reason or "operator_rescheduled_followup_from_crm",
         "before_state": before,
         "after_state": after,
     })
@@ -3821,6 +3860,34 @@ async def cancel_sales_department_followup(application_id: str, followup_id: str
     except Exception as e:
         print(f"Sales department followup cancel error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка отмены follow-up отдела продаж.")
+
+
+@app.post("/api/applications/{application_id}/sales-department/followups/{followup_id}/reschedule", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def reschedule_sales_department_followup(application_id: str, followup_id: str, payload: SalesDepartmentFollowupDecision | None = Body(default=None)):
+    """Откладывает follow-up. По умолчанию переносит на 24 часа вперёд."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        followup = reschedule_sales_followup_decision(
+            application_id=application_id,
+            followup_id=followup_id,
+            payload=payload or SalesDepartmentFollowupDecision(reason="operator_rescheduled_followup_from_crm"),
+        )
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"SALES_FOLLOWUP_RESCHEDULED:{followup_id}:{followup.get('decision_reason')}",
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+        return {"success": True, "followup": followup}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department followup reschedule error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка переноса follow-up отдела продаж.")
 
 
 @app.post("/api/applications/{application_id}/sales-department/actions/{action_id}/approve", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])

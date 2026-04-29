@@ -167,6 +167,16 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
       ].join('\n');
     }
 
+    if (content.startsWith('SALES_FOLLOWUP_')) {
+      const [code = '', followupId = '', reason = ''] = content.split(':');
+      const action = code.replace('SALES_FOLLOWUP_', '').toLowerCase();
+      return [
+        t(`timeline.salesDepartment.followup.${action}`),
+        followupId ? t('timeline.salesDepartment.followupId', { value: followupId }) : '',
+        reason ? t('timeline.salesDepartment.handoffReason', { value: translateSalesCode(reason) }) : '',
+      ].filter(Boolean).join('\n');
+    }
+
     if (content.startsWith('Autopilot mode changed to ')) {
       const mode = content.match(/Autopilot mode changed to ([^.]+)\./)?.[1] || '';
       const status = content.match(/Status: ([^.]+)\./)?.[1] || '';

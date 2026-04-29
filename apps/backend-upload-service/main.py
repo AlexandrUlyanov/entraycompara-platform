@@ -254,6 +254,31 @@ class AutopilotMode(str, Enum):
     ASSISTED_AUTO = "assisted_auto"
     FULL_AUTO = "full_auto"
 
+class SalesActionType(str, Enum):
+    REQUEST_INVOICE = "REQUEST_INVOICE"
+    CONFIRM_DOCUMENTS_RECEIVED = "CONFIRM_DOCUMENTS_RECEIVED"
+    START_EXTRACTION = "START_EXTRACTION"
+    REQUEST_DATA_REVIEW = "REQUEST_DATA_REVIEW"
+    START_SIMULATION = "START_SIMULATION"
+    SELECT_SIMULATION = "SELECT_SIMULATION"
+    GENERATE_PROPOSAL = "GENERATE_PROPOSAL"
+    SEND_PROPOSAL = "SEND_PROPOSAL"
+    FOLLOW_UP_PROPOSAL = "FOLLOW_UP_PROPOSAL"
+    ANSWER_CLIENT_QUESTION = "ANSWER_CLIENT_QUESTION"
+    CONFIRM_NEXT_STEPS = "CONFIRM_NEXT_STEPS"
+    HANDOFF_TO_OPERATOR = "HANDOFF_TO_OPERATOR"
+    CLOSE_WITHOUT_PRESSURE = "CLOSE_WITHOUT_PRESSURE"
+    NO_ACTION = "NO_ACTION"
+
+class SalesActionStatus(str, Enum):
+    DRAFT = "draft"
+    READY = "ready"
+    APPROVED = "approved"
+    EXECUTED = "executed"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
 class SalesDepartmentAutopilotUpdate(BaseModel):
     mode: AutopilotMode
     enabled: bool = True
@@ -624,6 +649,26 @@ def get_sales_department_autopilot_ref(application_id: str):
     )
 
 
+def get_sales_department_actions_ref(application_id: str):
+    return (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("sales_department")
+        .document("state")
+        .collection("actions")
+    )
+
+
+def get_sales_department_audit_ref(application_id: str):
+    return (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("sales_department")
+        .document("state")
+        .collection("audit")
+    )
+
+
 def normalize_firestore_value(value):
     if isinstance(value, datetime.datetime):
         return value.isoformat()
@@ -759,6 +804,120 @@ def _estimate_sales_confidence(snapshot: dict) -> float:
     if signals.get("needs_extraction_review"):
         score -= 0.12
     return round(max(0.1, min(score, 0.95)), 2)
+
+
+def map_recommended_action_to_sales_action_type(recommended_action: str | None, signals: dict | None = None) -> str:
+    signals = signals or {}
+    mapping = {
+        "ask_for_invoice": SalesActionType.REQUEST_INVOICE.value,
+        "confirm_receipt_and_analysis": SalesActionType.CONFIRM_DOCUMENTS_RECEIVED.value,
+        "create_simulation": SalesActionType.START_SIMULATION.value,
+        "invite_questions_about_proposal": SalesActionType.FOLLOW_UP_PROPOSAL.value,
+        "confirm_next_steps": SalesActionType.CONFIRM_NEXT_STEPS.value,
+        "close_without_pressure": SalesActionType.CLOSE_WITHOUT_PRESSURE.value,
+    }
+    if recommended_action == "prepare_and_send_proposal":
+        return SalesActionType.SEND_PROPOSAL.value if signals.get("has_proposal") else SalesActionType.GENERATE_PROPOSAL.value
+    return mapping.get(recommended_action or "", SalesActionType.NO_ACTION.value)
+
+
+def build_sales_action_payload(
+    *,
+    application_id: str,
+    action_type: str,
+    priority: str,
+    reason: str,
+    payload: dict | None = None,
+) -> dict:
+    now = datetime.datetime.utcnow()
+    return {
+        "application_id": application_id,
+        "type": action_type,
+        "status": SalesActionStatus.DRAFT.value,
+        "priority": priority,
+        "reason": reason,
+        "requires_approval": True,
+        "safe_to_execute": False,
+        "payload": payload or {},
+        "created_by": "sales_department",
+        "approved_by": None,
+        "created_at": now,
+        "approved_at": None,
+        "executed_at": None,
+        "execution_result": None,
+    }
+
+
+def evaluate_sales_guardrails(snapshot: dict, action: dict, message: str | None = None, sales_state: dict | None = None) -> dict:
+    signals = snapshot.get("signals", {})
+    lead = snapshot.get("lead", {})
+    action_type = action.get("type") or SalesActionType.NO_ACTION.value
+    confidence = (sales_state or {}).get("reply_probability")
+    blocked_reasons: list[str] = []
+    warnings: list[str] = []
+
+    if action_type == SalesActionType.REQUEST_INVOICE.value and signals.get("has_files"):
+        blocked_reasons.append("would_request_existing_documents")
+
+    if action_type == SalesActionType.SEND_PROPOSAL.value and not signals.get("has_proposal"):
+        blocked_reasons.append("proposal_missing")
+
+    if action_type == SalesActionType.GENERATE_PROPOSAL.value and not signals.get("has_selected_simulation"):
+        blocked_reasons.append("selected_simulation_missing")
+
+    if action_type in {SalesActionType.SEND_PROPOSAL.value, SalesActionType.FOLLOW_UP_PROPOSAL.value} and not signals.get("has_selected_simulation"):
+        warnings.append("proposal_without_selected_simulation")
+
+    if action_type in {
+        SalesActionType.SEND_PROPOSAL.value,
+        SalesActionType.FOLLOW_UP_PROPOSAL.value,
+        SalesActionType.CONFIRM_NEXT_STEPS.value,
+        SalesActionType.CLOSE_WITHOUT_PRESSURE.value,
+    } and isinstance(confidence, (int, float)) and confidence < 0.55:
+        blocked_reasons.append("low_confidence")
+
+    normalized_message = (message or "").casefold()
+    if any(token in normalized_message for token in ["garant", "100%", "seguro que ahorra", "точно сэконом"]):
+        blocked_reasons.append("guaranteed_savings_claim")
+
+    if lead.get("uploaded_files_count", 0) > 0 and any(token in normalized_message for token in ["envíenos su factura", "send invoice", "отправьте счёт"]):
+        blocked_reasons.append("would_request_existing_documents")
+
+    return {
+        "safe_to_execute": len(blocked_reasons) == 0 and action_type != SalesActionType.NO_ACTION.value,
+        "blocked_reasons": blocked_reasons,
+        "warnings": warnings,
+        "requires_operator_approval": True,
+        "checked_at": datetime.datetime.utcnow(),
+    }
+
+
+def persist_sales_action(application_id: str, action: dict, guardrail_result: dict) -> dict:
+    action_ref = get_sales_department_actions_ref(application_id).document()
+    action_payload = {
+        **action,
+        "action_id": action_ref.id,
+        "status": SalesActionStatus.READY.value if guardrail_result.get("safe_to_execute") else SalesActionStatus.DRAFT.value,
+        "safe_to_execute": bool(guardrail_result.get("safe_to_execute")),
+        "guardrail_result": guardrail_result,
+        "updated_at": datetime.datetime.utcnow(),
+    }
+    action_ref.set(action_payload)
+    return action_payload
+
+
+def create_sales_audit_event(application_id: str, event_type: str, payload: dict):
+    try:
+        audit_ref = get_sales_department_audit_ref(application_id).document()
+        audit_ref.set({
+            "audit_id": audit_ref.id,
+            "event_type": event_type,
+            "source": "sales_department",
+            "created_at": datetime.datetime.utcnow(),
+            **payload,
+        })
+    except Exception as exc:
+        print(f"[Sales Department] Failed to write audit event: {exc}")
 
 
 def compose_sales_department_draft(lead: dict, recommended_action: str, language: str | None) -> str:
@@ -1087,6 +1246,10 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
     uploaded_files_count = snapshot_summary.get("uploaded_files_count") or 0
     suggested_cta = str(sales_state.get("suggested_cta") or "").casefold()
     recommended_action = str(sales_state.get("recommended_action") or "").casefold()
+    guardrail_result = sales_state.get("guardrail_result") or {}
+    guardrail_blocked_reasons = guardrail_result.get("blocked_reasons") or []
+    guardrail_warnings = guardrail_result.get("warnings") or []
+    guardrail_requires_approval = bool(guardrail_result.get("requires_operator_approval", True))
     safe_to_prepare = bool(enabled and has_recommended_action and pipeline_health != "blocked")
     blocked_reasons: list[str] = []
     warnings: list[str] = []
@@ -1103,6 +1266,8 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
         blocked_reasons.append("would_request_existing_documents")
     if snapshot_summary.get("has_proposal") and not snapshot_summary.get("has_selected_simulation"):
         warnings.append("proposal_exists_without_selected_simulation")
+    blocked_reasons.extend(reason for reason in guardrail_blocked_reasons if reason not in blocked_reasons)
+    warnings.extend(warning for warning in guardrail_warnings if warning not in warnings)
 
     # Full Auto stays locked until the safety engine and explicit approval are implemented.
     safe_to_send = (
@@ -1111,6 +1276,7 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
         and isinstance(confidence, (int, float))
         and confidence >= 0.55
         and not blocked_reasons
+        and not guardrail_requires_approval
     )
     if mode == AutopilotMode.FULL_AUTO.value:
         safe_to_send = False
@@ -1134,6 +1300,7 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
         "allowed_actions": ["analyze", "draft_message"] if enabled else ["analyze"],
         "blocked_reasons": blocked_reasons,
         "warnings": warnings,
+        "guardrail_result": guardrail_result,
         "full_auto_enabled": mode == AutopilotMode.FULL_AUTO.value and enabled,
         "handoff_required": pipeline_health == "blocked" or confidence == 0 or len(blocked_reasons) > 0,
         "last_decision": decision,
@@ -2476,6 +2643,42 @@ async def analyze_sales_department(application_id: str, payload: SalesDepartment
                 "timeline_events_count": len(snapshot.get("timeline", [])),
             },
         })
+        action_payload = build_sales_action_payload(
+            application_id=application_id,
+            action_type=map_recommended_action_to_sales_action_type(
+                state_payload.get("recommended_action"),
+                snapshot.get("signals", {}),
+            ),
+            priority=state_payload.get("action_priority") or "normal",
+            reason=state_payload.get("friction_point") or "unknown",
+            payload={
+                "recommended_action": state_payload.get("recommended_action"),
+                "suggested_cta": state_payload.get("suggested_cta"),
+                "suggested_message": state_payload.get("suggested_message"),
+                "language": state_payload.get("language_used"),
+                "goal": state_payload.get("goal"),
+            },
+        )
+        guardrail_result = evaluate_sales_guardrails(
+            snapshot=snapshot,
+            action=action_payload,
+            message=state_payload.get("suggested_message"),
+            sales_state=state_payload,
+        )
+        persisted_action = persist_sales_action(application_id, action_payload, guardrail_result)
+        state_payload.update({
+            "next_action": persisted_action,
+            "guardrail_result": guardrail_result,
+            "safe_to_send": bool(guardrail_result.get("safe_to_execute")) and not guardrail_result.get("requires_operator_approval", True),
+            "needs_operator_review": bool(guardrail_result.get("requires_operator_approval", True)) or bool(guardrail_result.get("blocked_reasons")),
+        })
+        create_sales_audit_event(application_id, "analysis_completed", {
+            "run_id": run_ref.id,
+            "snapshot_hash": state_payload.get("last_inputs_hash"),
+            "next_action_type": persisted_action.get("type"),
+            "next_action_id": persisted_action.get("action_id"),
+            "guardrail_result": guardrail_result,
+        })
 
         run_payload = {
             "run_id": run_ref.id,
@@ -2486,6 +2689,8 @@ async def analyze_sales_department(application_id: str, payload: SalesDepartment
             "snapshot": snapshot,
             "agents": state_payload.get("agents", []),
             "result": state_payload,
+            "next_action": persisted_action,
+            "guardrail_result": guardrail_result,
         }
 
         state_ref.set(state_payload, merge=True)
@@ -2497,6 +2702,8 @@ async def analyze_sales_department(application_id: str, payload: SalesDepartment
                 "Отдел продаж пересчитал состояние лида.\n"
                 f"Состояние клиента: {state_payload.get('client_state')}.\n"
                 f"Следующее действие: {state_payload.get('recommended_action')}.\n"
+                f"Структурное действие: {persisted_action.get('type')}.\n"
+                f"Safety: {'ok' if guardrail_result.get('safe_to_execute') else 'needs_review'}.\n"
                 f"Pipeline health: {state_payload.get('pipeline_health')}."
             ),
             event_type=EventType.NOTE,
@@ -2578,6 +2785,12 @@ async def update_sales_department_autopilot(application_id: str, payload: SalesD
             "updated_by": "Operator",
         })
         get_sales_department_autopilot_ref(application_id).set(autopilot_payload, merge=True)
+        create_sales_audit_event(application_id, "autopilot_updated", {
+            "mode": payload.mode.value,
+            "enabled": payload.enabled,
+            "reason": payload.reason,
+            "autopilot": autopilot_payload,
+        })
 
         create_timeline_event_internal(
             application_id=application_id,
@@ -2621,6 +2834,11 @@ async def recalculate_sales_department_autopilot(application_id: str):
         )
         autopilot_payload["last_reason"] = "Recalculated from current sales state"
         get_sales_department_autopilot_ref(application_id).set(autopilot_payload, merge=True)
+        create_sales_audit_event(application_id, "autopilot_recalculated", {
+            "mode": autopilot_payload.get("mode"),
+            "enabled": autopilot_payload.get("enabled"),
+            "autopilot": autopilot_payload,
+        })
 
         return {
             "success": True,
@@ -2657,6 +2875,11 @@ async def handoff_sales_department(application_id: str, payload: SalesDepartment
             "updated_at": now,
         }
         get_sales_department_autopilot_ref(application_id).set(handoff_payload, merge=True)
+        create_sales_audit_event(application_id, "handoff_requested", {
+            "reason": payload.reason,
+            "assigned_to": payload.assigned_to,
+            "autopilot": handoff_payload,
+        })
 
         create_timeline_event_internal(
             application_id=application_id,

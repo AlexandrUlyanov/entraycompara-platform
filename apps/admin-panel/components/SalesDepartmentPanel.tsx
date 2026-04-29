@@ -132,6 +132,32 @@ const getStatusTone = (status?: string): string => {
   }
 };
 
+const SafetySignalList: React.FC<{
+  title: string;
+  items?: string[];
+  tone: 'red' | 'amber';
+  t: TFunction;
+}> = ({ title, items = [], tone, t }) => {
+  if (items.length === 0) return null;
+
+  const toneClasses = tone === 'red'
+    ? 'border-red-100 bg-red-50/70 text-red-700'
+    : 'border-amber-100 bg-amber-50/70 text-amber-700';
+
+  return (
+    <div className={`rounded-2xl border p-3 ${toneClasses}`}>
+      <div className="text-[11px] font-bold uppercase tracking-wider">{title}</div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {items.map((item) => (
+          <span key={item} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold">
+            {translateSalesValue(item, t)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const RadarTile: React.FC<{ label: string; value?: string | number | null; tone?: string }> = ({ label, value, tone = 'slate' }) => {
   const toneClasses: Record<string, string> = {
     blue: 'from-blue-50 to-white border-blue-100',
@@ -351,29 +377,60 @@ const SalesMoleculePanel: React.FC<{
 const ActionPanel: React.FC<{
   state: SalesDepartmentState;
   t: TFunction;
-}> = ({ state, t }) => (
-  <div className="rounded-[24px] border border-blue-100 bg-blue-50/60 p-5">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <div className="text-[11px] font-bold uppercase tracking-wider text-blue-500">{t('sales.action.title')}</div>
-        <h4 className="mt-1 text-lg font-bold text-slate-900">{state.recommended_action ? translateSalesValue(state.recommended_action, t) : t('sales.action.needsRefresh')}</h4>
+}> = ({ state, t }) => {
+  const nextAction = state.next_action;
+  const guardrails = state.guardrail_result || nextAction?.guardrail_result;
+  const blockedReasons = guardrails?.blocked_reasons || [];
+  const warnings = guardrails?.warnings || [];
+  const actionTitle = nextAction?.type || state.recommended_action;
+
+  return (
+    <div className="rounded-[24px] border border-blue-100 bg-blue-50/60 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-blue-500">{t('sales.action.title')}</div>
+          <h4 className="mt-1 text-lg font-bold text-slate-900">
+            {actionTitle ? translateSalesValue(actionTitle, t) : t('sales.action.needsRefresh')}
+          </h4>
+          {nextAction?.action_id && (
+            <div className="mt-1 text-xs font-medium text-blue-500">
+              {t('sales.action.id')}: {nextAction.action_id}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusTone(nextAction?.status || state.action_priority)}`}>
+            {translateSalesValue(nextAction?.status || state.action_priority || 'normal', t)}
+          </span>
+          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${guardrails?.safe_to_execute ? getStatusTone('ready') : getStatusTone('needs_attention')}`}>
+            {guardrails?.safe_to_execute ? t('sales.safety.safe') : t('sales.safety.needsReview')}
+          </span>
+        </div>
       </div>
-      <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusTone(state.action_priority)}`}>
-        {translateSalesValue(state.action_priority || 'normal', t)}
-      </span>
-    </div>
-    <div className="mt-4 grid gap-3 md:grid-cols-3">
-      <RadarTile label={t('sales.action.goal')} value={translateSalesValue(state.goal, t)} tone="blue" />
-      <RadarTile label={t('sales.action.whyNow')} value={translateSalesText(state.why_now, t)} tone="amber" />
-      <RadarTile label={t('sales.action.expectedOutcome')} value={translateSalesText(state.expected_outcome, t)} tone="green" />
-    </div>
-    {state.suggested_cta && (
-      <div className="mt-4 rounded-2xl border border-white/80 bg-white/80 p-3 text-sm font-medium text-slate-700">
-        CTA: {translateSalesValue(state.suggested_cta, t)}
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <RadarTile label={t('sales.action.goal')} value={translateSalesValue(state.goal, t)} tone="blue" />
+        <RadarTile label={t('sales.action.whyNow')} value={translateSalesText(state.why_now, t)} tone="amber" />
+        <RadarTile label={t('sales.action.expectedOutcome')} value={translateSalesText(state.expected_outcome, t)} tone="green" />
       </div>
-    )}
-  </div>
-);
+      {state.suggested_cta && (
+        <div className="mt-4 rounded-2xl border border-white/80 bg-white/80 p-3 text-sm font-medium text-slate-700">
+          CTA: {translateSalesValue(state.suggested_cta, t)}
+        </div>
+      )}
+      {(blockedReasons.length > 0 || warnings.length > 0 || guardrails?.requires_operator_approval) && (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <SafetySignalList title={t('sales.safety.blocked')} items={blockedReasons} tone="red" t={t} />
+          <SafetySignalList title={t('sales.safety.warnings')} items={warnings} tone="amber" t={t} />
+          {guardrails?.requires_operator_approval && (
+            <div className="rounded-2xl border border-blue-100 bg-white/80 p-3 text-sm font-semibold text-blue-700 md:col-span-2">
+              {t('sales.safety.operatorApprovalRequired')}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const MessageStudio: React.FC<{
   message?: string | null;

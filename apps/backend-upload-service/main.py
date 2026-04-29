@@ -857,6 +857,111 @@ def build_sales_action_payload(
     }
 
 
+def _count_message_cta_candidates(message: str) -> int:
+    normalized = message.casefold()
+    cta_tokens = [
+        "?",
+        "si le parece",
+        "puede envi",
+        "puede mandar",
+        "confirme",
+        "cuando quiera",
+        "quiere que",
+        "le aclaramos",
+        "напишите",
+        "пришлите",
+        "отправьте",
+        "подтвердите",
+        "если хотите",
+        "давайте",
+        "скажите",
+    ]
+    return sum(1 for token in cta_tokens if token in normalized)
+
+
+def _detect_clear_message_language_mismatch(message: str, expected_language: str | None) -> bool:
+    if not message or not expected_language:
+        return False
+
+    has_cyrillic = any("а" <= char <= "я" or "А" <= char <= "Я" or char in "ёЁіїєґІЇЄҐ" for char in message)
+    normalized = f" {message.casefold()} "
+    spanish_markers = [" hola", " factura", " propuesta", " gracias", " si le parece", " podemos", " usted", " enviamos", " revisamos"]
+    russian_markers = [" здрав", " сч", " предложение", " спасибо", " можем", " отправ", " провер", " тариф"]
+
+    if expected_language == "es":
+        return has_cyrillic
+    if expected_language in {"ru", "uk"}:
+        has_spanish_marker = any(marker in normalized for marker in spanish_markers)
+        has_russian_marker = any(marker in normalized for marker in russian_markers)
+        return has_spanish_marker and not has_cyrillic and not has_russian_marker
+    return False
+
+
+def evaluate_sales_message_guardrails(message: str | None, expected_language: str | None = None) -> dict:
+    normalized_message = (message or "").casefold()
+    blocked_reasons: list[str] = []
+    warnings: list[str] = []
+
+    guaranteed_savings_tokens = [
+        "garantizamos el ahorro",
+        "ahorro garantizado",
+        "seguro que ahorra",
+        "100% ahorrar",
+        "ahorrarás seguro",
+        "точно сэконом",
+        "гарантируем эконом",
+        "гарантированная эконом",
+    ]
+    if any(token in normalized_message for token in guaranteed_savings_tokens):
+        blocked_reasons.append("guaranteed_savings_claim")
+
+    false_urgency_tokens = [
+        "solo hoy",
+        "sólo hoy",
+        "urgente",
+        "últimas horas",
+        "oferta limitada",
+        "только сегодня",
+        "срочно",
+        "последний шанс",
+        "ограниченное предложение",
+    ]
+    if any(token in normalized_message for token in false_urgency_tokens):
+        blocked_reasons.append("false_urgency")
+
+    internal_context_tokens = [
+        "crm",
+        "pipeline",
+        "guardrail",
+        "snapshot",
+        "sales_department",
+        "lead state",
+        "friction point",
+        "внутренн",
+        "служебн",
+        "воронк",
+        "заметк crm",
+    ]
+    if any(token in normalized_message for token in internal_context_tokens):
+        blocked_reasons.append("internal_context_exposed")
+
+    if _count_message_cta_candidates(message or "") > 1:
+        blocked_reasons.append("multiple_competing_ctas")
+
+    if _detect_clear_message_language_mismatch(message or "", expected_language):
+        blocked_reasons.append("language_mismatch")
+
+    if len(message or "") > 700:
+        warnings.append("message_too_long")
+
+    return {
+        "safe_to_execute": len(blocked_reasons) == 0,
+        "blocked_reasons": blocked_reasons,
+        "warnings": warnings,
+        "checked_at": datetime.datetime.utcnow(),
+    }
+
+
 def evaluate_sales_guardrails(snapshot: dict, action: dict, message: str | None = None, sales_state: dict | None = None) -> dict:
     signals = snapshot.get("signals", {})
     lead = snapshot.get("lead", {})
@@ -886,8 +991,12 @@ def evaluate_sales_guardrails(snapshot: dict, action: dict, message: str | None 
         blocked_reasons.append("low_confidence")
 
     normalized_message = (message or "").casefold()
-    if any(token in normalized_message for token in ["garant", "100%", "seguro que ahorra", "точно сэконом"]):
-        blocked_reasons.append("guaranteed_savings_claim")
+    message_guardrails = evaluate_sales_message_guardrails(
+        message,
+        expected_language=(sales_state or {}).get("language_used") or lead.get("language"),
+    )
+    blocked_reasons.extend(reason for reason in message_guardrails.get("blocked_reasons", []) if reason not in blocked_reasons)
+    warnings.extend(warning for warning in message_guardrails.get("warnings", []) if warning not in warnings)
 
     if lead.get("uploaded_files_count", 0) > 0 and any(token in normalized_message for token in ["envíenos su factura", "send invoice", "отправьте счёт"]):
         blocked_reasons.append("would_request_existing_documents")
@@ -5992,8 +6101,39 @@ Muchas gracias por la confianza. Seguimos con la gestión y le iremos informando
         
         if not response.text:
             raise HTTPException(status_code=500, detail="Gemini вернул пустой ответ.")
+
+        generated_message = response.text.strip()
+        message_guardrails = evaluate_sales_message_guardrails(
+            generated_message,
+            expected_language=effective_language,
+        )
+        if message_guardrails.get("blocked_reasons"):
+            create_sales_audit_event(data.application_id, "whatsapp_ai_draft_blocked", {
+                "actor": "AI",
+                "message": generated_message,
+                "message_preview": generated_message[:240],
+                "message_length": len(generated_message),
+                "expected_language": effective_language,
+                "guardrail_result": message_guardrails,
+            })
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "AI-сообщение заблокировано правилами безопасности.",
+                    "blocked_reasons": message_guardrails.get("blocked_reasons", []),
+                    "warnings": message_guardrails.get("warnings", []),
+                },
+            )
+
+        create_sales_audit_event(data.application_id, "whatsapp_ai_draft_generated", {
+            "actor": "AI",
+            "message_preview": generated_message[:240],
+            "message_length": len(generated_message),
+            "expected_language": effective_language,
+            "guardrail_result": message_guardrails,
+        })
         
-        return {"success": True, "response": response.text.strip()}
+        return {"success": True, "response": generated_message, "guardrail_result": normalize_firestore_value(message_guardrails)}
         
     except HTTPException:
         raise

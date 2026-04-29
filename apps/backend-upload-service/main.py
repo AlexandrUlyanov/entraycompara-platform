@@ -1221,6 +1221,16 @@ def list_sales_actions(application_id: str, limit: int = 20) -> list[dict]:
     return [normalize_firestore_value(doc.to_dict() or {}) for doc in docs]
 
 
+def list_sales_audit_events(application_id: str, limit: int = 30) -> list[dict]:
+    docs = (
+        get_sales_department_audit_ref(application_id)
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .limit(max(1, min(limit, 50)))
+        .stream()
+    )
+    return [normalize_firestore_value(doc.to_dict() or {}) for doc in docs]
+
+
 def get_sales_action(application_id: str, action_id: str):
     action_ref = get_sales_department_actions_ref(application_id).document(action_id)
     action_doc = action_ref.get()
@@ -3684,6 +3694,26 @@ async def get_sales_department_actions(application_id: str, limit: int = 20):
     except Exception as e:
         print(f"Sales department actions list error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении действий отдела продаж.")
+
+
+@app.get("/api/applications/{application_id}/sales-department/audit", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def get_sales_department_audit(application_id: str, limit: int = 30):
+    """Возвращает журнал решений отдела продаж для восстановления контекста AI и действий оператора."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        return {
+            "success": True,
+            "audit": list_sales_audit_events(application_id, limit=limit),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department audit list error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении журнала решений отдела продаж.")
 
 
 @app.get("/api/applications/{application_id}/sales-department/followups", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])

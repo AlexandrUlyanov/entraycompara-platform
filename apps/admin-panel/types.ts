@@ -350,6 +350,27 @@ export interface SalesDepartmentActionDecisionResponse {
   action: SalesDepartmentNextAction;
 }
 
+export interface SalesDepartmentAuditEvent {
+  audit_id?: string;
+  event_type?: string;
+  source?: string;
+  snapshot_hash?: string;
+  action_id?: string;
+  run_id?: string;
+  actor?: string;
+  decision?: string;
+  guardrail_result?: SalesDepartmentGuardrailResult;
+  before_state?: Record<string, unknown>;
+  after_state?: Record<string, unknown>;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface SalesDepartmentAuditResponse {
+  success: boolean;
+  audit: SalesDepartmentAuditEvent[];
+}
+
 export interface SalesDepartmentFollowup {
   followup_id?: string;
   application_id?: string;

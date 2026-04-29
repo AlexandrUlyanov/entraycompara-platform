@@ -632,11 +632,15 @@ def _build_live_lead_snapshot(doc_ref, app_data: dict) -> str:
 
 SALES_DEPARTMENT_AGENT_KEYS = [
     "lead_state_analyst",
+    "context_curator",
+    "friction_analyst",
     "sales_strategist",
     "message_composer",
     "trust_guard",
+    "compliance_guard",
     "followup_scheduler",
     "deal_control",
+    "operator_handoff_manager",
 ]
 
 
@@ -1352,6 +1356,196 @@ def compose_sales_department_draft(lead: dict, recommended_action: str, language
     return selected.get(lang) or selected.get("es")
 
 
+def make_sales_molecule_role(
+    key: str,
+    name: str,
+    output,
+    decision: str,
+    confidence: float,
+    *,
+    group: str,
+    evidence: list[str] | None = None,
+    risk_flags: list[str] | None = None,
+    status: str = "completed",
+) -> dict:
+    return {
+        "key": key,
+        "name": name,
+        "group": group,
+        "status": status,
+        "output": output,
+        "decision": decision,
+        "confidence": confidence,
+        "evidence": evidence or [],
+        "risk_flags": risk_flags or [],
+    }
+
+
+def build_sales_molecule_roles(
+    snapshot: dict,
+    *,
+    client_state: str,
+    friction_point: str,
+    recommended_action: str,
+    goal: str,
+    suggested_cta: str,
+    suggested_message: str,
+    followup_needed: bool,
+    deal_stage: str,
+    pipeline_health: str,
+    confidence: float,
+) -> dict:
+    lead = snapshot.get("lead", {})
+    signals = snapshot.get("signals", {})
+    whatsapp = snapshot.get("whatsapp", {})
+    proposal_data = snapshot.get("proposal_data") or {}
+    selected_simulation = snapshot.get("selected_simulation") or {}
+    timeline = snapshot.get("timeline") or []
+    language = lead.get("language") or "es"
+
+    context_evidence = [
+        f"status:{lead.get('status') or Status.NEW_LEAD.value}",
+        f"files:{lead.get('uploaded_files_count', 0)}",
+        f"language:{language}",
+        f"timeline:{len(timeline)}",
+    ]
+    if signals.get("has_extracted_data"):
+        context_evidence.append("extracted_data:yes")
+    if signals.get("has_selected_simulation"):
+        context_evidence.append("selected_simulation:yes")
+    if signals.get("has_proposal"):
+        context_evidence.append("proposal:yes")
+    if whatsapp.get("last_incoming"):
+        context_evidence.append("latest_client_message:present")
+
+    risk_flags: list[str] = []
+    if signals.get("needs_extraction_review"):
+        risk_flags.append("extraction_needs_review")
+    if pipeline_health == "watch":
+        risk_flags.append("pipeline_watch")
+    if pipeline_health == "needs_input":
+        risk_flags.append("client_input_missing")
+    if not selected_simulation and signals.get("has_extracted_data"):
+        risk_flags.append("simulation_missing")
+    if proposal_data.get("needs_review"):
+        risk_flags.append("proposal_data_needs_review")
+
+    compliance_flags = []
+    if "ahorro" in (suggested_message or "").lower() or "эконом" in (suggested_message or "").lower():
+        compliance_flags.append("savings_language_present")
+    if signals.get("has_proposal") and not lead.get("proposal_file_url"):
+        compliance_flags.append("proposal_without_url")
+
+    handoff_output = "operator_review_required" if risk_flags else "standard_operator_approval"
+    if pipeline_health in {"watch", "needs_input"} or risk_flags:
+        handoff_decision = "Operator should review risks before the next customer action."
+    else:
+        handoff_decision = "Standard manual approval is enough for the next action."
+
+    return {
+        "lead_state_analyst": make_sales_molecule_role(
+            "lead_state_analyst",
+            "Lead State Analyst",
+            client_state,
+            f"Lead state is {client_state}",
+            confidence,
+            group="analysis",
+            evidence=context_evidence[:4],
+            risk_flags=risk_flags[:2],
+        ),
+        "context_curator": make_sales_molecule_role(
+            "context_curator",
+            "Context Curator",
+            "context_ready",
+            "Lead context was normalized from files, timeline, proposal data and simulations.",
+            confidence,
+            group="analysis",
+            evidence=context_evidence,
+            risk_flags=["missing_recent_context"] if not timeline else [],
+        ),
+        "friction_analyst": make_sales_molecule_role(
+            "friction_analyst",
+            "Friction Analyst",
+            friction_point,
+            f"Primary friction point is {friction_point}",
+            confidence,
+            group="analysis",
+            evidence=[f"pipeline:{pipeline_health}", f"deal_stage:{deal_stage}"],
+            risk_flags=risk_flags,
+        ),
+        "sales_strategist": make_sales_molecule_role(
+            "sales_strategist",
+            "Sales Strategist",
+            recommended_action,
+            f"Goal is {goal}",
+            confidence,
+            group="strategy",
+            evidence=[f"cta:{suggested_cta}", f"friction:{friction_point}"],
+            risk_flags=risk_flags[:2],
+        ),
+        "message_composer": make_sales_molecule_role(
+            "message_composer",
+            "Message Composer",
+            suggested_message,
+            f"CTA is {suggested_cta}",
+            confidence,
+            group="strategy",
+            evidence=[f"language:{language}", f"action:{recommended_action}"],
+            risk_flags=["draft_requires_review"],
+        ),
+        "trust_guard": make_sales_molecule_role(
+            "trust_guard",
+            "Trust Guard",
+            "manual_approval_required",
+            "No automatic send is allowed in the current safety phase.",
+            1.0,
+            group="safety",
+            evidence=["auto_send:false", "human_approval:true"],
+            risk_flags=[],
+        ),
+        "compliance_guard": make_sales_molecule_role(
+            "compliance_guard",
+            "Compliance Guard",
+            "safe_with_operator_review",
+            "The message must not promise guaranteed savings or expose internal CRM context.",
+            1.0,
+            group="safety",
+            evidence=compliance_flags or ["no_high_risk_claims_detected"],
+            risk_flags=compliance_flags,
+        ),
+        "followup_scheduler": make_sales_molecule_role(
+            "followup_scheduler",
+            "Follow-up Scheduler",
+            "followup_needed" if followup_needed else "no_followup_now",
+            f"ETA hours: {24 if followup_needed else None}",
+            confidence,
+            group="operations",
+            evidence=[f"status:{lead.get('status')}", f"proposal:{signals.get('has_proposal')}"],
+            risk_flags=["followup_pending"] if followup_needed else [],
+        ),
+        "deal_control": make_sales_molecule_role(
+            "deal_control",
+            "Deal Control",
+            deal_stage,
+            f"Pipeline health is {pipeline_health}",
+            confidence,
+            group="operations",
+            evidence=[f"stage:{deal_stage}", f"health:{pipeline_health}"],
+            risk_flags=risk_flags[:3],
+        ),
+        "operator_handoff_manager": make_sales_molecule_role(
+            "operator_handoff_manager",
+            "Operator Handoff Manager",
+            handoff_output,
+            handoff_decision,
+            1.0 if not risk_flags else 0.82,
+            group="operations",
+            evidence=["manual_control:true", f"risks:{len(risk_flags)}"],
+            risk_flags=risk_flags,
+        ),
+    }
+
+
 def analyze_sales_department_snapshot(snapshot: dict) -> dict:
     lead = snapshot.get("lead", {})
     signals = snapshot.get("signals", {})
@@ -1443,50 +1637,19 @@ def analyze_sales_department_snapshot(snapshot: dict) -> dict:
         recommended_action=recommended_action,
         language=lead.get("language") or "es",
     )
-    molecule_roles = {
-        "lead_state_analyst": {
-            "name": "Lead State Analyst",
-            "status": "completed",
-            "output": client_state,
-            "decision": f"Friction point is {friction_point}",
-            "confidence": confidence,
-        },
-        "sales_strategist": {
-            "name": "Sales Strategist",
-            "status": "completed",
-            "output": recommended_action,
-            "decision": f"Goal is {goal}",
-            "confidence": confidence,
-        },
-        "message_composer": {
-            "name": "Message Composer",
-            "status": "completed",
-            "output": suggested_message,
-            "decision": f"CTA is {suggested_cta}",
-            "confidence": confidence,
-        },
-        "trust_guard": {
-            "name": "Trust Guard",
-            "status": "completed",
-            "output": "manual_approval_required",
-            "decision": "No automatic send is allowed in the current safety phase.",
-            "confidence": 1.0,
-        },
-        "followup_scheduler": {
-            "name": "Follow-up Scheduler",
-            "status": "completed",
-            "output": "followup_needed" if followup_needed else "no_followup_now",
-            "decision": f"ETA hours: {24 if followup_needed else None}",
-            "confidence": confidence,
-        },
-        "deal_control": {
-            "name": "Deal Control",
-            "status": "completed",
-            "output": deal_stage,
-            "decision": f"Pipeline health is {pipeline_health}",
-            "confidence": confidence,
-        },
-    }
+    molecule_roles = build_sales_molecule_roles(
+        snapshot,
+        client_state=client_state,
+        friction_point=friction_point,
+        recommended_action=recommended_action,
+        goal=goal,
+        suggested_cta=suggested_cta,
+        suggested_message=suggested_message,
+        followup_needed=followup_needed,
+        deal_stage=deal_stage,
+        pipeline_health=pipeline_health,
+        confidence=confidence,
+    )
     decision_trace = [
         {"step": "lead_state", "value": client_state},
         {"step": "friction_point", "value": friction_point},
@@ -1500,37 +1663,91 @@ def analyze_sales_department_snapshot(snapshot: dict) -> dict:
             "agent_key": "lead_state_analyst",
             "status": "completed",
             "summary": molecule_roles["lead_state_analyst"]["decision"],
+            "risk_flags": molecule_roles["lead_state_analyst"].get("risk_flags", []),
+            "evidence": molecule_roles["lead_state_analyst"].get("evidence", []),
+            "group": molecule_roles["lead_state_analyst"].get("group"),
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "context_curator",
+            "status": "completed",
+            "summary": molecule_roles["context_curator"]["decision"],
+            "risk_flags": molecule_roles["context_curator"].get("risk_flags", []),
+            "evidence": molecule_roles["context_curator"].get("evidence", []),
+            "group": molecule_roles["context_curator"].get("group"),
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "friction_analyst",
+            "status": "completed",
+            "summary": molecule_roles["friction_analyst"]["decision"],
+            "risk_flags": molecule_roles["friction_analyst"].get("risk_flags", []),
+            "evidence": molecule_roles["friction_analyst"].get("evidence", []),
+            "group": molecule_roles["friction_analyst"].get("group"),
             "confidence": confidence,
         },
         {
             "agent_key": "sales_strategist",
             "status": "completed",
             "summary": molecule_roles["sales_strategist"]["decision"],
+            "risk_flags": molecule_roles["sales_strategist"].get("risk_flags", []),
+            "evidence": molecule_roles["sales_strategist"].get("evidence", []),
+            "group": molecule_roles["sales_strategist"].get("group"),
             "confidence": confidence,
         },
         {
             "agent_key": "message_composer",
             "status": "completed",
             "summary": molecule_roles["message_composer"]["decision"],
+            "risk_flags": molecule_roles["message_composer"].get("risk_flags", []),
+            "evidence": molecule_roles["message_composer"].get("evidence", []),
+            "group": molecule_roles["message_composer"].get("group"),
             "confidence": confidence,
         },
         {
             "agent_key": "trust_guard",
             "status": "completed",
             "summary": molecule_roles["trust_guard"]["decision"],
+            "risk_flags": molecule_roles["trust_guard"].get("risk_flags", []),
+            "evidence": molecule_roles["trust_guard"].get("evidence", []),
+            "group": molecule_roles["trust_guard"].get("group"),
+            "confidence": 1.0,
+        },
+        {
+            "agent_key": "compliance_guard",
+            "status": "completed",
+            "summary": molecule_roles["compliance_guard"]["decision"],
+            "risk_flags": molecule_roles["compliance_guard"].get("risk_flags", []),
+            "evidence": molecule_roles["compliance_guard"].get("evidence", []),
+            "group": molecule_roles["compliance_guard"].get("group"),
             "confidence": 1.0,
         },
         {
             "agent_key": "followup_scheduler",
             "status": "completed",
             "summary": molecule_roles["followup_scheduler"]["decision"],
+            "risk_flags": molecule_roles["followup_scheduler"].get("risk_flags", []),
+            "evidence": molecule_roles["followup_scheduler"].get("evidence", []),
+            "group": molecule_roles["followup_scheduler"].get("group"),
             "confidence": confidence,
         },
         {
             "agent_key": "deal_control",
             "status": "completed",
             "summary": molecule_roles["deal_control"]["decision"],
+            "risk_flags": molecule_roles["deal_control"].get("risk_flags", []),
+            "evidence": molecule_roles["deal_control"].get("evidence", []),
+            "group": molecule_roles["deal_control"].get("group"),
             "confidence": confidence,
+        },
+        {
+            "agent_key": "operator_handoff_manager",
+            "status": "completed",
+            "summary": molecule_roles["operator_handoff_manager"]["decision"],
+            "risk_flags": molecule_roles["operator_handoff_manager"].get("risk_flags", []),
+            "evidence": molecule_roles["operator_handoff_manager"].get("evidence", []),
+            "group": molecule_roles["operator_handoff_manager"].get("group"),
+            "confidence": molecule_roles["operator_handoff_manager"].get("confidence", confidence),
         },
     ]
 

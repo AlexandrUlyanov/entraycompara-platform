@@ -62,6 +62,10 @@ const translateSalesText = (text: string | null | undefined, t: TFunction): stri
     'Based on current lead status, documents, proposal data and recent timeline.': 'sales.text.whyNow.default',
     'Client understands the next step and stays in the process.': 'sales.text.expectedOutcome.default',
     'No automatic send is allowed in the current safety phase.': 'sales.text.agent.noAutoSend',
+    'Lead context was normalized from files, timeline, proposal data and simulations.': 'sales.text.agent.contextNormalized',
+    'The message must not promise guaranteed savings or expose internal CRM context.': 'sales.text.agent.complianceGuard',
+    'Operator should review risks before the next customer action.': 'sales.text.agent.operatorReview',
+    'Standard manual approval is enough for the next action.': 'sales.text.agent.standardApproval',
     'Manual mode is active. No automatic actions are allowed.': 'sales.text.autopilot.manual',
     'Manual mode is active. AI can analyze, but cannot prepare or send actions automatically.': 'sales.text.autopilot.manualAnalyzeOnly',
     'Assisted Auto can prepare recommendations for operator approval. Sending remains manual.': 'sales.text.autopilot.assistedPrepareOnly',
@@ -80,6 +84,8 @@ const translateSalesText = (text: string | null | undefined, t: TFunction): stri
 
   const patternMatches: Array<{ regex: RegExp; key: string }> = [
     { regex: /^Friction point is (.+)$/i, key: 'sales.text.agent.frictionPoint' },
+    { regex: /^Lead state is (.+)$/i, key: 'sales.text.agent.leadState' },
+    { regex: /^Primary friction point is (.+)$/i, key: 'sales.text.agent.primaryFriction' },
     { regex: /^Goal is (.+)$/i, key: 'sales.text.agent.goal' },
     { regex: /^CTA is (.+)$/i, key: 'sales.text.agent.cta' },
     { regex: /^ETA hours: (.+)$/i, key: 'sales.text.agent.eta' },
@@ -125,6 +131,19 @@ const formatHours = (value?: number | null): string => {
 
 const getAgentLabel = (agentKey: string, t: TFunction): string =>
   translateIfExists(t, `sales.agent.${agentKey}`, agentKey.replace(/_/g, ' '));
+
+const getMoleculeGroupLabel = (group: string | undefined, t: TFunction): string =>
+  translateIfExists(t, `sales.molecule.group.${group || 'other'}`, group || t('sales.molecule.group.other'));
+
+const translateMoleculeMarker = (value: string, t: TFunction): string => {
+  const separatorIndex = value.indexOf(':');
+  if (separatorIndex === -1) return translateSalesValue(value, t);
+
+  const key = value.slice(0, separatorIndex);
+  const rawValue = value.slice(separatorIndex + 1);
+  const label = translateIfExists(t, `sales.evidence.${key}`, key.replace(/_/g, ' '));
+  return `${label}: ${translateSalesValue(rawValue, t)}`;
+};
 
 const getStatusTone = (status?: string): string => {
   switch (status) {
@@ -361,6 +380,8 @@ const FollowUpDealPanel: React.FC<{
 
 const MoleculeRoleCard: React.FC<{ role: SalesDepartmentMoleculeRole; t: TFunction }> = ({ role, t }) => {
   const statusTone = getStatusTone(role.status);
+  const evidence = role.evidence || [];
+  const riskFlags = role.risk_flags || [];
 
   return (
     <div className="rounded-2xl border border-white/70 bg-white/80 p-3 shadow-sm">
@@ -376,6 +397,30 @@ const MoleculeRoleCard: React.FC<{ role: SalesDepartmentMoleculeRole; t: TFuncti
           {translateSalesValue(role.output, t)}
         </div>
       )}
+      {evidence.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('sales.molecule.evidence')}</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {evidence.slice(0, 4).map((item) => (
+              <span key={item} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                {translateMoleculeMarker(item, t)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {riskFlags.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-500">{t('sales.molecule.risks')}</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {riskFlags.slice(0, 4).map((item) => (
+              <span key={item} className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                {translateMoleculeMarker(item, t)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -385,6 +430,7 @@ const SalesMoleculePanel: React.FC<{
   t: TFunction;
 }> = ({ molecule, t }) => {
   const roles = molecule?.roles || [];
+  const groups = ['analysis', 'strategy', 'safety', 'operations'];
 
   return (
     <div className="rounded-[24px] border border-indigo-100 bg-gradient-to-br from-indigo-50 via-blue-50 to-white p-5">
@@ -407,10 +453,23 @@ const SalesMoleculePanel: React.FC<{
       </div>
 
       {roles.length > 0 ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {roles.map((role) => (
-            <MoleculeRoleCard key={role.key} role={role} t={t} />
-          ))}
+        <div className="mt-4 space-y-4">
+          {groups.map((group) => {
+            const groupRoles = roles.filter((role) => (role.group || 'operations') === group);
+            if (groupRoles.length === 0) return null;
+            return (
+              <div key={group}>
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-indigo-500">
+                  {getMoleculeGroupLabel(group, t)}
+                </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {groupRoles.map((role) => (
+                    <MoleculeRoleCard key={role.key} role={role} t={t} />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="mt-4 rounded-2xl border border-dashed border-indigo-200 bg-white/60 p-4 text-sm text-slate-500">

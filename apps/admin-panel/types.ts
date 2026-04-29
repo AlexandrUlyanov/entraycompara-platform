@@ -172,6 +172,9 @@ export interface SalesDepartmentAgentStep {
   status: SalesDepartmentAgentStatus;
   summary?: string | null;
   confidence?: number | null;
+  group?: string | null;
+  evidence?: string[];
+  risk_flags?: string[];
 }
 
 export interface SalesDepartmentSnapshotSummary {
@@ -218,10 +221,13 @@ export interface SalesDepartmentDecisionTraceItem {
 export interface SalesDepartmentMoleculeRole {
   key: string;
   name?: string;
+  group?: string;
   status?: SalesDepartmentAgentStatus;
   output?: string | null;
   decision?: string | null;
   confidence?: number | null;
+  evidence?: string[];
+  risk_flags?: string[];
 }
 
 export interface SalesDepartmentMolecule {

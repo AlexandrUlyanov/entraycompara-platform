@@ -2,11 +2,14 @@ import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   analyzeSalesDepartment,
+  approveSalesDepartmentAction,
   createTimelineNote,
+  getSalesDepartmentActions,
   getSalesDepartmentAutopilot,
   getSalesDepartmentState,
   handoffSalesDepartment,
   recalculateSalesDepartmentAutopilot,
+  skipSalesDepartmentAction,
   updateSalesDepartmentAutopilot,
 } from '../services/api';
 import {
@@ -16,6 +19,7 @@ import {
   SalesDepartmentAutopilotState,
   SalesDepartmentMolecule,
   SalesDepartmentMoleculeRole,
+  SalesDepartmentNextAction,
   SalesDepartmentState,
 } from '../types';
 import Spinner from './Spinner';
@@ -432,6 +436,92 @@ const ActionPanel: React.FC<{
   );
 };
 
+const ActionQueuePanel: React.FC<{
+  actions: SalesDepartmentNextAction[];
+  isLoading: boolean;
+  isBusy: boolean;
+  onApprove: (actionId: string) => void;
+  onSkip: (actionId: string) => void;
+  t: TFunction;
+}> = ({ actions, isLoading, isBusy, onApprove, onSkip, t }) => (
+  <div className="rounded-[24px] border border-slate-100 bg-white/80 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{t('sales.actionQueue.kicker')}</div>
+        <h4 className="mt-1 text-lg font-bold text-slate-900">{t('sales.actionQueue.title')}</h4>
+        <p className="mt-1 text-sm text-slate-500">{t('sales.actionQueue.description')}</p>
+      </div>
+      <span className="rounded-full border border-slate-100 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+        {isLoading ? t('sales.value.loading') : t('sales.actionQueue.count', { count: actions.length })}
+      </span>
+    </div>
+
+    <div className="mt-4 space-y-3">
+      {isLoading && (
+        <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-200 p-5">
+          <Spinner size="h-5 w-5" />
+        </div>
+      )}
+      {!isLoading && actions.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-500">
+          {t('sales.actionQueue.empty')}
+        </div>
+      )}
+      {!isLoading && actions.map((action) => {
+        const blockedReasons = action.guardrail_result?.blocked_reasons || [];
+        const warnings = action.guardrail_result?.warnings || [];
+        const canApprove = action.status === 'ready' && action.safe_to_execute && blockedReasons.length === 0;
+        return (
+          <div key={action.action_id || action.created_at} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-slate-900">{translateSalesValue(action.type, t)}</div>
+                <div className="mt-1 text-xs font-medium text-slate-500">
+                  {translateSalesValue(action.reason, t)} · {formatDateTime(action.created_at)}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusTone(action.status)}`}>
+                  {translateSalesValue(action.status, t)}
+                </span>
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${action.safe_to_execute ? getStatusTone('ready') : getStatusTone('needs_attention')}`}>
+                  {action.safe_to_execute ? t('sales.safety.safe') : t('sales.safety.needsReview')}
+                </span>
+              </div>
+            </div>
+
+            {(blockedReasons.length > 0 || warnings.length > 0) && (
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <SafetySignalList title={t('sales.safety.blocked')} items={blockedReasons} tone="red" t={t} />
+                <SafetySignalList title={t('sales.safety.warnings')} items={warnings} tone="amber" t={t} />
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!canApprove || isBusy}
+                onClick={() => action.action_id && onApprove(action.action_id)}
+                className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.actionQueue.approve')}
+              </button>
+              <button
+                type="button"
+                disabled={!action.action_id || action.status === 'skipped' || isBusy}
+                onClick={() => action.action_id && onSkip(action.action_id)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-amber-200 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.actionQueue.skip')}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+);
+
 const MessageStudio: React.FC<{
   message?: string | null;
   isBusy: boolean;
@@ -614,12 +704,37 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     queryFn: () => getSalesDepartmentAutopilot(appId),
     enabled: !!appId,
   });
+  const {
+    data: actionsData,
+    isLoading: isActionsLoading,
+  } = useQuery({
+    queryKey: ['salesDepartmentActions', appId],
+    queryFn: () => getSalesDepartmentActions(appId),
+    enabled: !!appId,
+  });
 
   const analyzeMutation = useMutation({
     mutationFn: () => analyzeSalesDepartment(appId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const approveActionMutation = useMutation({
+    mutationFn: (actionId: string) => approveSalesDepartmentAction(appId, actionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const skipActionMutation = useMutation({
+    mutationFn: (actionId: string) => skipSalesDepartmentAction(appId, actionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -658,7 +773,9 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
 
   const state = data?.state || null;
   const agents = state?.agents || data?.latest_run?.agents || [];
+  const actions = actionsData?.actions || (state?.next_action ? [state.next_action] : []);
   const autopilot = autopilotData?.autopilot;
+  const isActionBusy = approveActionMutation.isPending || skipActionMutation.isPending;
   const isAutopilotBusy = updateAutopilotMutation.isPending || recalculateAutopilotMutation.isPending || handoffMutation.isPending;
 
   return (
@@ -722,6 +839,15 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
             </div>
 
             <ActionPanel state={state} t={t} />
+
+            <ActionQueuePanel
+              actions={actions}
+              isLoading={isActionsLoading}
+              isBusy={isActionBusy}
+              onApprove={(actionId) => approveActionMutation.mutate(actionId)}
+              onSkip={(actionId) => skipActionMutation.mutate(actionId)}
+              t={t}
+            />
 
             <SalesMoleculePanel molecule={state.molecule} t={t} />
 

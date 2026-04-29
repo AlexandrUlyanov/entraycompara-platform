@@ -288,6 +288,10 @@ class SalesDepartmentHandoffRequest(BaseModel):
     reason: str = "Operator handoff"
     assigned_to: str | None = None
 
+class SalesDepartmentActionDecision(BaseModel):
+    reason: str | None = None
+    actor: str = "Operator"
+
 # 1.6. Модели для Proposal Builder (Extracted Data)
 class ExtractedData(BaseModel):
     # Поля для симуляции испанских электрических счетов (facturas de luz)
@@ -918,6 +922,73 @@ def create_sales_audit_event(application_id: str, event_type: str, payload: dict
         })
     except Exception as exc:
         print(f"[Sales Department] Failed to write audit event: {exc}")
+
+
+def list_sales_actions(application_id: str, limit: int = 20) -> list[dict]:
+    docs = (
+        get_sales_department_actions_ref(application_id)
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .limit(max(1, min(limit, 50)))
+        .stream()
+    )
+    return [normalize_firestore_value(doc.to_dict() or {}) for doc in docs]
+
+
+def get_sales_action(application_id: str, action_id: str):
+    action_ref = get_sales_department_actions_ref(application_id).document(action_id)
+    action_doc = action_ref.get()
+    if not action_doc.exists:
+        raise HTTPException(status_code=404, detail="Действие отдела продаж не найдено.")
+    return action_ref, action_doc.to_dict() or {}
+
+
+def update_sales_action_decision(
+    *,
+    application_id: str,
+    action_id: str,
+    status: str,
+    payload: SalesDepartmentActionDecision,
+) -> dict:
+    action_ref, before = get_sales_action(application_id, action_id)
+    guardrail_result = before.get("guardrail_result") or {}
+    blocked_reasons = guardrail_result.get("blocked_reasons") or []
+    now = datetime.datetime.utcnow()
+
+    if status == SalesActionStatus.APPROVED.value and blocked_reasons:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Нельзя подтвердить действие, заблокированное guardrails.",
+                "blocked_reasons": blocked_reasons,
+            },
+        )
+
+    update_payload = {
+        "status": status,
+        "decision_reason": payload.reason,
+        "decision_actor": payload.actor or "Operator",
+        "updated_at": now,
+    }
+    if status == SalesActionStatus.APPROVED.value:
+        update_payload.update({
+            "approved_at": now,
+            "approved_by": payload.actor or "Operator",
+            "requires_approval": False,
+        })
+    if status == SalesActionStatus.SKIPPED.value:
+        update_payload["skipped_at"] = now
+
+    action_ref.set(update_payload, merge=True)
+    after = {**before, **update_payload, "action_id": action_id}
+    create_sales_audit_event(application_id, f"action_{status}", {
+        "action_id": action_id,
+        "actor": payload.actor or "Operator",
+        "decision": payload.reason,
+        "guardrail_result": guardrail_result,
+        "before_state": before,
+        "after_state": after,
+    })
+    return normalize_firestore_value(after)
 
 
 def compose_sales_department_draft(lead: dict, recommended_action: str, language: str | None) -> str:
@@ -2741,6 +2812,72 @@ async def get_sales_department_latest_run(application_id: str):
     except Exception as e:
         print(f"Sales department latest run error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении последнего run отдела продаж.")
+
+
+@app.get("/api/applications/{application_id}/sales-department/actions", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def get_sales_department_actions(application_id: str, limit: int = 20):
+    """Возвращает очередь действий отдела продаж."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        return {
+            "success": True,
+            "actions": list_sales_actions(application_id, limit=limit),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department actions list error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении действий отдела продаж.")
+
+
+@app.post("/api/applications/{application_id}/sales-department/actions/{action_id}/approve", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def approve_sales_department_action(application_id: str, action_id: str, payload: SalesDepartmentActionDecision | None = Body(default=None)):
+    """Подтверждает безопасное действие. Заблокированные guardrails действия подтвердить нельзя."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        action = update_sales_action_decision(
+            application_id=application_id,
+            action_id=action_id,
+            status=SalesActionStatus.APPROVED.value,
+            payload=payload or SalesDepartmentActionDecision(),
+        )
+        return {"success": True, "action": action}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department action approve error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка подтверждения действия: {str(e)}")
+
+
+@app.post("/api/applications/{application_id}/sales-department/actions/{action_id}/skip", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def skip_sales_department_action(application_id: str, action_id: str, payload: SalesDepartmentActionDecision | None = Body(default=None)):
+    """Пропускает действие и сохраняет решение оператора в audit."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        action = update_sales_action_decision(
+            application_id=application_id,
+            action_id=action_id,
+            status=SalesActionStatus.SKIPPED.value,
+            payload=payload or SalesDepartmentActionDecision(),
+        )
+        return {"success": True, "action": action}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department action skip error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка пропуска действия: {str(e)}")
 
 
 @app.get("/api/applications/{application_id}/sales-department/autopilot", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])

@@ -296,6 +296,16 @@ export interface SalesDepartmentAnalyzeResponse {
   run: SalesDepartmentRun;
 }
 
+export interface SalesDepartmentActionsResponse {
+  success: boolean;
+  actions: SalesDepartmentNextAction[];
+}
+
+export interface SalesDepartmentActionDecisionResponse {
+  success: boolean;
+  action: SalesDepartmentNextAction;
+}
+
 export type SalesDepartmentAutopilotMode = 'manual' | 'assisted_auto' | 'full_auto';
 
 export interface SalesDepartmentAutopilotState {

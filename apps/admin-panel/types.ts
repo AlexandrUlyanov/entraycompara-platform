@@ -307,6 +307,8 @@ export interface SalesDepartmentState {
   stale_reasons?: string[];
   events_after_last_run_count?: number;
   metrics?: SalesDepartmentMetrics;
+  followups?: SalesDepartmentFollowup[];
+  next_followup?: SalesDepartmentFollowup;
 }
 
 export interface SalesDepartmentRun {
@@ -342,6 +344,38 @@ export interface SalesDepartmentActionsResponse {
 export interface SalesDepartmentActionDecisionResponse {
   success: boolean;
   action: SalesDepartmentNextAction;
+}
+
+export interface SalesDepartmentFollowup {
+  followup_id?: string;
+  application_id?: string;
+  type?: string;
+  status?: string;
+  scheduled_at?: string;
+  ready_at?: string;
+  reason?: string;
+  message_draft?: string;
+  requires_approval?: boolean;
+  created_by?: string;
+  approved_by?: string;
+  approved_at?: string;
+  executed_at?: string;
+  result?: string;
+  deal_stage?: string;
+  recommended_action?: string;
+  guardrail_result?: SalesDepartmentGuardrailResult;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SalesDepartmentFollowupsResponse {
+  success: boolean;
+  followups: SalesDepartmentFollowup[];
+}
+
+export interface SalesDepartmentFollowupDecisionResponse {
+  success: boolean;
+  followup: SalesDepartmentFollowup;
 }
 
 export type SalesDepartmentAutopilotMode = 'manual' | 'assisted_auto' | 'full_auto';

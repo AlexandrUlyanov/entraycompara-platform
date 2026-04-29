@@ -3,19 +3,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   analyzeSalesDepartment,
   approveSalesDepartmentAction,
+  approveSalesDepartmentFollowup,
+  cancelSalesDepartmentFollowup,
   getSalesDepartmentActions,
   getSalesDepartmentAutopilot,
+  getSalesDepartmentFollowups,
   getSalesDepartmentState,
   handoffSalesDepartment,
   logSalesDepartmentDraftInserted,
   recalculateSalesDepartmentAutopilot,
   skipSalesDepartmentAction,
+  skipSalesDepartmentFollowup,
   updateSalesDepartmentAutopilot,
 } from '../services/api';
 import {
   SalesDepartmentAgentStep,
   SalesDepartmentAutopilotMode,
   SalesDepartmentAutopilotState,
+  SalesDepartmentFollowup,
   SalesDepartmentMolecule,
   SalesDepartmentMoleculeRole,
   SalesDepartmentNextAction,
@@ -375,6 +380,93 @@ const FollowUpDealPanel: React.FC<{
         {translateSalesText(autopilot.last_decision, t)}
       </div>
     )}
+  </div>
+);
+
+const FollowupCenterPanel: React.FC<{
+  followups: SalesDepartmentFollowup[];
+  isLoading: boolean;
+  isBusy: boolean;
+  onApprove: (followupId: string) => void;
+  onSkip: (followupId: string) => void;
+  onCancel: (followupId: string) => void;
+  t: TFunction;
+}> = ({ followups, isLoading, isBusy, onApprove, onSkip, onCancel, t }) => (
+  <div className="rounded-[24px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-slate-50 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">{t('sales.followupCenter.kicker')}</div>
+        <h4 className="mt-1 text-lg font-bold text-slate-900">{t('sales.followupCenter.title')}</h4>
+        <p className="mt-1 text-sm text-slate-500">{t('sales.followupCenter.description')}</p>
+      </div>
+      <span className="rounded-full border border-emerald-100 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+        {isLoading ? t('sales.value.loading') : t('sales.followupCenter.count', { count: followups.length })}
+      </span>
+    </div>
+
+    <div className="mt-4 space-y-3">
+      {isLoading && (
+        <div className="flex items-center gap-2 rounded-2xl border border-emerald-100 bg-white/70 p-4 text-sm text-slate-500">
+          <Spinner className="h-4 w-4 text-emerald-600" />
+          {t('common.loading')}
+        </div>
+      )}
+      {!isLoading && followups.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-emerald-200 bg-white/70 p-4 text-sm text-slate-500">
+          {t('sales.followupCenter.empty')}
+        </div>
+      )}
+      {!isLoading && followups.map((followup) => {
+        const followupId = followup.followup_id || '';
+        const canApprove = ['ready', 'scheduled'].includes(followup.status || '') && followupId;
+        return (
+          <div key={followupId || followup.created_at} className="rounded-2xl border border-emerald-100 bg-white/80 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-slate-900">{translateSalesValue(followup.type, t)}</div>
+                <div className="mt-1 text-xs font-medium text-slate-500">
+                  {translateSalesValue(followup.reason, t)} · {formatDateTime(followup.scheduled_at)}
+                </div>
+              </div>
+              <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusTone(followup.status)}`}>
+                {translateSalesValue(followup.status || 'scheduled', t)}
+              </span>
+            </div>
+            {followup.message_draft && (
+              <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-700">
+                {followup.message_draft}
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!canApprove || isBusy}
+                onClick={() => followupId && onApprove(followupId)}
+                className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.followupCenter.approve')}
+              </button>
+              <button
+                type="button"
+                disabled={!followupId || followup.status === 'skipped' || isBusy}
+                onClick={() => followupId && onSkip(followupId)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-amber-200 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.followupCenter.skip')}
+              </button>
+              <button
+                type="button"
+                disabled={!followupId || ['cancelled', 'skipped', 'approved'].includes(followup.status || '') || isBusy}
+                onClick={() => followupId && onCancel(followupId)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 transition hover:border-red-200 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.followupCenter.cancel')}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   </div>
 );
 
@@ -856,6 +948,14 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     queryFn: () => getSalesDepartmentActions(appId),
     enabled: !!appId,
   });
+  const {
+    data: followupsData,
+    isLoading: isFollowupsLoading,
+  } = useQuery({
+    queryKey: ['salesDepartmentFollowups', appId],
+    queryFn: () => getSalesDepartmentFollowups(appId),
+    enabled: !!appId,
+  });
 
   const analyzeMutation = useMutation({
     mutationFn: () => analyzeSalesDepartment(appId),
@@ -863,6 +963,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -878,6 +979,30 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     mutationFn: (actionId: string) => skipSalesDepartmentAction(appId, actionId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const approveFollowupMutation = useMutation({
+    mutationFn: (followupId: string) => approveSalesDepartmentFollowup(appId, followupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const skipFollowupMutation = useMutation({
+    mutationFn: (followupId: string) => skipSalesDepartmentFollowup(appId, followupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const cancelFollowupMutation = useMutation({
+    mutationFn: (followupId: string) => cancelSalesDepartmentFollowup(appId, followupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
@@ -915,8 +1040,10 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
   const state = data?.state || null;
   const agents = state?.agents || data?.latest_run?.agents || [];
   const actions = actionsData?.actions || (state?.next_action ? [state.next_action] : []);
+  const followups = followupsData?.followups || state?.followups || [];
   const autopilot = autopilotData?.autopilot;
   const isActionBusy = approveActionMutation.isPending || skipActionMutation.isPending;
+  const isFollowupBusy = approveFollowupMutation.isPending || skipFollowupMutation.isPending || cancelFollowupMutation.isPending;
   const isAutopilotBusy = updateAutopilotMutation.isPending || recalculateAutopilotMutation.isPending || handoffMutation.isPending;
 
   return (
@@ -1025,6 +1152,16 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
             />
 
             <FollowUpDealPanel state={state} autopilot={autopilot} t={t} />
+
+            <FollowupCenterPanel
+              followups={followups}
+              isLoading={isFollowupsLoading}
+              isBusy={isFollowupBusy}
+              onApprove={(followupId) => approveFollowupMutation.mutate(followupId)}
+              onSkip={(followupId) => skipFollowupMutation.mutate(followupId)}
+              onCancel={(followupId) => cancelFollowupMutation.mutate(followupId)}
+              t={t}
+            />
 
             <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
               <div className="rounded-[24px] border border-slate-100 bg-white/70 p-5">

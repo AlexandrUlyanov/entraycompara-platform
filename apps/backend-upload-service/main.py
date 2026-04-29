@@ -279,6 +279,15 @@ class SalesActionStatus(str, Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+class SalesFollowupStatus(str, Enum):
+    SCHEDULED = "scheduled"
+    READY = "ready"
+    APPROVED = "approved"
+    SENT = "sent"
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
 class SalesDepartmentAutopilotUpdate(BaseModel):
     mode: AutopilotMode
     enabled: bool = True
@@ -289,6 +298,10 @@ class SalesDepartmentHandoffRequest(BaseModel):
     assigned_to: str | None = None
 
 class SalesDepartmentActionDecision(BaseModel):
+    reason: str | None = None
+    actor: str = "Operator"
+
+class SalesDepartmentFollowupDecision(BaseModel):
     reason: str | None = None
     actor: str = "Operator"
 
@@ -679,6 +692,16 @@ def get_sales_department_audit_ref(application_id: str):
         .collection("sales_department")
         .document("state")
         .collection("audit")
+    )
+
+
+def get_sales_department_followups_ref(application_id: str):
+    return (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("sales_department")
+        .document("state")
+        .collection("followups")
     )
 
 
@@ -1242,6 +1265,143 @@ def update_sales_action_decision(
     return normalize_firestore_value(after)
 
 
+ACTIVE_FOLLOWUP_STATUSES = {
+    SalesFollowupStatus.SCHEDULED.value,
+    SalesFollowupStatus.READY.value,
+    SalesFollowupStatus.APPROVED.value,
+}
+
+
+def get_sales_followup(application_id: str, followup_id: str):
+    followup_ref = get_sales_department_followups_ref(application_id).document(followup_id)
+    followup_doc = followup_ref.get()
+    if not followup_doc.exists:
+        raise HTTPException(status_code=404, detail="Follow-up отдела продаж не найден.")
+    return followup_ref, followup_doc.to_dict() or {}
+
+
+def list_sales_followups(application_id: str, limit: int = 20) -> list[dict]:
+    now = datetime.datetime.utcnow()
+    docs = (
+        get_sales_department_followups_ref(application_id)
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .limit(max(1, min(limit, 50)))
+        .stream()
+    )
+    followups: list[dict] = []
+    for doc in docs:
+        data = doc.to_dict() or {}
+        scheduled_at = parse_sales_datetime(data.get("scheduled_at"))
+        if data.get("status") == SalesFollowupStatus.SCHEDULED.value and scheduled_at and scheduled_at <= now:
+            data.update({
+                "status": SalesFollowupStatus.READY.value,
+                "ready_at": now,
+                "updated_at": now,
+            })
+            doc.reference.set(data, merge=True)
+        followups.append(normalize_firestore_value(data))
+    return followups
+
+
+def ensure_sales_followup(application_id: str, sales_state: dict) -> dict | None:
+    if not sales_state.get("followup_needed"):
+        return None
+
+    reason = sales_state.get("friction_point") or sales_state.get("recommended_action") or "followup_needed"
+    now = datetime.datetime.utcnow()
+    scheduled_at = now + datetime.timedelta(hours=int(sales_state.get("followup_eta_hours") or 24))
+    existing_docs = (
+        get_sales_department_followups_ref(application_id)
+        .where("reason", "==", reason)
+        .limit(20)
+        .stream()
+    )
+    active_doc = None
+    for doc in existing_docs:
+        data = doc.to_dict() or {}
+        if data.get("status") in ACTIVE_FOLLOWUP_STATUSES:
+            active_doc = (doc.reference, data)
+            break
+
+    payload = {
+        "application_id": application_id,
+        "type": "proposal_followup" if sales_state.get("deal_stage") == "proposal_review" else "lead_followup",
+        "status": SalesFollowupStatus.READY.value if scheduled_at <= now else SalesFollowupStatus.SCHEDULED.value,
+        "scheduled_at": scheduled_at,
+        "reason": reason,
+        "message_draft": sales_state.get("suggested_message"),
+        "requires_approval": True,
+        "created_by": "sales_department",
+        "updated_at": now,
+        "deal_stage": sales_state.get("deal_stage"),
+        "recommended_action": sales_state.get("recommended_action"),
+        "guardrail_result": sales_state.get("guardrail_result") or {},
+    }
+
+    if active_doc:
+        followup_ref, before = active_doc
+        payload["followup_id"] = before.get("followup_id") or followup_ref.id
+        payload["created_at"] = before.get("created_at") or now
+        followup_ref.set(payload, merge=True)
+        result = {**before, **payload}
+        event_type = "followup_updated"
+    else:
+        followup_ref = get_sales_department_followups_ref(application_id).document()
+        payload.update({
+            "followup_id": followup_ref.id,
+            "created_at": now,
+        })
+        followup_ref.set(payload)
+        result = payload
+        event_type = "followup_created"
+
+    create_sales_audit_event(application_id, event_type, {
+        "followup_id": result.get("followup_id"),
+        "reason": reason,
+        "status": result.get("status"),
+        "scheduled_at": result.get("scheduled_at"),
+    })
+    return normalize_firestore_value(result)
+
+
+def update_sales_followup_decision(
+    *,
+    application_id: str,
+    followup_id: str,
+    status: str,
+    payload: SalesDepartmentFollowupDecision,
+) -> dict:
+    followup_ref, before = get_sales_followup(application_id, followup_id)
+    now = datetime.datetime.utcnow()
+    update_payload = {
+        "status": status,
+        "decision_reason": payload.reason,
+        "decision_actor": payload.actor or "Operator",
+        "updated_at": now,
+    }
+    if status == SalesFollowupStatus.APPROVED.value:
+        update_payload.update({
+            "approved_at": now,
+            "approved_by": payload.actor or "Operator",
+            "requires_approval": False,
+        })
+    elif status == SalesFollowupStatus.SKIPPED.value:
+        update_payload["skipped_at"] = now
+    elif status == SalesFollowupStatus.CANCELLED.value:
+        update_payload["cancelled_at"] = now
+
+    followup_ref.set(update_payload, merge=True)
+    after = {**before, **update_payload, "followup_id": followup_id}
+    create_sales_audit_event(application_id, f"followup_{status}", {
+        "followup_id": followup_id,
+        "actor": payload.actor or "Operator",
+        "decision": payload.reason,
+        "before_state": before,
+        "after_state": after,
+    })
+    return normalize_firestore_value(after)
+
+
 def build_sales_department_context_for_prompt(application_id: str, doc_ref, app_data: dict) -> str:
     state_doc = get_sales_department_state_ref(application_id).get()
     if not state_doc.exists:
@@ -1253,6 +1413,7 @@ def build_sales_department_context_for_prompt(application_id: str, doc_ref, app_
     state = normalize_firestore_value(state_doc.to_dict() or {})
     freshness = evaluate_sales_state_freshness(application_id, doc_ref, app_data, state)
     actions = list_sales_actions(application_id, limit=5)
+    followups = list_sales_followups(application_id, limit=3)
     next_action = state.get("next_action") or {}
     guardrail_result = state.get("guardrail_result") or next_action.get("guardrail_result") or {}
     snapshot = build_sales_department_snapshot(application_id, doc_ref, app_data)
@@ -1292,6 +1453,8 @@ def build_sales_department_context_for_prompt(application_id: str, doc_ref, app_
             }
             for action in actions
         ],
+        "active_followups_count": len([item for item in followups if item.get("status") in ACTIVE_FOLLOWUP_STATUSES]),
+        "next_followup": followups[0] if followups else None,
         "selected_simulation": {
             "provider": selected_simulation.get("provider_name") or selected_simulation.get("provider"),
             "tariff": selected_simulation.get("tariff_name") or selected_simulation.get("tariff"),
@@ -3194,6 +3357,7 @@ async def get_sales_department_state(application_id: str):
         state_payload["stale_reasons"] = freshness.get("stale_reasons", [])
         state_payload["events_after_last_run_count"] = freshness.get("events_after_last_run_count", 0)
         state_payload["metrics"] = build_sales_metrics(current_snapshot, list_sales_actions(application_id, limit=50))
+        state_payload["followups"] = list_sales_followups(application_id, limit=20)
 
         return {
             "success": True,
@@ -3282,6 +3446,10 @@ async def analyze_sales_department(application_id: str, payload: SalesDepartment
             "needs_operator_review": bool(guardrail_result.get("requires_operator_approval", True)) or bool(guardrail_result.get("blocked_reasons")),
             "metrics": build_sales_metrics(snapshot, list_sales_actions(application_id, limit=50)),
         })
+        ensured_followup = ensure_sales_followup(application_id, state_payload)
+        state_payload["followups"] = list_sales_followups(application_id, limit=20)
+        if ensured_followup:
+            state_payload["next_followup"] = ensured_followup
         create_sales_audit_event(application_id, "analysis_completed", {
             "run_id": run_ref.id,
             "snapshot_hash": state_payload.get("last_inputs_hash"),
@@ -3371,6 +3539,113 @@ async def get_sales_department_actions(application_id: str, limit: int = 20):
     except Exception as e:
         print(f"Sales department actions list error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении действий отдела продаж.")
+
+
+@app.get("/api/applications/{application_id}/sales-department/followups", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def get_sales_department_followups(application_id: str, limit: int = 20):
+    """Возвращает центр follow-up по лиду."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        return {
+            "success": True,
+            "followups": list_sales_followups(application_id, limit=limit),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department followups list error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении follow-up отдела продаж.")
+
+
+@app.post("/api/applications/{application_id}/sales-department/followups/{followup_id}/approve", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def approve_sales_department_followup(application_id: str, followup_id: str, payload: SalesDepartmentFollowupDecision | None = Body(default=None)):
+    """Подтверждает follow-up без автоотправки сообщения."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        followup = update_sales_followup_decision(
+            application_id=application_id,
+            followup_id=followup_id,
+            status=SalesFollowupStatus.APPROVED.value,
+            payload=payload or SalesDepartmentFollowupDecision(reason="operator_approved_followup_from_crm"),
+        )
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"SALES_FOLLOWUP_APPROVED:{followup_id}:{followup.get('reason')}",
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+        return {"success": True, "followup": followup}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department followup approve error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка подтверждения follow-up отдела продаж.")
+
+
+@app.post("/api/applications/{application_id}/sales-department/followups/{followup_id}/skip", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def skip_sales_department_followup(application_id: str, followup_id: str, payload: SalesDepartmentFollowupDecision | None = Body(default=None)):
+    """Пропускает follow-up и сохраняет решение оператора."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        followup = update_sales_followup_decision(
+            application_id=application_id,
+            followup_id=followup_id,
+            status=SalesFollowupStatus.SKIPPED.value,
+            payload=payload or SalesDepartmentFollowupDecision(reason="operator_skipped_followup_from_crm"),
+        )
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"SALES_FOLLOWUP_SKIPPED:{followup_id}:{followup.get('reason')}",
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+        return {"success": True, "followup": followup}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department followup skip error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка пропуска follow-up отдела продаж.")
+
+
+@app.post("/api/applications/{application_id}/sales-department/followups/{followup_id}/cancel", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def cancel_sales_department_followup(application_id: str, followup_id: str, payload: SalesDepartmentFollowupDecision | None = Body(default=None)):
+    """Отменяет follow-up и сохраняет решение оператора."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        followup = update_sales_followup_decision(
+            application_id=application_id,
+            followup_id=followup_id,
+            status=SalesFollowupStatus.CANCELLED.value,
+            payload=payload or SalesDepartmentFollowupDecision(reason="operator_cancelled_followup_from_crm"),
+        )
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"SALES_FOLLOWUP_CANCELLED:{followup_id}:{followup.get('reason')}",
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+        return {"success": True, "followup": followup}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department followup cancel error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка отмены follow-up отдела продаж.")
 
 
 @app.post("/api/applications/{application_id}/sales-department/actions/{action_id}/approve", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])

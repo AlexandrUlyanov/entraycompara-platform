@@ -183,6 +183,15 @@ export interface SalesDepartmentSnapshotSummary {
   timeline_events_count?: number;
 }
 
+export interface SalesDepartmentFreshness {
+  is_stale?: boolean;
+  stale_reasons?: string[];
+  events_after_last_run_count?: number;
+  current_inputs_hash?: string;
+  last_inputs_hash?: string;
+  snapshot_summary?: SalesDepartmentSnapshotSummary;
+}
+
 export interface SalesDepartmentDecisionTraceItem {
   step: string;
   value?: string | null;
@@ -269,6 +278,10 @@ export interface SalesDepartmentState {
   guardrail_result?: SalesDepartmentGuardrailResult;
   safe_to_send?: boolean;
   needs_operator_review?: boolean;
+  freshness?: SalesDepartmentFreshness;
+  is_stale?: boolean;
+  stale_reasons?: string[];
+  events_after_last_run_count?: number;
 }
 
 export interface SalesDepartmentRun {

@@ -797,6 +797,80 @@ def build_sales_department_snapshot(application_id: str, doc_ref, app_data: dict
     }
 
 
+def hash_sales_snapshot(snapshot: dict) -> str:
+    return hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def build_sales_snapshot_summary(snapshot: dict) -> dict:
+    return {
+        "status": snapshot.get("lead", {}).get("status"),
+        "uploaded_files_count": snapshot.get("lead", {}).get("uploaded_files_count", 0),
+        "has_extracted_data": snapshot.get("signals", {}).get("has_extracted_data", False),
+        "has_selected_simulation": snapshot.get("signals", {}).get("has_selected_simulation", False),
+        "has_proposal": snapshot.get("signals", {}).get("has_proposal", False),
+        "timeline_events_count": len(snapshot.get("timeline", [])),
+    }
+
+
+def evaluate_sales_state_freshness(application_id: str, doc_ref, app_data: dict, sales_state: dict | None) -> dict:
+    sales_state = sales_state or {}
+    snapshot = build_sales_department_snapshot(application_id, doc_ref, app_data)
+    current_hash = hash_sales_snapshot(snapshot)
+    previous_hash = sales_state.get("last_inputs_hash")
+    previous_summary = sales_state.get("snapshot_summary") or {}
+    current_summary = build_sales_snapshot_summary(snapshot)
+    stale_reasons: list[str] = []
+
+    if previous_hash and previous_hash != current_hash:
+        stale_reasons.append("snapshot_changed")
+    if previous_summary.get("status") and previous_summary.get("status") != current_summary.get("status"):
+        stale_reasons.append("status_changed")
+    if "uploaded_files_count" in previous_summary and previous_summary.get("uploaded_files_count") != current_summary.get("uploaded_files_count"):
+        stale_reasons.append("new_file")
+    if "has_extracted_data" in previous_summary and previous_summary.get("has_extracted_data") != current_summary.get("has_extracted_data"):
+        stale_reasons.append("extraction_changed")
+    if "has_selected_simulation" in previous_summary and previous_summary.get("has_selected_simulation") != current_summary.get("has_selected_simulation"):
+        stale_reasons.append("simulation_completed")
+    if "has_proposal" in previous_summary and previous_summary.get("has_proposal") != current_summary.get("has_proposal"):
+        stale_reasons.append("proposal_changed")
+
+    updated_at = sales_state.get("updated_at")
+    if isinstance(updated_at, str):
+        try:
+            updated_at = datetime.datetime.fromisoformat(updated_at.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            updated_at = None
+
+    events_after_last_run = []
+    if isinstance(updated_at, datetime.datetime):
+        for item in snapshot.get("timeline", []):
+            created_at = item.get("created_at")
+            if isinstance(created_at, str):
+                try:
+                    created_at = datetime.datetime.fromisoformat(created_at.replace("Z", "+00:00")).replace(tzinfo=None)
+                except Exception:
+                    created_at = None
+            if isinstance(created_at, datetime.datetime) and created_at > updated_at:
+                events_after_last_run.append(item)
+
+    if any(item.get("type") == EventType.WHATSAPP.value and (item.get("direction") == "incoming" or item.get("created_by") == "Client") for item in events_after_last_run):
+        stale_reasons.append("new_whatsapp")
+    if any("симуляц" in str(item.get("content", "")).casefold() or "simulation" in str(item.get("content", "")).casefold() for item in events_after_last_run):
+        stale_reasons.append("simulation_completed")
+    if any("кп" in str(item.get("content", "")).casefold() or "propuesta" in str(item.get("content", "")).casefold() for item in events_after_last_run):
+        stale_reasons.append("proposal_changed")
+
+    stale_reasons = list(dict.fromkeys(stale_reasons))
+    return {
+        "is_stale": bool(previous_hash and stale_reasons),
+        "stale_reasons": stale_reasons,
+        "events_after_last_run_count": len(events_after_last_run),
+        "current_inputs_hash": current_hash,
+        "last_inputs_hash": previous_hash,
+        "snapshot_summary": current_summary,
+    }
+
+
 def _estimate_sales_confidence(snapshot: dict) -> float:
     score = 0.35
     signals = snapshot.get("signals", {})
@@ -1105,6 +1179,67 @@ def update_sales_action_decision(
     return normalize_firestore_value(after)
 
 
+def build_sales_department_context_for_prompt(application_id: str, doc_ref, app_data: dict) -> str:
+    state_doc = get_sales_department_state_ref(application_id).get()
+    if not state_doc.exists:
+        return (
+            "Sales Department state: отсутствует.\n"
+            "Инструкция: не выдумывай next action от отдела продаж; опирайся на live snapshot, историю и статус лида."
+        )
+
+    state = normalize_firestore_value(state_doc.to_dict() or {})
+    freshness = evaluate_sales_state_freshness(application_id, doc_ref, app_data, state)
+    actions = list_sales_actions(application_id, limit=5)
+    next_action = state.get("next_action") or {}
+    guardrail_result = state.get("guardrail_result") or next_action.get("guardrail_result") or {}
+    snapshot = build_sales_department_snapshot(application_id, doc_ref, app_data)
+    selected_simulation = snapshot.get("selected_simulation") or {}
+
+    compact_context = {
+        "state_exists": True,
+        "is_stale": freshness.get("is_stale"),
+        "stale_reasons": freshness.get("stale_reasons"),
+        "events_after_last_run_count": freshness.get("events_after_last_run_count"),
+        "client_state": state.get("client_state"),
+        "deal_stage": state.get("deal_stage"),
+        "friction_point": state.get("friction_point"),
+        "recommended_action": state.get("recommended_action"),
+        "suggested_cta": state.get("suggested_cta"),
+        "followup_needed": state.get("followup_needed"),
+        "safe_to_send": state.get("safe_to_send"),
+        "language_used": state.get("language_used"),
+        "next_action": {
+            "action_id": next_action.get("action_id"),
+            "type": next_action.get("type"),
+            "status": next_action.get("status"),
+            "safe_to_execute": next_action.get("safe_to_execute"),
+            "requires_approval": next_action.get("requires_approval"),
+        },
+        "guardrails": {
+            "blocked_reasons": guardrail_result.get("blocked_reasons", []),
+            "warnings": guardrail_result.get("warnings", []),
+            "requires_operator_approval": guardrail_result.get("requires_operator_approval", True),
+        },
+        "recent_actions": [
+            {
+                "action_id": action.get("action_id"),
+                "type": action.get("type"),
+                "status": action.get("status"),
+                "safe_to_execute": action.get("safe_to_execute"),
+            }
+            for action in actions
+        ],
+        "selected_simulation": {
+            "provider": selected_simulation.get("provider_name") or selected_simulation.get("provider"),
+            "tariff": selected_simulation.get("tariff_name") or selected_simulation.get("tariff"),
+            "monthly_savings": selected_simulation.get("monthly_savings"),
+            "savings_percent": selected_simulation.get("savings_percent"),
+        },
+        "proposal_file_url": app_data.get("proposal_file_url"),
+    }
+    return json.dumps(compact_context, ensure_ascii=False, indent=2, default=str)
+
+
 def compose_sales_department_draft(lead: dict, recommended_action: str, language: str | None) -> str:
     client_name = (lead.get("client_name") or "").strip()
     greeting_name = f" {client_name.split()[0]}" if client_name else ""
@@ -1375,7 +1510,7 @@ def analyze_sales_department_snapshot(snapshot: dict) -> dict:
             "auto_send_allowed": False,
         },
         "decision_trace": decision_trace,
-        "last_inputs_hash": hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode("utf-8")).hexdigest(),
+        "last_inputs_hash": hash_sales_snapshot(snapshot),
     }
 
 
@@ -2775,10 +2910,17 @@ async def get_sales_department_state(application_id: str):
                 "latest_run": None,
             }
 
+        state_payload = state_doc.to_dict() or {}
+        freshness = evaluate_sales_state_freshness(application_id, doc_ref, doc.to_dict() or {}, state_payload)
+        state_payload["freshness"] = freshness
+        state_payload["is_stale"] = freshness.get("is_stale", False)
+        state_payload["stale_reasons"] = freshness.get("stale_reasons", [])
+        state_payload["events_after_last_run_count"] = freshness.get("events_after_last_run_count", 0)
+
         return {
             "success": True,
             "exists": True,
-            "state": normalize_firestore_value(state_doc.to_dict() or {}),
+            "state": normalize_firestore_value(state_payload),
             "latest_run": get_latest_sales_department_run(application_id),
         }
     except HTTPException:
@@ -2819,14 +2961,18 @@ async def analyze_sales_department(application_id: str, payload: SalesDepartment
         state_payload.update({
             "updated_at": completed_at,
             "last_run_id": run_ref.id,
-            "snapshot_summary": {
-                "status": snapshot.get("lead", {}).get("status"),
-                "uploaded_files_count": snapshot.get("lead", {}).get("uploaded_files_count", 0),
-                "has_extracted_data": snapshot.get("signals", {}).get("has_extracted_data", False),
-                "has_selected_simulation": snapshot.get("signals", {}).get("has_selected_simulation", False),
-                "has_proposal": snapshot.get("signals", {}).get("has_proposal", False),
-                "timeline_events_count": len(snapshot.get("timeline", [])),
+            "snapshot_summary": build_sales_snapshot_summary(snapshot),
+            "freshness": {
+                "is_stale": False,
+                "stale_reasons": [],
+                "events_after_last_run_count": 0,
+                "current_inputs_hash": state_payload.get("last_inputs_hash"),
+                "last_inputs_hash": state_payload.get("last_inputs_hash"),
+                "snapshot_summary": build_sales_snapshot_summary(snapshot),
             },
+            "is_stale": False,
+            "stale_reasons": [],
+            "events_after_last_run_count": 0,
         })
         action_payload = build_sales_action_payload(
             application_id=application_id,
@@ -5517,6 +5663,7 @@ async def api_generate_ai_response(data: AIGenerateRequest):
         chat_history = "\n".join(chat_lines) if chat_lines else "Переписка только началась."
         interaction_history = _build_interaction_history_context(doc_ref, app_data)
         live_lead_snapshot = _build_live_lead_snapshot(doc_ref, app_data)
+        sales_department_context = build_sales_department_context_for_prompt(data.application_id, doc_ref, app_data)
         
         # 3. Формируем промпт
         uploaded_files = app_data.get("uploaded_files", [])
@@ -5621,6 +5768,9 @@ Email: {app_data.get('client_email', 'Не указан')}
 [АКТУАЛЬНЫЙ SNAPSHOT ЛИДА]
 {live_lead_snapshot}
 
+[SALES DEPARTMENT CONTEXT]
+{sales_department_context}
+
 [ИСТОРИЯ ВЗАИМОДЕЙСТВИЯ ПО ЛИДУ]
 {interaction_history}
 
@@ -5633,13 +5783,17 @@ Email: {app_data.get('client_email', 'Не указан')}
 
 Если данные конфликтуют, соблюдай этот порядок приоритета:
 1. Последние явные сообщения клиента в chat_history.
-2. Факт наличия файлов: uploaded_files_count и files.
-3. Статус заявки.
-4. Notes.
-5. KNOWLEDGE_BASE.
+2. SALES DEPARTMENT CONTEXT, если он есть и не stale.
+3. Факт наличия файлов: uploaded_files_count и files.
+4. Статус заявки.
+5. Notes.
+6. KNOWLEDGE_BASE.
 
 Историю взаимодействия по лиду используй как вспомогательный factual context для понимания этапа работы, документов, симуляций, КП и обещанных следующих шагов, но не нарушай указанный выше порядок приоритета.
 Актуальный snapshot лида используй как обязательную проверку фактов перед ответом: язык, файлы, статус, документы, симуляции, КП и уже извлечённые данные должны считаться текущим состоянием системы.
+SALES DEPARTMENT CONTEXT используй как приоритетный рабочий контекст отдела продаж: client_state, friction_point, recommended_action, next_action, guardrails, selected_simulation и proposal_file_url.
+Если SALES DEPARTMENT CONTEXT показывает `"is_stale": true`, не выдумывай новый next action от имени отдела продаж. В этом случае опирайся на последние сообщения клиента и live snapshot, а при необходимости пиши осторожно: “уточним/проверим актуальное состояние”.
+Если guardrails.blocked_reasons не пустой, не формулируй сообщение в направлении заблокированного действия.
 
 Никогда не нарушай более высокий приоритет ради более низкого.
 

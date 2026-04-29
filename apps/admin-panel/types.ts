@@ -172,6 +172,9 @@ export interface SalesDepartmentAgentStep {
   status: SalesDepartmentAgentStatus;
   summary?: string | null;
   confidence?: number | null;
+  group?: string | null;
+  evidence?: string[];
+  risk_flags?: string[];
 }
 
 export interface SalesDepartmentSnapshotSummary {
@@ -183,6 +186,33 @@ export interface SalesDepartmentSnapshotSummary {
   timeline_events_count?: number;
 }
 
+export interface SalesDepartmentFreshness {
+  is_stale?: boolean;
+  stale_reasons?: string[];
+  events_after_last_run_count?: number;
+  current_inputs_hash?: string;
+  last_inputs_hash?: string;
+  snapshot_summary?: SalesDepartmentSnapshotSummary;
+}
+
+export interface SalesDepartmentMetrics {
+  files_count?: number;
+  timeline_events_count?: number;
+  whatsapp_incoming_count?: number;
+  whatsapp_outgoing_count?: number;
+  simulations_count?: number;
+  has_selected_simulation?: boolean;
+  has_proposal?: boolean;
+  active_actions_count?: number;
+  blocked_actions_count?: number;
+  warning_actions_count?: number;
+  time_to_first_operator_action_hours?: number | null;
+  time_to_extraction_hours?: number | null;
+  time_to_selected_simulation_hours?: number | null;
+  time_to_proposal_hours?: number | null;
+  last_client_message_age_hours?: number | null;
+}
+
 export interface SalesDepartmentDecisionTraceItem {
   step: string;
   value?: string | null;
@@ -191,10 +221,13 @@ export interface SalesDepartmentDecisionTraceItem {
 export interface SalesDepartmentMoleculeRole {
   key: string;
   name?: string;
+  group?: string;
   status?: SalesDepartmentAgentStatus;
   output?: string | null;
   decision?: string | null;
   confidence?: number | null;
+  evidence?: string[];
+  risk_flags?: string[];
 }
 
 export interface SalesDepartmentMolecule {
@@ -269,6 +302,13 @@ export interface SalesDepartmentState {
   guardrail_result?: SalesDepartmentGuardrailResult;
   safe_to_send?: boolean;
   needs_operator_review?: boolean;
+  freshness?: SalesDepartmentFreshness;
+  is_stale?: boolean;
+  stale_reasons?: string[];
+  events_after_last_run_count?: number;
+  metrics?: SalesDepartmentMetrics;
+  followups?: SalesDepartmentFollowup[];
+  next_followup?: SalesDepartmentFollowup;
 }
 
 export interface SalesDepartmentRun {
@@ -294,6 +334,48 @@ export interface SalesDepartmentAnalyzeResponse {
   run_id: string;
   state: SalesDepartmentState;
   run: SalesDepartmentRun;
+}
+
+export interface SalesDepartmentActionsResponse {
+  success: boolean;
+  actions: SalesDepartmentNextAction[];
+}
+
+export interface SalesDepartmentActionDecisionResponse {
+  success: boolean;
+  action: SalesDepartmentNextAction;
+}
+
+export interface SalesDepartmentFollowup {
+  followup_id?: string;
+  application_id?: string;
+  type?: string;
+  status?: string;
+  scheduled_at?: string;
+  ready_at?: string;
+  reason?: string;
+  message_draft?: string;
+  requires_approval?: boolean;
+  created_by?: string;
+  approved_by?: string;
+  approved_at?: string;
+  executed_at?: string;
+  result?: string;
+  deal_stage?: string;
+  recommended_action?: string;
+  guardrail_result?: SalesDepartmentGuardrailResult;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SalesDepartmentFollowupsResponse {
+  success: boolean;
+  followups: SalesDepartmentFollowup[];
+}
+
+export interface SalesDepartmentFollowupDecisionResponse {
+  success: boolean;
+  followup: SalesDepartmentFollowup;
 }
 
 export type SalesDepartmentAutopilotMode = 'manual' | 'assisted_auto' | 'full_auto';

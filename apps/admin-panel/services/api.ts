@@ -1,5 +1,5 @@
 
-import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotResponse } from '../types';
+import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotResponse, SalesDepartmentActionsResponse, SalesDepartmentActionDecisionResponse, SalesDepartmentFollowupsResponse, SalesDepartmentFollowupDecisionResponse } from '../types';
 
 const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
@@ -330,6 +330,76 @@ export const getLatestSalesDepartmentRun = async (applicationId: string): Promis
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/latest-run`, {
     method: 'GET',
     headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const getSalesDepartmentActions = async (applicationId: string): Promise<SalesDepartmentActionsResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/actions`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const approveSalesDepartmentAction = async (applicationId: string, actionId: string, reason?: string): Promise<SalesDepartmentActionDecisionResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/actions/${actionId}/approve`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ reason: reason || 'operator_approved_action_from_crm' }),
+  });
+  return handleApiError(response);
+};
+
+export const skipSalesDepartmentAction = async (applicationId: string, actionId: string, reason?: string): Promise<SalesDepartmentActionDecisionResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/actions/${actionId}/skip`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ reason: reason || 'operator_skipped_action_from_crm' }),
+  });
+  return handleApiError(response);
+};
+
+export const getSalesDepartmentFollowups = async (applicationId: string): Promise<SalesDepartmentFollowupsResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/followups`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const approveSalesDepartmentFollowup = async (applicationId: string, followupId: string, reason?: string): Promise<SalesDepartmentFollowupDecisionResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/followups/${followupId}/approve`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ reason: reason || 'operator_approved_followup_from_crm' }),
+  });
+  return handleApiError(response);
+};
+
+export const skipSalesDepartmentFollowup = async (applicationId: string, followupId: string, reason?: string): Promise<SalesDepartmentFollowupDecisionResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/followups/${followupId}/skip`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ reason: reason || 'operator_skipped_followup_from_crm' }),
+  });
+  return handleApiError(response);
+};
+
+export const cancelSalesDepartmentFollowup = async (applicationId: string, followupId: string, reason?: string): Promise<SalesDepartmentFollowupDecisionResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/followups/${followupId}/cancel`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ reason: reason || 'operator_cancelled_followup_from_crm' }),
+  });
+  return handleApiError(response);
+};
+
+export const logSalesDepartmentDraftInserted = async (applicationId: string, message: string, actionId?: string): Promise<{ success: boolean }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/draft-inserted`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ message, action_id: actionId }),
   });
   return handleApiError(response);
 };

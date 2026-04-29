@@ -2,20 +2,28 @@ import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   analyzeSalesDepartment,
-  createTimelineNote,
+  approveSalesDepartmentAction,
+  approveSalesDepartmentFollowup,
+  cancelSalesDepartmentFollowup,
+  getSalesDepartmentActions,
   getSalesDepartmentAutopilot,
+  getSalesDepartmentFollowups,
   getSalesDepartmentState,
   handoffSalesDepartment,
+  logSalesDepartmentDraftInserted,
   recalculateSalesDepartmentAutopilot,
+  skipSalesDepartmentAction,
+  skipSalesDepartmentFollowup,
   updateSalesDepartmentAutopilot,
 } from '../services/api';
 import {
-  NoteType,
   SalesDepartmentAgentStep,
   SalesDepartmentAutopilotMode,
   SalesDepartmentAutopilotState,
+  SalesDepartmentFollowup,
   SalesDepartmentMolecule,
   SalesDepartmentMoleculeRole,
+  SalesDepartmentNextAction,
   SalesDepartmentState,
 } from '../types';
 import Spinner from './Spinner';
@@ -59,8 +67,15 @@ const translateSalesText = (text: string | null | undefined, t: TFunction): stri
     'Based on current lead status, documents, proposal data and recent timeline.': 'sales.text.whyNow.default',
     'Client understands the next step and stays in the process.': 'sales.text.expectedOutcome.default',
     'No automatic send is allowed in the current safety phase.': 'sales.text.agent.noAutoSend',
+    'Lead context was normalized from files, timeline, proposal data and simulations.': 'sales.text.agent.contextNormalized',
+    'The message must not promise guaranteed savings or expose internal CRM context.': 'sales.text.agent.complianceGuard',
+    'Operator should review risks before the next customer action.': 'sales.text.agent.operatorReview',
+    'Standard manual approval is enough for the next action.': 'sales.text.agent.standardApproval',
     'Manual mode is active. No automatic actions are allowed.': 'sales.text.autopilot.manual',
     'Manual mode is active. AI can analyze, but cannot prepare or send actions automatically.': 'sales.text.autopilot.manualAnalyzeOnly',
+    'Assisted Auto can prepare recommendations for operator approval. Sending remains manual.': 'sales.text.autopilot.assistedPrepareOnly',
+    'Full Auto is selected but locked until safety guardrails are implemented and approved.': 'sales.text.autopilot.fullAutoLocked',
+    'Lead is under manual operator control after handoff.': 'sales.text.autopilot.handoffManualControl',
   };
 
   if (exactMatches[trimmed]) {
@@ -74,6 +89,8 @@ const translateSalesText = (text: string | null | undefined, t: TFunction): stri
 
   const patternMatches: Array<{ regex: RegExp; key: string }> = [
     { regex: /^Friction point is (.+)$/i, key: 'sales.text.agent.frictionPoint' },
+    { regex: /^Lead state is (.+)$/i, key: 'sales.text.agent.leadState' },
+    { regex: /^Primary friction point is (.+)$/i, key: 'sales.text.agent.primaryFriction' },
     { regex: /^Goal is (.+)$/i, key: 'sales.text.agent.goal' },
     { regex: /^CTA is (.+)$/i, key: 'sales.text.agent.cta' },
     { regex: /^ETA hours: (.+)$/i, key: 'sales.text.agent.eta' },
@@ -110,8 +127,28 @@ const formatDateTime = (value?: string): string => {
   });
 };
 
+const formatHours = (value?: number | null): string => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'n/a';
+  if (value < 1) return '<1h';
+  if (value < 48) return `${value}h`;
+  return `${Math.round(value / 24)}d`;
+};
+
 const getAgentLabel = (agentKey: string, t: TFunction): string =>
   translateIfExists(t, `sales.agent.${agentKey}`, agentKey.replace(/_/g, ' '));
+
+const getMoleculeGroupLabel = (group: string | undefined, t: TFunction): string =>
+  translateIfExists(t, `sales.molecule.group.${group || 'other'}`, group || t('sales.molecule.group.other'));
+
+const translateMoleculeMarker = (value: string, t: TFunction): string => {
+  const separatorIndex = value.indexOf(':');
+  if (separatorIndex === -1) return translateSalesValue(value, t);
+
+  const key = value.slice(0, separatorIndex);
+  const rawValue = value.slice(separatorIndex + 1);
+  const label = translateIfExists(t, `sales.evidence.${key}`, key.replace(/_/g, ' '));
+  return `${label}: ${translateSalesValue(rawValue, t)}`;
+};
 
 const getStatusTone = (status?: string): string => {
   switch (status) {
@@ -221,6 +258,40 @@ const SalesControlHud: React.FC<{
   );
 };
 
+const SalesMetricsPanel: React.FC<{
+  state: SalesDepartmentState;
+  t: TFunction;
+}> = ({ state, t }) => {
+  const metrics = state.metrics;
+  if (!metrics) return null;
+
+  return (
+    <div className="rounded-[24px] border border-slate-100 bg-white/80 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{t('sales.metrics.kicker')}</div>
+          <h4 className="mt-1 text-lg font-bold text-slate-900">{t('sales.metrics.title')}</h4>
+          <p className="mt-1 text-sm text-slate-500">{t('sales.metrics.description')}</p>
+        </div>
+        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${metrics.blocked_actions_count ? getStatusTone('needs_attention') : getStatusTone('healthy')}`}>
+          {metrics.blocked_actions_count ? t('sales.metrics.needsAttention') : t('sales.metrics.clean')}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <RadarTile label={t('sales.metrics.files')} value={metrics.files_count} tone="blue" />
+        <RadarTile label={t('sales.metrics.whatsapp')} value={`${metrics.whatsapp_incoming_count || 0}/${metrics.whatsapp_outgoing_count || 0}`} tone="green" />
+        <RadarTile label={t('sales.metrics.simulations')} value={metrics.simulations_count} tone={metrics.has_selected_simulation ? 'green' : 'amber'} />
+        <RadarTile label={t('sales.metrics.proposal')} value={metrics.has_proposal ? t('common.yes') : t('common.no')} tone={metrics.has_proposal ? 'green' : 'slate'} />
+        <RadarTile label={t('sales.metrics.activeActions')} value={metrics.active_actions_count} tone="indigo" />
+        <RadarTile label={t('sales.metrics.blockedActions')} value={metrics.blocked_actions_count} tone={metrics.blocked_actions_count ? 'red' : 'green'} />
+        <RadarTile label={t('sales.metrics.firstOperatorAction')} value={formatHours(metrics.time_to_first_operator_action_hours)} tone="blue" />
+        <RadarTile label={t('sales.metrics.lastClientMessage')} value={formatHours(metrics.last_client_message_age_hours)} tone="amber" />
+      </div>
+    </div>
+  );
+};
+
 const AgentStep: React.FC<{ agent: SalesDepartmentAgentStep; t: TFunction }> = ({ agent, t }) => {
   const statusTone = getStatusTone(agent.status);
 
@@ -312,8 +383,97 @@ const FollowUpDealPanel: React.FC<{
   </div>
 );
 
+const FollowupCenterPanel: React.FC<{
+  followups: SalesDepartmentFollowup[];
+  isLoading: boolean;
+  isBusy: boolean;
+  onApprove: (followupId: string) => void;
+  onSkip: (followupId: string) => void;
+  onCancel: (followupId: string) => void;
+  t: TFunction;
+}> = ({ followups, isLoading, isBusy, onApprove, onSkip, onCancel, t }) => (
+  <div className="rounded-[24px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-slate-50 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">{t('sales.followupCenter.kicker')}</div>
+        <h4 className="mt-1 text-lg font-bold text-slate-900">{t('sales.followupCenter.title')}</h4>
+        <p className="mt-1 text-sm text-slate-500">{t('sales.followupCenter.description')}</p>
+      </div>
+      <span className="rounded-full border border-emerald-100 bg-white px-3 py-1 text-xs font-semibold text-emerald-700">
+        {isLoading ? t('sales.value.loading') : t('sales.followupCenter.count', { count: followups.length })}
+      </span>
+    </div>
+
+    <div className="mt-4 space-y-3">
+      {isLoading && (
+        <div className="flex items-center gap-2 rounded-2xl border border-emerald-100 bg-white/70 p-4 text-sm text-slate-500">
+          <Spinner className="h-4 w-4 text-emerald-600" />
+          {t('common.loading')}
+        </div>
+      )}
+      {!isLoading && followups.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-emerald-200 bg-white/70 p-4 text-sm text-slate-500">
+          {t('sales.followupCenter.empty')}
+        </div>
+      )}
+      {!isLoading && followups.map((followup) => {
+        const followupId = followup.followup_id || '';
+        const canApprove = ['ready', 'scheduled'].includes(followup.status || '') && followupId;
+        return (
+          <div key={followupId || followup.created_at} className="rounded-2xl border border-emerald-100 bg-white/80 p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-slate-900">{translateSalesValue(followup.type, t)}</div>
+                <div className="mt-1 text-xs font-medium text-slate-500">
+                  {translateSalesValue(followup.reason, t)} · {formatDateTime(followup.scheduled_at)}
+                </div>
+              </div>
+              <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusTone(followup.status)}`}>
+                {translateSalesValue(followup.status || 'scheduled', t)}
+              </span>
+            </div>
+            {followup.message_draft && (
+              <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-700">
+                {followup.message_draft}
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!canApprove || isBusy}
+                onClick={() => followupId && onApprove(followupId)}
+                className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.followupCenter.approve')}
+              </button>
+              <button
+                type="button"
+                disabled={!followupId || followup.status === 'skipped' || isBusy}
+                onClick={() => followupId && onSkip(followupId)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-amber-200 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.followupCenter.skip')}
+              </button>
+              <button
+                type="button"
+                disabled={!followupId || ['cancelled', 'skipped', 'approved'].includes(followup.status || '') || isBusy}
+                onClick={() => followupId && onCancel(followupId)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-500 transition hover:border-red-200 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.followupCenter.cancel')}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+);
+
 const MoleculeRoleCard: React.FC<{ role: SalesDepartmentMoleculeRole; t: TFunction }> = ({ role, t }) => {
   const statusTone = getStatusTone(role.status);
+  const evidence = role.evidence || [];
+  const riskFlags = role.risk_flags || [];
 
   return (
     <div className="rounded-2xl border border-white/70 bg-white/80 p-3 shadow-sm">
@@ -329,6 +489,30 @@ const MoleculeRoleCard: React.FC<{ role: SalesDepartmentMoleculeRole; t: TFuncti
           {translateSalesValue(role.output, t)}
         </div>
       )}
+      {evidence.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{t('sales.molecule.evidence')}</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {evidence.slice(0, 4).map((item) => (
+              <span key={item} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                {translateMoleculeMarker(item, t)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {riskFlags.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-500">{t('sales.molecule.risks')}</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {riskFlags.slice(0, 4).map((item) => (
+              <span key={item} className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                {translateMoleculeMarker(item, t)}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -338,6 +522,7 @@ const SalesMoleculePanel: React.FC<{
   t: TFunction;
 }> = ({ molecule, t }) => {
   const roles = molecule?.roles || [];
+  const groups = ['analysis', 'strategy', 'safety', 'operations'];
 
   return (
     <div className="rounded-[24px] border border-indigo-100 bg-gradient-to-br from-indigo-50 via-blue-50 to-white p-5">
@@ -360,10 +545,23 @@ const SalesMoleculePanel: React.FC<{
       </div>
 
       {roles.length > 0 ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {roles.map((role) => (
-            <MoleculeRoleCard key={role.key} role={role} t={t} />
-          ))}
+        <div className="mt-4 space-y-4">
+          {groups.map((group) => {
+            const groupRoles = roles.filter((role) => (role.group || 'operations') === group);
+            if (groupRoles.length === 0) return null;
+            return (
+              <div key={group}>
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-indigo-500">
+                  {getMoleculeGroupLabel(group, t)}
+                </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {groupRoles.map((role) => (
+                    <MoleculeRoleCard key={role.key} role={role} t={t} />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="mt-4 rounded-2xl border border-dashed border-indigo-200 bg-white/60 p-4 text-sm text-slate-500">
@@ -431,6 +629,134 @@ const ActionPanel: React.FC<{
     </div>
   );
 };
+
+const StaleStateBanner: React.FC<{
+  state: SalesDepartmentState;
+  isPending: boolean;
+  onRefresh: () => void;
+  t: TFunction;
+}> = ({ state, isPending, onRefresh, t }) => {
+  const staleReasons = state.freshness?.stale_reasons || state.stale_reasons || [];
+  const isStale = Boolean(state.freshness?.is_stale || state.is_stale);
+  if (!isStale) return null;
+
+  return (
+    <div className="rounded-[24px] border border-amber-200 bg-amber-50/90 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-amber-600">{t('sales.stale.kicker')}</div>
+          <h4 className="mt-1 text-base font-bold text-amber-900">{t('sales.stale.title')}</h4>
+          <p className="mt-1 text-sm text-amber-800">
+            {t('sales.stale.description', { count: state.freshness?.events_after_last_run_count || state.events_after_last_run_count || 0 })}
+          </p>
+          {staleReasons.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {staleReasons.map((reason) => (
+                <span key={reason} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-amber-700">
+                  {translateSalesValue(reason, t)}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          disabled={isPending}
+          onClick={onRefresh}
+          className="rounded-2xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isPending ? <Spinner size="h-4 w-4" /> : t('sales.stale.recalculate')}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+const ActionQueuePanel: React.FC<{
+  actions: SalesDepartmentNextAction[];
+  isLoading: boolean;
+  isBusy: boolean;
+  onApprove: (actionId: string) => void;
+  onSkip: (actionId: string) => void;
+  t: TFunction;
+}> = ({ actions, isLoading, isBusy, onApprove, onSkip, t }) => (
+  <div className="rounded-[24px] border border-slate-100 bg-white/80 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{t('sales.actionQueue.kicker')}</div>
+        <h4 className="mt-1 text-lg font-bold text-slate-900">{t('sales.actionQueue.title')}</h4>
+        <p className="mt-1 text-sm text-slate-500">{t('sales.actionQueue.description')}</p>
+      </div>
+      <span className="rounded-full border border-slate-100 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+        {isLoading ? t('sales.value.loading') : t('sales.actionQueue.count', { count: actions.length })}
+      </span>
+    </div>
+
+    <div className="mt-4 space-y-3">
+      {isLoading && (
+        <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-200 p-5">
+          <Spinner size="h-5 w-5" />
+        </div>
+      )}
+      {!isLoading && actions.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-500">
+          {t('sales.actionQueue.empty')}
+        </div>
+      )}
+      {!isLoading && actions.map((action) => {
+        const blockedReasons = action.guardrail_result?.blocked_reasons || [];
+        const warnings = action.guardrail_result?.warnings || [];
+        const canApprove = action.status === 'ready' && action.safe_to_execute && blockedReasons.length === 0;
+        return (
+          <div key={action.action_id || action.created_at} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-slate-900">{translateSalesValue(action.type, t)}</div>
+                <div className="mt-1 text-xs font-medium text-slate-500">
+                  {translateSalesValue(action.reason, t)} · {formatDateTime(action.created_at)}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusTone(action.status)}`}>
+                  {translateSalesValue(action.status, t)}
+                </span>
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${action.safe_to_execute ? getStatusTone('ready') : getStatusTone('needs_attention')}`}>
+                  {action.safe_to_execute ? t('sales.safety.safe') : t('sales.safety.needsReview')}
+                </span>
+              </div>
+            </div>
+
+            {(blockedReasons.length > 0 || warnings.length > 0) && (
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <SafetySignalList title={t('sales.safety.blocked')} items={blockedReasons} tone="red" t={t} />
+                <SafetySignalList title={t('sales.safety.warnings')} items={warnings} tone="amber" t={t} />
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!canApprove || isBusy}
+                onClick={() => action.action_id && onApprove(action.action_id)}
+                className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.actionQueue.approve')}
+              </button>
+              <button
+                type="button"
+                disabled={!action.action_id || action.status === 'skipped' || isBusy}
+                onClick={() => action.action_id && onSkip(action.action_id)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-amber-200 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t('sales.actionQueue.skip')}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+);
 
 const MessageStudio: React.FC<{
   message?: string | null;
@@ -614,18 +940,76 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     queryFn: () => getSalesDepartmentAutopilot(appId),
     enabled: !!appId,
   });
+  const {
+    data: actionsData,
+    isLoading: isActionsLoading,
+  } = useQuery({
+    queryKey: ['salesDepartmentActions', appId],
+    queryFn: () => getSalesDepartmentActions(appId),
+    enabled: !!appId,
+  });
+  const {
+    data: followupsData,
+    isLoading: isFollowupsLoading,
+  } = useQuery({
+    queryKey: ['salesDepartmentFollowups', appId],
+    queryFn: () => getSalesDepartmentFollowups(appId),
+    enabled: !!appId,
+  });
 
   const analyzeMutation = useMutation({
     mutationFn: () => analyzeSalesDepartment(appId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const approveActionMutation = useMutation({
+    mutationFn: (actionId: string) => approveSalesDepartmentAction(appId, actionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const skipActionMutation = useMutation({
+    mutationFn: (actionId: string) => skipSalesDepartmentAction(appId, actionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const approveFollowupMutation = useMutation({
+    mutationFn: (followupId: string) => approveSalesDepartmentFollowup(appId, followupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const skipFollowupMutation = useMutation({
+    mutationFn: (followupId: string) => skipSalesDepartmentFollowup(appId, followupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+    },
+  });
+  const cancelFollowupMutation = useMutation({
+    mutationFn: (followupId: string) => cancelSalesDepartmentFollowup(appId, followupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
   const updateAutopilotMutation = useMutation({
     mutationFn: ({ mode, enabled }: { mode: SalesDepartmentAutopilotMode; enabled: boolean }) =>
-      updateSalesDepartmentAutopilot(appId, mode, enabled, `Operator selected ${mode}`),
+      updateSalesDepartmentAutopilot(appId, mode, enabled, `operator_selected_${mode}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
@@ -638,7 +1022,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     },
   });
   const handoffMutation = useMutation({
-    mutationFn: () => handoffSalesDepartment(appId, 'Operator requested manual handoff from CRM'),
+    mutationFn: () => handoffSalesDepartment(appId, 'operator_requested_manual_handoff'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
@@ -646,19 +1030,20 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
   });
   const logDraftInsertedMutation = useMutation({
     mutationFn: (message: string) =>
-      createTimelineNote(
-        appId,
-        `SALES_DEPARTMENT_DRAFT_INSERTED:${message.slice(0, 240)}`,
-        NoteType.System,
-      ),
+      logSalesDepartmentDraftInserted(appId, message, state?.next_action?.action_id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
     },
   });
 
   const state = data?.state || null;
   const agents = state?.agents || data?.latest_run?.agents || [];
+  const actions = actionsData?.actions || (state?.next_action ? [state.next_action] : []);
+  const followups = followupsData?.followups || state?.followups || [];
   const autopilot = autopilotData?.autopilot;
+  const isActionBusy = approveActionMutation.isPending || skipActionMutation.isPending;
+  const isFollowupBusy = approveFollowupMutation.isPending || skipFollowupMutation.isPending || cancelFollowupMutation.isPending;
   const isAutopilotBusy = updateAutopilotMutation.isPending || recalculateAutopilotMutation.isPending || handoffMutation.isPending;
 
   return (
@@ -708,6 +1093,13 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
 
         {state && (
           <div className="space-y-5">
+            <StaleStateBanner
+              state={state}
+              isPending={analyzeMutation.isPending}
+              onRefresh={() => analyzeMutation.mutate()}
+              t={t}
+            />
+
             <SalesControlHud state={state} autopilot={autopilot} isAnalyzing={analyzeMutation.isPending} t={t} />
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -721,7 +1113,18 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
               <RadarTile label={t('sales.radar.actionPriority')} value={translateSalesValue(state.action_priority, t)} tone="blue" />
             </div>
 
+            <SalesMetricsPanel state={state} t={t} />
+
             <ActionPanel state={state} t={t} />
+
+            <ActionQueuePanel
+              actions={actions}
+              isLoading={isActionsLoading}
+              isBusy={isActionBusy}
+              onApprove={(actionId) => approveActionMutation.mutate(actionId)}
+              onSkip={(actionId) => skipActionMutation.mutate(actionId)}
+              t={t}
+            />
 
             <SalesMoleculePanel molecule={state.molecule} t={t} />
 
@@ -749,6 +1152,16 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
             />
 
             <FollowUpDealPanel state={state} autopilot={autopilot} t={t} />
+
+            <FollowupCenterPanel
+              followups={followups}
+              isLoading={isFollowupsLoading}
+              isBusy={isFollowupBusy}
+              onApprove={(followupId) => approveFollowupMutation.mutate(followupId)}
+              onSkip={(followupId) => skipFollowupMutation.mutate(followupId)}
+              onCancel={(followupId) => cancelFollowupMutation.mutate(followupId)}
+              t={t}
+            />
 
             <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
               <div className="rounded-[24px] border border-slate-100 bg-white/70 p-5">

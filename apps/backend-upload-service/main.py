@@ -279,6 +279,15 @@ class SalesActionStatus(str, Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+class SalesFollowupStatus(str, Enum):
+    SCHEDULED = "scheduled"
+    READY = "ready"
+    APPROVED = "approved"
+    SENT = "sent"
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
 class SalesDepartmentAutopilotUpdate(BaseModel):
     mode: AutopilotMode
     enabled: bool = True
@@ -287,6 +296,19 @@ class SalesDepartmentAutopilotUpdate(BaseModel):
 class SalesDepartmentHandoffRequest(BaseModel):
     reason: str = "Operator handoff"
     assigned_to: str | None = None
+
+class SalesDepartmentActionDecision(BaseModel):
+    reason: str | None = None
+    actor: str = "Operator"
+
+class SalesDepartmentFollowupDecision(BaseModel):
+    reason: str | None = None
+    actor: str = "Operator"
+
+class SalesDepartmentDraftInsertRequest(BaseModel):
+    message: str
+    action_id: str | None = None
+    actor: str = "Operator"
 
 # 1.6. Модели для Proposal Builder (Extracted Data)
 class ExtractedData(BaseModel):
@@ -623,11 +645,15 @@ def _build_live_lead_snapshot(doc_ref, app_data: dict) -> str:
 
 SALES_DEPARTMENT_AGENT_KEYS = [
     "lead_state_analyst",
+    "context_curator",
+    "friction_analyst",
     "sales_strategist",
     "message_composer",
     "trust_guard",
+    "compliance_guard",
     "followup_scheduler",
     "deal_control",
+    "operator_handoff_manager",
 ]
 
 
@@ -666,6 +692,16 @@ def get_sales_department_audit_ref(application_id: str):
         .collection("sales_department")
         .document("state")
         .collection("audit")
+    )
+
+
+def get_sales_department_followups_ref(application_id: str):
+    return (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("sales_department")
+        .document("state")
+        .collection("followups")
     )
 
 
@@ -788,6 +824,139 @@ def build_sales_department_snapshot(application_id: str, doc_ref, app_data: dict
     }
 
 
+def hash_sales_snapshot(snapshot: dict) -> str:
+    return hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
+def build_sales_snapshot_summary(snapshot: dict) -> dict:
+    return {
+        "status": snapshot.get("lead", {}).get("status"),
+        "uploaded_files_count": snapshot.get("lead", {}).get("uploaded_files_count", 0),
+        "has_extracted_data": snapshot.get("signals", {}).get("has_extracted_data", False),
+        "has_selected_simulation": snapshot.get("signals", {}).get("has_selected_simulation", False),
+        "has_proposal": snapshot.get("signals", {}).get("has_proposal", False),
+        "timeline_events_count": len(snapshot.get("timeline", [])),
+    }
+
+
+def parse_sales_datetime(value) -> datetime.datetime | None:
+    if isinstance(value, datetime.datetime):
+        return value.replace(tzinfo=None)
+    if isinstance(value, str):
+        try:
+            return datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            return None
+    return None
+
+
+def hours_between_sales_dates(start, end) -> float | None:
+    start_dt = parse_sales_datetime(start)
+    end_dt = parse_sales_datetime(end)
+    if not start_dt or not end_dt or end_dt < start_dt:
+        return None
+    return round((end_dt - start_dt).total_seconds() / 3600, 1)
+
+
+def build_sales_metrics(snapshot: dict, actions: list[dict] | None = None) -> dict:
+    actions = actions or []
+    lead = snapshot.get("lead", {})
+    timeline = snapshot.get("timeline", [])
+    proposal_data = snapshot.get("proposal_data") or {}
+    simulations = snapshot.get("simulations") or []
+    selected_simulation = snapshot.get("selected_simulation") or {}
+    whatsapp = snapshot.get("whatsapp") or {}
+    created_at = lead.get("created_at")
+    now = datetime.datetime.utcnow()
+
+    first_operator_event = next(
+        (
+            item for item in timeline
+            if item.get("created_by") not in {None, "", "Client", "System"}
+        ),
+        None,
+    )
+    last_client_message = whatsapp.get("last_incoming")
+    blocked_actions = [
+        action for action in actions
+        if action.get("safe_to_execute") is False
+        or (action.get("guardrail_result") or {}).get("blocked_reasons")
+    ]
+    warning_actions = [
+        action for action in actions
+        if (action.get("guardrail_result") or {}).get("warnings")
+    ]
+
+    return {
+        "files_count": lead.get("uploaded_files_count", 0),
+        "timeline_events_count": len(timeline),
+        "whatsapp_incoming_count": whatsapp.get("incoming_count", 0),
+        "whatsapp_outgoing_count": whatsapp.get("outgoing_count", 0),
+        "simulations_count": len(simulations),
+        "has_selected_simulation": bool(selected_simulation),
+        "has_proposal": bool(lead.get("proposal_file_url") or lead.get("proposal_uploaded")),
+        "active_actions_count": len([action for action in actions if action.get("status") in {"draft", "ready", "approved"}]),
+        "blocked_actions_count": len(blocked_actions),
+        "warning_actions_count": len(warning_actions),
+        "time_to_first_operator_action_hours": hours_between_sales_dates(created_at, first_operator_event.get("created_at") if first_operator_event else None),
+        "time_to_extraction_hours": hours_between_sales_dates(created_at, proposal_data.get("extracted_at")),
+        "time_to_selected_simulation_hours": hours_between_sales_dates(created_at, selected_simulation.get("created_at") or selected_simulation.get("updated_at")),
+        "time_to_proposal_hours": hours_between_sales_dates(created_at, lead.get("updated_at")) if lead.get("proposal_file_url") or lead.get("proposal_uploaded") else None,
+        "last_client_message_age_hours": hours_between_sales_dates(last_client_message.get("created_at") if last_client_message else None, now),
+    }
+
+
+def evaluate_sales_state_freshness(application_id: str, doc_ref, app_data: dict, sales_state: dict | None) -> dict:
+    sales_state = sales_state or {}
+    snapshot = build_sales_department_snapshot(application_id, doc_ref, app_data)
+    current_hash = hash_sales_snapshot(snapshot)
+    previous_hash = sales_state.get("last_inputs_hash")
+    previous_summary = sales_state.get("snapshot_summary") or {}
+    current_summary = build_sales_snapshot_summary(snapshot)
+    stale_reasons: list[str] = []
+
+    if previous_hash and previous_hash != current_hash:
+        stale_reasons.append("snapshot_changed")
+    if previous_summary.get("status") and previous_summary.get("status") != current_summary.get("status"):
+        stale_reasons.append("status_changed")
+    if "uploaded_files_count" in previous_summary and previous_summary.get("uploaded_files_count") != current_summary.get("uploaded_files_count"):
+        stale_reasons.append("new_file")
+    if "has_extracted_data" in previous_summary and previous_summary.get("has_extracted_data") != current_summary.get("has_extracted_data"):
+        stale_reasons.append("extraction_changed")
+    if "has_selected_simulation" in previous_summary and previous_summary.get("has_selected_simulation") != current_summary.get("has_selected_simulation"):
+        stale_reasons.append("simulation_completed")
+    if "has_proposal" in previous_summary and previous_summary.get("has_proposal") != current_summary.get("has_proposal"):
+        stale_reasons.append("proposal_changed")
+
+    updated_at = sales_state.get("updated_at")
+    updated_at = parse_sales_datetime(updated_at)
+
+    events_after_last_run = []
+    if isinstance(updated_at, datetime.datetime):
+        for item in snapshot.get("timeline", []):
+            created_at = item.get("created_at")
+            created_at = parse_sales_datetime(created_at)
+            if isinstance(created_at, datetime.datetime) and created_at > updated_at:
+                events_after_last_run.append(item)
+
+    if any(item.get("type") == EventType.WHATSAPP.value and (item.get("direction") == "incoming" or item.get("created_by") == "Client") for item in events_after_last_run):
+        stale_reasons.append("new_whatsapp")
+    if any("симуляц" in str(item.get("content", "")).casefold() or "simulation" in str(item.get("content", "")).casefold() for item in events_after_last_run):
+        stale_reasons.append("simulation_completed")
+    if any("кп" in str(item.get("content", "")).casefold() or "propuesta" in str(item.get("content", "")).casefold() for item in events_after_last_run):
+        stale_reasons.append("proposal_changed")
+
+    stale_reasons = list(dict.fromkeys(stale_reasons))
+    return {
+        "is_stale": bool(previous_hash and stale_reasons),
+        "stale_reasons": stale_reasons,
+        "events_after_last_run_count": len(events_after_last_run),
+        "current_inputs_hash": current_hash,
+        "last_inputs_hash": previous_hash,
+        "snapshot_summary": current_summary,
+    }
+
+
 def _estimate_sales_confidence(snapshot: dict) -> float:
     score = 0.35
     signals = snapshot.get("signals", {})
@@ -848,6 +1017,111 @@ def build_sales_action_payload(
     }
 
 
+def _count_message_cta_candidates(message: str) -> int:
+    normalized = message.casefold()
+    cta_tokens = [
+        "?",
+        "si le parece",
+        "puede envi",
+        "puede mandar",
+        "confirme",
+        "cuando quiera",
+        "quiere que",
+        "le aclaramos",
+        "напишите",
+        "пришлите",
+        "отправьте",
+        "подтвердите",
+        "если хотите",
+        "давайте",
+        "скажите",
+    ]
+    return sum(1 for token in cta_tokens if token in normalized)
+
+
+def _detect_clear_message_language_mismatch(message: str, expected_language: str | None) -> bool:
+    if not message or not expected_language:
+        return False
+
+    has_cyrillic = any("а" <= char <= "я" or "А" <= char <= "Я" or char in "ёЁіїєґІЇЄҐ" for char in message)
+    normalized = f" {message.casefold()} "
+    spanish_markers = [" hola", " factura", " propuesta", " gracias", " si le parece", " podemos", " usted", " enviamos", " revisamos"]
+    russian_markers = [" здрав", " сч", " предложение", " спасибо", " можем", " отправ", " провер", " тариф"]
+
+    if expected_language == "es":
+        return has_cyrillic
+    if expected_language in {"ru", "uk"}:
+        has_spanish_marker = any(marker in normalized for marker in spanish_markers)
+        has_russian_marker = any(marker in normalized for marker in russian_markers)
+        return has_spanish_marker and not has_cyrillic and not has_russian_marker
+    return False
+
+
+def evaluate_sales_message_guardrails(message: str | None, expected_language: str | None = None) -> dict:
+    normalized_message = (message or "").casefold()
+    blocked_reasons: list[str] = []
+    warnings: list[str] = []
+
+    guaranteed_savings_tokens = [
+        "garantizamos el ahorro",
+        "ahorro garantizado",
+        "seguro que ahorra",
+        "100% ahorrar",
+        "ahorrarás seguro",
+        "точно сэконом",
+        "гарантируем эконом",
+        "гарантированная эконом",
+    ]
+    if any(token in normalized_message for token in guaranteed_savings_tokens):
+        blocked_reasons.append("guaranteed_savings_claim")
+
+    false_urgency_tokens = [
+        "solo hoy",
+        "sólo hoy",
+        "urgente",
+        "últimas horas",
+        "oferta limitada",
+        "только сегодня",
+        "срочно",
+        "последний шанс",
+        "ограниченное предложение",
+    ]
+    if any(token in normalized_message for token in false_urgency_tokens):
+        blocked_reasons.append("false_urgency")
+
+    internal_context_tokens = [
+        "crm",
+        "pipeline",
+        "guardrail",
+        "snapshot",
+        "sales_department",
+        "lead state",
+        "friction point",
+        "внутренн",
+        "служебн",
+        "воронк",
+        "заметк crm",
+    ]
+    if any(token in normalized_message for token in internal_context_tokens):
+        blocked_reasons.append("internal_context_exposed")
+
+    if _count_message_cta_candidates(message or "") > 1:
+        blocked_reasons.append("multiple_competing_ctas")
+
+    if _detect_clear_message_language_mismatch(message or "", expected_language):
+        blocked_reasons.append("language_mismatch")
+
+    if len(message or "") > 700:
+        warnings.append("message_too_long")
+
+    return {
+        "safe_to_execute": len(blocked_reasons) == 0,
+        "blocked_reasons": blocked_reasons,
+        "warnings": warnings,
+        "checked_at": datetime.datetime.utcnow(),
+    }
+
+
 def evaluate_sales_guardrails(snapshot: dict, action: dict, message: str | None = None, sales_state: dict | None = None) -> dict:
     signals = snapshot.get("signals", {})
     lead = snapshot.get("lead", {})
@@ -877,8 +1151,12 @@ def evaluate_sales_guardrails(snapshot: dict, action: dict, message: str | None 
         blocked_reasons.append("low_confidence")
 
     normalized_message = (message or "").casefold()
-    if any(token in normalized_message for token in ["garant", "100%", "seguro que ahorra", "точно сэконом"]):
-        blocked_reasons.append("guaranteed_savings_claim")
+    message_guardrails = evaluate_sales_message_guardrails(
+        message,
+        expected_language=(sales_state or {}).get("language_used") or lead.get("language"),
+    )
+    blocked_reasons.extend(reason for reason in message_guardrails.get("blocked_reasons", []) if reason not in blocked_reasons)
+    warnings.extend(warning for warning in message_guardrails.get("warnings", []) if warning not in warnings)
 
     if lead.get("uploaded_files_count", 0) > 0 and any(token in normalized_message for token in ["envíenos su factura", "send invoice", "отправьте счёт"]):
         blocked_reasons.append("would_request_existing_documents")
@@ -918,6 +1196,274 @@ def create_sales_audit_event(application_id: str, event_type: str, payload: dict
         })
     except Exception as exc:
         print(f"[Sales Department] Failed to write audit event: {exc}")
+
+
+def list_sales_actions(application_id: str, limit: int = 20) -> list[dict]:
+    docs = (
+        get_sales_department_actions_ref(application_id)
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .limit(max(1, min(limit, 50)))
+        .stream()
+    )
+    return [normalize_firestore_value(doc.to_dict() or {}) for doc in docs]
+
+
+def get_sales_action(application_id: str, action_id: str):
+    action_ref = get_sales_department_actions_ref(application_id).document(action_id)
+    action_doc = action_ref.get()
+    if not action_doc.exists:
+        raise HTTPException(status_code=404, detail="Действие отдела продаж не найдено.")
+    return action_ref, action_doc.to_dict() or {}
+
+
+def update_sales_action_decision(
+    *,
+    application_id: str,
+    action_id: str,
+    status: str,
+    payload: SalesDepartmentActionDecision,
+) -> dict:
+    action_ref, before = get_sales_action(application_id, action_id)
+    guardrail_result = before.get("guardrail_result") or {}
+    blocked_reasons = guardrail_result.get("blocked_reasons") or []
+    now = datetime.datetime.utcnow()
+
+    if status == SalesActionStatus.APPROVED.value and blocked_reasons:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Нельзя подтвердить действие, заблокированное guardrails.",
+                "blocked_reasons": blocked_reasons,
+            },
+        )
+
+    update_payload = {
+        "status": status,
+        "decision_reason": payload.reason,
+        "decision_actor": payload.actor or "Operator",
+        "updated_at": now,
+    }
+    if status == SalesActionStatus.APPROVED.value:
+        update_payload.update({
+            "approved_at": now,
+            "approved_by": payload.actor or "Operator",
+            "requires_approval": False,
+        })
+    if status == SalesActionStatus.SKIPPED.value:
+        update_payload["skipped_at"] = now
+
+    action_ref.set(update_payload, merge=True)
+    after = {**before, **update_payload, "action_id": action_id}
+    create_sales_audit_event(application_id, f"action_{status}", {
+        "action_id": action_id,
+        "actor": payload.actor or "Operator",
+        "decision": payload.reason,
+        "guardrail_result": guardrail_result,
+        "before_state": before,
+        "after_state": after,
+    })
+    return normalize_firestore_value(after)
+
+
+ACTIVE_FOLLOWUP_STATUSES = {
+    SalesFollowupStatus.SCHEDULED.value,
+    SalesFollowupStatus.READY.value,
+    SalesFollowupStatus.APPROVED.value,
+}
+
+
+def get_sales_followup(application_id: str, followup_id: str):
+    followup_ref = get_sales_department_followups_ref(application_id).document(followup_id)
+    followup_doc = followup_ref.get()
+    if not followup_doc.exists:
+        raise HTTPException(status_code=404, detail="Follow-up отдела продаж не найден.")
+    return followup_ref, followup_doc.to_dict() or {}
+
+
+def list_sales_followups(application_id: str, limit: int = 20) -> list[dict]:
+    now = datetime.datetime.utcnow()
+    docs = (
+        get_sales_department_followups_ref(application_id)
+        .order_by("created_at", direction=firestore.Query.DESCENDING)
+        .limit(max(1, min(limit, 50)))
+        .stream()
+    )
+    followups: list[dict] = []
+    for doc in docs:
+        data = doc.to_dict() or {}
+        scheduled_at = parse_sales_datetime(data.get("scheduled_at"))
+        if data.get("status") == SalesFollowupStatus.SCHEDULED.value and scheduled_at and scheduled_at <= now:
+            data.update({
+                "status": SalesFollowupStatus.READY.value,
+                "ready_at": now,
+                "updated_at": now,
+            })
+            doc.reference.set(data, merge=True)
+        followups.append(normalize_firestore_value(data))
+    return followups
+
+
+def ensure_sales_followup(application_id: str, sales_state: dict) -> dict | None:
+    if not sales_state.get("followup_needed"):
+        return None
+
+    reason = sales_state.get("friction_point") or sales_state.get("recommended_action") or "followup_needed"
+    now = datetime.datetime.utcnow()
+    scheduled_at = now + datetime.timedelta(hours=int(sales_state.get("followup_eta_hours") or 24))
+    existing_docs = (
+        get_sales_department_followups_ref(application_id)
+        .where("reason", "==", reason)
+        .limit(20)
+        .stream()
+    )
+    active_doc = None
+    for doc in existing_docs:
+        data = doc.to_dict() or {}
+        if data.get("status") in ACTIVE_FOLLOWUP_STATUSES:
+            active_doc = (doc.reference, data)
+            break
+
+    payload = {
+        "application_id": application_id,
+        "type": "proposal_followup" if sales_state.get("deal_stage") == "proposal_review" else "lead_followup",
+        "status": SalesFollowupStatus.READY.value if scheduled_at <= now else SalesFollowupStatus.SCHEDULED.value,
+        "scheduled_at": scheduled_at,
+        "reason": reason,
+        "message_draft": sales_state.get("suggested_message"),
+        "requires_approval": True,
+        "created_by": "sales_department",
+        "updated_at": now,
+        "deal_stage": sales_state.get("deal_stage"),
+        "recommended_action": sales_state.get("recommended_action"),
+        "guardrail_result": sales_state.get("guardrail_result") or {},
+    }
+
+    if active_doc:
+        followup_ref, before = active_doc
+        payload["followup_id"] = before.get("followup_id") or followup_ref.id
+        payload["created_at"] = before.get("created_at") or now
+        followup_ref.set(payload, merge=True)
+        result = {**before, **payload}
+        event_type = "followup_updated"
+    else:
+        followup_ref = get_sales_department_followups_ref(application_id).document()
+        payload.update({
+            "followup_id": followup_ref.id,
+            "created_at": now,
+        })
+        followup_ref.set(payload)
+        result = payload
+        event_type = "followup_created"
+
+    create_sales_audit_event(application_id, event_type, {
+        "followup_id": result.get("followup_id"),
+        "reason": reason,
+        "status": result.get("status"),
+        "scheduled_at": result.get("scheduled_at"),
+    })
+    return normalize_firestore_value(result)
+
+
+def update_sales_followup_decision(
+    *,
+    application_id: str,
+    followup_id: str,
+    status: str,
+    payload: SalesDepartmentFollowupDecision,
+) -> dict:
+    followup_ref, before = get_sales_followup(application_id, followup_id)
+    now = datetime.datetime.utcnow()
+    update_payload = {
+        "status": status,
+        "decision_reason": payload.reason,
+        "decision_actor": payload.actor or "Operator",
+        "updated_at": now,
+    }
+    if status == SalesFollowupStatus.APPROVED.value:
+        update_payload.update({
+            "approved_at": now,
+            "approved_by": payload.actor or "Operator",
+            "requires_approval": False,
+        })
+    elif status == SalesFollowupStatus.SKIPPED.value:
+        update_payload["skipped_at"] = now
+    elif status == SalesFollowupStatus.CANCELLED.value:
+        update_payload["cancelled_at"] = now
+
+    followup_ref.set(update_payload, merge=True)
+    after = {**before, **update_payload, "followup_id": followup_id}
+    create_sales_audit_event(application_id, f"followup_{status}", {
+        "followup_id": followup_id,
+        "actor": payload.actor or "Operator",
+        "decision": payload.reason,
+        "before_state": before,
+        "after_state": after,
+    })
+    return normalize_firestore_value(after)
+
+
+def build_sales_department_context_for_prompt(application_id: str, doc_ref, app_data: dict) -> str:
+    state_doc = get_sales_department_state_ref(application_id).get()
+    if not state_doc.exists:
+        return (
+            "Sales Department state: отсутствует.\n"
+            "Инструкция: не выдумывай next action от отдела продаж; опирайся на live snapshot, историю и статус лида."
+        )
+
+    state = normalize_firestore_value(state_doc.to_dict() or {})
+    freshness = evaluate_sales_state_freshness(application_id, doc_ref, app_data, state)
+    actions = list_sales_actions(application_id, limit=5)
+    followups = list_sales_followups(application_id, limit=3)
+    next_action = state.get("next_action") or {}
+    guardrail_result = state.get("guardrail_result") or next_action.get("guardrail_result") or {}
+    snapshot = build_sales_department_snapshot(application_id, doc_ref, app_data)
+    selected_simulation = snapshot.get("selected_simulation") or {}
+
+    compact_context = {
+        "state_exists": True,
+        "is_stale": freshness.get("is_stale"),
+        "stale_reasons": freshness.get("stale_reasons"),
+        "events_after_last_run_count": freshness.get("events_after_last_run_count"),
+        "client_state": state.get("client_state"),
+        "deal_stage": state.get("deal_stage"),
+        "friction_point": state.get("friction_point"),
+        "recommended_action": state.get("recommended_action"),
+        "suggested_cta": state.get("suggested_cta"),
+        "followup_needed": state.get("followup_needed"),
+        "safe_to_send": state.get("safe_to_send"),
+        "language_used": state.get("language_used"),
+        "next_action": {
+            "action_id": next_action.get("action_id"),
+            "type": next_action.get("type"),
+            "status": next_action.get("status"),
+            "safe_to_execute": next_action.get("safe_to_execute"),
+            "requires_approval": next_action.get("requires_approval"),
+        },
+        "guardrails": {
+            "blocked_reasons": guardrail_result.get("blocked_reasons", []),
+            "warnings": guardrail_result.get("warnings", []),
+            "requires_operator_approval": guardrail_result.get("requires_operator_approval", True),
+        },
+        "recent_actions": [
+            {
+                "action_id": action.get("action_id"),
+                "type": action.get("type"),
+                "status": action.get("status"),
+                "safe_to_execute": action.get("safe_to_execute"),
+            }
+            for action in actions
+        ],
+        "active_followups_count": len([item for item in followups if item.get("status") in ACTIVE_FOLLOWUP_STATUSES]),
+        "next_followup": followups[0] if followups else None,
+        "selected_simulation": {
+            "provider": selected_simulation.get("provider_name") or selected_simulation.get("provider"),
+            "tariff": selected_simulation.get("tariff_name") or selected_simulation.get("tariff"),
+            "monthly_savings": selected_simulation.get("monthly_savings"),
+            "savings_percent": selected_simulation.get("savings_percent"),
+        },
+        "proposal_file_url": app_data.get("proposal_file_url"),
+    }
+    return json.dumps(compact_context, ensure_ascii=False, indent=2, default=str)
 
 
 def compose_sales_department_draft(lead: dict, recommended_action: str, language: str | None) -> str:
@@ -971,6 +1517,196 @@ def compose_sales_department_draft(lead: dict, recommended_action: str, language
     }
     selected = drafts.get(recommended_action) or drafts["ask_for_invoice"]
     return selected.get(lang) or selected.get("es")
+
+
+def make_sales_molecule_role(
+    key: str,
+    name: str,
+    output,
+    decision: str,
+    confidence: float,
+    *,
+    group: str,
+    evidence: list[str] | None = None,
+    risk_flags: list[str] | None = None,
+    status: str = "completed",
+) -> dict:
+    return {
+        "key": key,
+        "name": name,
+        "group": group,
+        "status": status,
+        "output": output,
+        "decision": decision,
+        "confidence": confidence,
+        "evidence": evidence or [],
+        "risk_flags": risk_flags or [],
+    }
+
+
+def build_sales_molecule_roles(
+    snapshot: dict,
+    *,
+    client_state: str,
+    friction_point: str,
+    recommended_action: str,
+    goal: str,
+    suggested_cta: str,
+    suggested_message: str,
+    followup_needed: bool,
+    deal_stage: str,
+    pipeline_health: str,
+    confidence: float,
+) -> dict:
+    lead = snapshot.get("lead", {})
+    signals = snapshot.get("signals", {})
+    whatsapp = snapshot.get("whatsapp", {})
+    proposal_data = snapshot.get("proposal_data") or {}
+    selected_simulation = snapshot.get("selected_simulation") or {}
+    timeline = snapshot.get("timeline") or []
+    language = lead.get("language") or "es"
+
+    context_evidence = [
+        f"status:{lead.get('status') or Status.NEW_LEAD.value}",
+        f"files:{lead.get('uploaded_files_count', 0)}",
+        f"language:{language}",
+        f"timeline:{len(timeline)}",
+    ]
+    if signals.get("has_extracted_data"):
+        context_evidence.append("extracted_data:yes")
+    if signals.get("has_selected_simulation"):
+        context_evidence.append("selected_simulation:yes")
+    if signals.get("has_proposal"):
+        context_evidence.append("proposal:yes")
+    if whatsapp.get("last_incoming"):
+        context_evidence.append("latest_client_message:present")
+
+    risk_flags: list[str] = []
+    if signals.get("needs_extraction_review"):
+        risk_flags.append("extraction_needs_review")
+    if pipeline_health == "watch":
+        risk_flags.append("pipeline_watch")
+    if pipeline_health == "needs_input":
+        risk_flags.append("client_input_missing")
+    if not selected_simulation and signals.get("has_extracted_data"):
+        risk_flags.append("simulation_missing")
+    if proposal_data.get("needs_review"):
+        risk_flags.append("proposal_data_needs_review")
+
+    compliance_flags = []
+    if "ahorro" in (suggested_message or "").lower() or "эконом" in (suggested_message or "").lower():
+        compliance_flags.append("savings_language_present")
+    if signals.get("has_proposal") and not lead.get("proposal_file_url"):
+        compliance_flags.append("proposal_without_url")
+
+    handoff_output = "operator_review_required" if risk_flags else "standard_operator_approval"
+    if pipeline_health in {"watch", "needs_input"} or risk_flags:
+        handoff_decision = "Operator should review risks before the next customer action."
+    else:
+        handoff_decision = "Standard manual approval is enough for the next action."
+
+    return {
+        "lead_state_analyst": make_sales_molecule_role(
+            "lead_state_analyst",
+            "Lead State Analyst",
+            client_state,
+            f"Lead state is {client_state}",
+            confidence,
+            group="analysis",
+            evidence=context_evidence[:4],
+            risk_flags=risk_flags[:2],
+        ),
+        "context_curator": make_sales_molecule_role(
+            "context_curator",
+            "Context Curator",
+            "context_ready",
+            "Lead context was normalized from files, timeline, proposal data and simulations.",
+            confidence,
+            group="analysis",
+            evidence=context_evidence,
+            risk_flags=["missing_recent_context"] if not timeline else [],
+        ),
+        "friction_analyst": make_sales_molecule_role(
+            "friction_analyst",
+            "Friction Analyst",
+            friction_point,
+            f"Primary friction point is {friction_point}",
+            confidence,
+            group="analysis",
+            evidence=[f"pipeline:{pipeline_health}", f"deal_stage:{deal_stage}"],
+            risk_flags=risk_flags,
+        ),
+        "sales_strategist": make_sales_molecule_role(
+            "sales_strategist",
+            "Sales Strategist",
+            recommended_action,
+            f"Goal is {goal}",
+            confidence,
+            group="strategy",
+            evidence=[f"cta:{suggested_cta}", f"friction:{friction_point}"],
+            risk_flags=risk_flags[:2],
+        ),
+        "message_composer": make_sales_molecule_role(
+            "message_composer",
+            "Message Composer",
+            suggested_message,
+            f"CTA is {suggested_cta}",
+            confidence,
+            group="strategy",
+            evidence=[f"language:{language}", f"action:{recommended_action}"],
+            risk_flags=["draft_requires_review"],
+        ),
+        "trust_guard": make_sales_molecule_role(
+            "trust_guard",
+            "Trust Guard",
+            "manual_approval_required",
+            "No automatic send is allowed in the current safety phase.",
+            1.0,
+            group="safety",
+            evidence=["auto_send:false", "human_approval:true"],
+            risk_flags=[],
+        ),
+        "compliance_guard": make_sales_molecule_role(
+            "compliance_guard",
+            "Compliance Guard",
+            "safe_with_operator_review",
+            "The message must not promise guaranteed savings or expose internal CRM context.",
+            1.0,
+            group="safety",
+            evidence=compliance_flags or ["no_high_risk_claims_detected"],
+            risk_flags=compliance_flags,
+        ),
+        "followup_scheduler": make_sales_molecule_role(
+            "followup_scheduler",
+            "Follow-up Scheduler",
+            "followup_needed" if followup_needed else "no_followup_now",
+            f"ETA hours: {24 if followup_needed else None}",
+            confidence,
+            group="operations",
+            evidence=[f"status:{lead.get('status')}", f"proposal:{signals.get('has_proposal')}"],
+            risk_flags=["followup_pending"] if followup_needed else [],
+        ),
+        "deal_control": make_sales_molecule_role(
+            "deal_control",
+            "Deal Control",
+            deal_stage,
+            f"Pipeline health is {pipeline_health}",
+            confidence,
+            group="operations",
+            evidence=[f"stage:{deal_stage}", f"health:{pipeline_health}"],
+            risk_flags=risk_flags[:3],
+        ),
+        "operator_handoff_manager": make_sales_molecule_role(
+            "operator_handoff_manager",
+            "Operator Handoff Manager",
+            handoff_output,
+            handoff_decision,
+            1.0 if not risk_flags else 0.82,
+            group="operations",
+            evidence=["manual_control:true", f"risks:{len(risk_flags)}"],
+            risk_flags=risk_flags,
+        ),
+    }
 
 
 def analyze_sales_department_snapshot(snapshot: dict) -> dict:
@@ -1064,50 +1800,19 @@ def analyze_sales_department_snapshot(snapshot: dict) -> dict:
         recommended_action=recommended_action,
         language=lead.get("language") or "es",
     )
-    molecule_roles = {
-        "lead_state_analyst": {
-            "name": "Lead State Analyst",
-            "status": "completed",
-            "output": client_state,
-            "decision": f"Friction point is {friction_point}",
-            "confidence": confidence,
-        },
-        "sales_strategist": {
-            "name": "Sales Strategist",
-            "status": "completed",
-            "output": recommended_action,
-            "decision": f"Goal is {goal}",
-            "confidence": confidence,
-        },
-        "message_composer": {
-            "name": "Message Composer",
-            "status": "completed",
-            "output": suggested_message,
-            "decision": f"CTA is {suggested_cta}",
-            "confidence": confidence,
-        },
-        "trust_guard": {
-            "name": "Trust Guard",
-            "status": "completed",
-            "output": "manual_approval_required",
-            "decision": "No automatic send is allowed in the current safety phase.",
-            "confidence": 1.0,
-        },
-        "followup_scheduler": {
-            "name": "Follow-up Scheduler",
-            "status": "completed",
-            "output": "followup_needed" if followup_needed else "no_followup_now",
-            "decision": f"ETA hours: {24 if followup_needed else None}",
-            "confidence": confidence,
-        },
-        "deal_control": {
-            "name": "Deal Control",
-            "status": "completed",
-            "output": deal_stage,
-            "decision": f"Pipeline health is {pipeline_health}",
-            "confidence": confidence,
-        },
-    }
+    molecule_roles = build_sales_molecule_roles(
+        snapshot,
+        client_state=client_state,
+        friction_point=friction_point,
+        recommended_action=recommended_action,
+        goal=goal,
+        suggested_cta=suggested_cta,
+        suggested_message=suggested_message,
+        followup_needed=followup_needed,
+        deal_stage=deal_stage,
+        pipeline_health=pipeline_health,
+        confidence=confidence,
+    )
     decision_trace = [
         {"step": "lead_state", "value": client_state},
         {"step": "friction_point", "value": friction_point},
@@ -1121,37 +1826,91 @@ def analyze_sales_department_snapshot(snapshot: dict) -> dict:
             "agent_key": "lead_state_analyst",
             "status": "completed",
             "summary": molecule_roles["lead_state_analyst"]["decision"],
+            "risk_flags": molecule_roles["lead_state_analyst"].get("risk_flags", []),
+            "evidence": molecule_roles["lead_state_analyst"].get("evidence", []),
+            "group": molecule_roles["lead_state_analyst"].get("group"),
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "context_curator",
+            "status": "completed",
+            "summary": molecule_roles["context_curator"]["decision"],
+            "risk_flags": molecule_roles["context_curator"].get("risk_flags", []),
+            "evidence": molecule_roles["context_curator"].get("evidence", []),
+            "group": molecule_roles["context_curator"].get("group"),
+            "confidence": confidence,
+        },
+        {
+            "agent_key": "friction_analyst",
+            "status": "completed",
+            "summary": molecule_roles["friction_analyst"]["decision"],
+            "risk_flags": molecule_roles["friction_analyst"].get("risk_flags", []),
+            "evidence": molecule_roles["friction_analyst"].get("evidence", []),
+            "group": molecule_roles["friction_analyst"].get("group"),
             "confidence": confidence,
         },
         {
             "agent_key": "sales_strategist",
             "status": "completed",
             "summary": molecule_roles["sales_strategist"]["decision"],
+            "risk_flags": molecule_roles["sales_strategist"].get("risk_flags", []),
+            "evidence": molecule_roles["sales_strategist"].get("evidence", []),
+            "group": molecule_roles["sales_strategist"].get("group"),
             "confidence": confidence,
         },
         {
             "agent_key": "message_composer",
             "status": "completed",
             "summary": molecule_roles["message_composer"]["decision"],
+            "risk_flags": molecule_roles["message_composer"].get("risk_flags", []),
+            "evidence": molecule_roles["message_composer"].get("evidence", []),
+            "group": molecule_roles["message_composer"].get("group"),
             "confidence": confidence,
         },
         {
             "agent_key": "trust_guard",
             "status": "completed",
             "summary": molecule_roles["trust_guard"]["decision"],
+            "risk_flags": molecule_roles["trust_guard"].get("risk_flags", []),
+            "evidence": molecule_roles["trust_guard"].get("evidence", []),
+            "group": molecule_roles["trust_guard"].get("group"),
+            "confidence": 1.0,
+        },
+        {
+            "agent_key": "compliance_guard",
+            "status": "completed",
+            "summary": molecule_roles["compliance_guard"]["decision"],
+            "risk_flags": molecule_roles["compliance_guard"].get("risk_flags", []),
+            "evidence": molecule_roles["compliance_guard"].get("evidence", []),
+            "group": molecule_roles["compliance_guard"].get("group"),
             "confidence": 1.0,
         },
         {
             "agent_key": "followup_scheduler",
             "status": "completed",
             "summary": molecule_roles["followup_scheduler"]["decision"],
+            "risk_flags": molecule_roles["followup_scheduler"].get("risk_flags", []),
+            "evidence": molecule_roles["followup_scheduler"].get("evidence", []),
+            "group": molecule_roles["followup_scheduler"].get("group"),
             "confidence": confidence,
         },
         {
             "agent_key": "deal_control",
             "status": "completed",
             "summary": molecule_roles["deal_control"]["decision"],
+            "risk_flags": molecule_roles["deal_control"].get("risk_flags", []),
+            "evidence": molecule_roles["deal_control"].get("evidence", []),
+            "group": molecule_roles["deal_control"].get("group"),
             "confidence": confidence,
+        },
+        {
+            "agent_key": "operator_handoff_manager",
+            "status": "completed",
+            "summary": molecule_roles["operator_handoff_manager"]["decision"],
+            "risk_flags": molecule_roles["operator_handoff_manager"].get("risk_flags", []),
+            "evidence": molecule_roles["operator_handoff_manager"].get("evidence", []),
+            "group": molecule_roles["operator_handoff_manager"].get("group"),
+            "confidence": molecule_roles["operator_handoff_manager"].get("confidence", confidence),
         },
     ]
 
@@ -1190,7 +1949,7 @@ def analyze_sales_department_snapshot(snapshot: dict) -> dict:
             "auto_send_allowed": False,
         },
         "decision_trace": decision_trace,
-        "last_inputs_hash": hashlib.sha256(json.dumps(snapshot, sort_keys=True, default=str).encode("utf-8")).hexdigest(),
+        "last_inputs_hash": hash_sales_snapshot(snapshot),
     }
 
 
@@ -1219,7 +1978,7 @@ def build_default_autopilot_state(application_id: str) -> dict:
         "safe_to_send": False,
         "full_auto_enabled": False,
         "handoff_required": False,
-        "last_decision": "Manual mode is active. No automatic actions are allowed.",
+        "last_decision": "autopilot_manual_active",
         "last_reason": None,
         "updated_at": now,
         "created_at": now,
@@ -1283,13 +2042,13 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
 
     if mode == AutopilotMode.MANUAL.value or not enabled:
         status_value = "manual_control"
-        decision = "Manual mode is active. AI can analyze, but cannot prepare or send actions automatically."
+        decision = "autopilot_manual_analyze_only"
     elif mode == AutopilotMode.ASSISTED_AUTO.value:
         status_value = "assisted_ready" if safe_to_prepare else "assisted_waiting"
-        decision = "Assisted Auto can prepare recommendations for operator approval. Sending remains manual."
+        decision = "autopilot_assisted_prepare_only"
     else:
         status_value = "full_auto_pilot_locked"
-        decision = "Full Auto is selected but locked until safety guardrails are implemented and approved."
+        decision = "autopilot_full_auto_locked"
 
     return {
         "application_id": application_id,
@@ -2590,10 +3349,20 @@ async def get_sales_department_state(application_id: str):
                 "latest_run": None,
             }
 
+        state_payload = state_doc.to_dict() or {}
+        freshness = evaluate_sales_state_freshness(application_id, doc_ref, doc.to_dict() or {}, state_payload)
+        current_snapshot = build_sales_department_snapshot(application_id, doc_ref, doc.to_dict() or {})
+        state_payload["freshness"] = freshness
+        state_payload["is_stale"] = freshness.get("is_stale", False)
+        state_payload["stale_reasons"] = freshness.get("stale_reasons", [])
+        state_payload["events_after_last_run_count"] = freshness.get("events_after_last_run_count", 0)
+        state_payload["metrics"] = build_sales_metrics(current_snapshot, list_sales_actions(application_id, limit=50))
+        state_payload["followups"] = list_sales_followups(application_id, limit=20)
+
         return {
             "success": True,
             "exists": True,
-            "state": normalize_firestore_value(state_doc.to_dict() or {}),
+            "state": normalize_firestore_value(state_payload),
             "latest_run": get_latest_sales_department_run(application_id),
         }
     except HTTPException:
@@ -2634,14 +3403,18 @@ async def analyze_sales_department(application_id: str, payload: SalesDepartment
         state_payload.update({
             "updated_at": completed_at,
             "last_run_id": run_ref.id,
-            "snapshot_summary": {
-                "status": snapshot.get("lead", {}).get("status"),
-                "uploaded_files_count": snapshot.get("lead", {}).get("uploaded_files_count", 0),
-                "has_extracted_data": snapshot.get("signals", {}).get("has_extracted_data", False),
-                "has_selected_simulation": snapshot.get("signals", {}).get("has_selected_simulation", False),
-                "has_proposal": snapshot.get("signals", {}).get("has_proposal", False),
-                "timeline_events_count": len(snapshot.get("timeline", [])),
+            "snapshot_summary": build_sales_snapshot_summary(snapshot),
+            "freshness": {
+                "is_stale": False,
+                "stale_reasons": [],
+                "events_after_last_run_count": 0,
+                "current_inputs_hash": state_payload.get("last_inputs_hash"),
+                "last_inputs_hash": state_payload.get("last_inputs_hash"),
+                "snapshot_summary": build_sales_snapshot_summary(snapshot),
             },
+            "is_stale": False,
+            "stale_reasons": [],
+            "events_after_last_run_count": 0,
         })
         action_payload = build_sales_action_payload(
             application_id=application_id,
@@ -2671,7 +3444,12 @@ async def analyze_sales_department(application_id: str, payload: SalesDepartment
             "guardrail_result": guardrail_result,
             "safe_to_send": bool(guardrail_result.get("safe_to_execute")) and not guardrail_result.get("requires_operator_approval", True),
             "needs_operator_review": bool(guardrail_result.get("requires_operator_approval", True)) or bool(guardrail_result.get("blocked_reasons")),
+            "metrics": build_sales_metrics(snapshot, list_sales_actions(application_id, limit=50)),
         })
+        ensured_followup = ensure_sales_followup(application_id, state_payload)
+        state_payload["followups"] = list_sales_followups(application_id, limit=20)
+        if ensured_followup:
+            state_payload["next_followup"] = ensured_followup
         create_sales_audit_event(application_id, "analysis_completed", {
             "run_id": run_ref.id,
             "snapshot_hash": state_payload.get("last_inputs_hash"),
@@ -2743,6 +3521,232 @@ async def get_sales_department_latest_run(application_id: str):
         raise HTTPException(status_code=500, detail="Ошибка при получении последнего run отдела продаж.")
 
 
+@app.get("/api/applications/{application_id}/sales-department/actions", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def get_sales_department_actions(application_id: str, limit: int = 20):
+    """Возвращает очередь действий отдела продаж."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        return {
+            "success": True,
+            "actions": list_sales_actions(application_id, limit=limit),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department actions list error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении действий отдела продаж.")
+
+
+@app.get("/api/applications/{application_id}/sales-department/followups", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def get_sales_department_followups(application_id: str, limit: int = 20):
+    """Возвращает центр follow-up по лиду."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        return {
+            "success": True,
+            "followups": list_sales_followups(application_id, limit=limit),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department followups list error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при получении follow-up отдела продаж.")
+
+
+@app.post("/api/applications/{application_id}/sales-department/followups/{followup_id}/approve", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def approve_sales_department_followup(application_id: str, followup_id: str, payload: SalesDepartmentFollowupDecision | None = Body(default=None)):
+    """Подтверждает follow-up без автоотправки сообщения."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        followup = update_sales_followup_decision(
+            application_id=application_id,
+            followup_id=followup_id,
+            status=SalesFollowupStatus.APPROVED.value,
+            payload=payload or SalesDepartmentFollowupDecision(reason="operator_approved_followup_from_crm"),
+        )
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"SALES_FOLLOWUP_APPROVED:{followup_id}:{followup.get('reason')}",
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+        return {"success": True, "followup": followup}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department followup approve error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка подтверждения follow-up отдела продаж.")
+
+
+@app.post("/api/applications/{application_id}/sales-department/followups/{followup_id}/skip", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def skip_sales_department_followup(application_id: str, followup_id: str, payload: SalesDepartmentFollowupDecision | None = Body(default=None)):
+    """Пропускает follow-up и сохраняет решение оператора."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        followup = update_sales_followup_decision(
+            application_id=application_id,
+            followup_id=followup_id,
+            status=SalesFollowupStatus.SKIPPED.value,
+            payload=payload or SalesDepartmentFollowupDecision(reason="operator_skipped_followup_from_crm"),
+        )
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"SALES_FOLLOWUP_SKIPPED:{followup_id}:{followup.get('reason')}",
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+        return {"success": True, "followup": followup}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department followup skip error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка пропуска follow-up отдела продаж.")
+
+
+@app.post("/api/applications/{application_id}/sales-department/followups/{followup_id}/cancel", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def cancel_sales_department_followup(application_id: str, followup_id: str, payload: SalesDepartmentFollowupDecision | None = Body(default=None)):
+    """Отменяет follow-up и сохраняет решение оператора."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        followup = update_sales_followup_decision(
+            application_id=application_id,
+            followup_id=followup_id,
+            status=SalesFollowupStatus.CANCELLED.value,
+            payload=payload or SalesDepartmentFollowupDecision(reason="operator_cancelled_followup_from_crm"),
+        )
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"SALES_FOLLOWUP_CANCELLED:{followup_id}:{followup.get('reason')}",
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+        return {"success": True, "followup": followup}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department followup cancel error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка отмены follow-up отдела продаж.")
+
+
+@app.post("/api/applications/{application_id}/sales-department/actions/{action_id}/approve", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def approve_sales_department_action(application_id: str, action_id: str, payload: SalesDepartmentActionDecision | None = Body(default=None)):
+    """Подтверждает безопасное действие. Заблокированные guardrails действия подтвердить нельзя."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        action = update_sales_action_decision(
+            application_id=application_id,
+            action_id=action_id,
+            status=SalesActionStatus.APPROVED.value,
+            payload=payload or SalesDepartmentActionDecision(),
+        )
+        return {"success": True, "action": action}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department action approve error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка подтверждения действия: {str(e)}")
+
+
+@app.post("/api/applications/{application_id}/sales-department/actions/{action_id}/skip", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def skip_sales_department_action(application_id: str, action_id: str, payload: SalesDepartmentActionDecision | None = Body(default=None)):
+    """Пропускает действие и сохраняет решение оператора в audit."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        action = update_sales_action_decision(
+            application_id=application_id,
+            action_id=action_id,
+            status=SalesActionStatus.SKIPPED.value,
+            payload=payload or SalesDepartmentActionDecision(),
+        )
+        return {"success": True, "action": action}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department action skip error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка пропуска действия: {str(e)}")
+
+
+@app.post("/api/applications/{application_id}/sales-department/draft-inserted", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
+async def log_sales_department_draft_inserted(application_id: str, payload: SalesDepartmentDraftInsertRequest):
+    """Фиксирует, что оператор вставил AI-черновик в WhatsApp composer."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+        message = (payload.message or "").strip()
+        if not message:
+            raise HTTPException(status_code=400, detail="Текст черновика обязателен.")
+
+        state_doc = get_sales_department_state_ref(application_id).get()
+        sales_state = state_doc.to_dict() if state_doc.exists else {}
+        action_id = payload.action_id or (sales_state.get("next_action") or {}).get("action_id")
+        action_snapshot = None
+        if action_id:
+            try:
+                _, action_snapshot = get_sales_action(application_id, action_id)
+            except HTTPException:
+                action_snapshot = None
+
+        create_sales_audit_event(application_id, "message_draft_inserted", {
+            "actor": payload.actor or "Operator",
+            "action_id": action_id,
+            "run_id": sales_state.get("last_run_id"),
+            "snapshot_hash": sales_state.get("last_inputs_hash"),
+            "message": message,
+            "message_preview": message[:240],
+            "message_length": len(message),
+            "guardrail_result": (action_snapshot or {}).get("guardrail_result") or sales_state.get("guardrail_result"),
+            "action_snapshot": action_snapshot,
+        })
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Черновик отдела продаж вставлен в WhatsApp composer.\n"
+                f"Действие: {action_id or 'не указано'}.\n"
+                f"Длина сообщения: {len(message)} символов."
+            ),
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sales department draft inserted audit error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка фиксации вставки черновика: {str(e)}")
+
+
 @app.get("/api/applications/{application_id}/sales-department/autopilot", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
 async def get_sales_department_autopilot(application_id: str):
     """Возвращает режим автоматической обработки лида."""
@@ -2794,11 +3798,7 @@ async def update_sales_department_autopilot(application_id: str, payload: SalesD
 
         create_timeline_event_internal(
             application_id=application_id,
-            content=(
-                f"Autopilot mode changed to {payload.mode.value}. "
-                f"Status: {autopilot_payload.get('status')}. "
-                f"Safe to send: {autopilot_payload.get('safe_to_send')}."
-            ),
+            content=f"SALES_AUTOPILOT_UPDATED:{payload.mode.value}:{autopilot_payload.get('status')}:{autopilot_payload.get('safe_to_send')}",
             event_type=EventType.NOTE,
             created_by="System",
         )
@@ -2832,7 +3832,7 @@ async def recalculate_sales_department_autopilot(application_id: str):
             enabled=bool(current.get("enabled")),
             sales_state=sales_state,
         )
-        autopilot_payload["last_reason"] = "Recalculated from current sales state"
+        autopilot_payload["last_reason"] = "recalculated_from_current_sales_state"
         get_sales_department_autopilot_ref(application_id).set(autopilot_payload, merge=True)
         create_sales_audit_event(application_id, "autopilot_recalculated", {
             "mode": autopilot_payload.get("mode"),
@@ -2871,7 +3871,7 @@ async def handoff_sales_department(application_id: str, payload: SalesDepartment
             "handoff_required": True,
             "handoff_reason": payload.reason,
             "assigned_to": payload.assigned_to,
-            "last_decision": "Lead is under manual operator control after handoff.",
+            "last_decision": "autopilot_handoff_manual_control",
             "updated_at": now,
         }
         get_sales_department_autopilot_ref(application_id).set(handoff_payload, merge=True)
@@ -2883,7 +3883,7 @@ async def handoff_sales_department(application_id: str, payload: SalesDepartment
 
         create_timeline_event_internal(
             application_id=application_id,
-            content=f"Autopilot handoff: {payload.reason}",
+            content=f"SALES_AUTOPILOT_HANDOFF:{payload.reason or 'operator_requested_manual_handoff'}",
             event_type=EventType.NOTE,
             created_by="System",
         )
@@ -5213,6 +6213,7 @@ async def api_generate_ai_response(data: AIGenerateRequest):
         chat_history = "\n".join(chat_lines) if chat_lines else "Переписка только началась."
         interaction_history = _build_interaction_history_context(doc_ref, app_data)
         live_lead_snapshot = _build_live_lead_snapshot(doc_ref, app_data)
+        sales_department_context = build_sales_department_context_for_prompt(data.application_id, doc_ref, app_data)
         
         # 3. Формируем промпт
         uploaded_files = app_data.get("uploaded_files", [])
@@ -5317,6 +6318,9 @@ Email: {app_data.get('client_email', 'Не указан')}
 [АКТУАЛЬНЫЙ SNAPSHOT ЛИДА]
 {live_lead_snapshot}
 
+[SALES DEPARTMENT CONTEXT]
+{sales_department_context}
+
 [ИСТОРИЯ ВЗАИМОДЕЙСТВИЯ ПО ЛИДУ]
 {interaction_history}
 
@@ -5329,13 +6333,17 @@ Email: {app_data.get('client_email', 'Не указан')}
 
 Если данные конфликтуют, соблюдай этот порядок приоритета:
 1. Последние явные сообщения клиента в chat_history.
-2. Факт наличия файлов: uploaded_files_count и files.
-3. Статус заявки.
-4. Notes.
-5. KNOWLEDGE_BASE.
+2. SALES DEPARTMENT CONTEXT, если он есть и не stale.
+3. Факт наличия файлов: uploaded_files_count и files.
+4. Статус заявки.
+5. Notes.
+6. KNOWLEDGE_BASE.
 
 Историю взаимодействия по лиду используй как вспомогательный factual context для понимания этапа работы, документов, симуляций, КП и обещанных следующих шагов, но не нарушай указанный выше порядок приоритета.
 Актуальный snapshot лида используй как обязательную проверку фактов перед ответом: язык, файлы, статус, документы, симуляции, КП и уже извлечённые данные должны считаться текущим состоянием системы.
+SALES DEPARTMENT CONTEXT используй как приоритетный рабочий контекст отдела продаж: client_state, friction_point, recommended_action, next_action, guardrails, selected_simulation и proposal_file_url.
+Если SALES DEPARTMENT CONTEXT показывает `"is_stale": true`, не выдумывай новый next action от имени отдела продаж. В этом случае опирайся на последние сообщения клиента и live snapshot, а при необходимости пиши осторожно: “уточним/проверим актуальное состояние”.
+Если guardrails.blocked_reasons не пустой, не формулируй сообщение в направлении заблокированного действия.
 
 Никогда не нарушай более высокий приоритет ради более низкого.
 
@@ -5797,8 +6805,39 @@ Muchas gracias por la confianza. Seguimos con la gestión y le iremos informando
         
         if not response.text:
             raise HTTPException(status_code=500, detail="Gemini вернул пустой ответ.")
+
+        generated_message = response.text.strip()
+        message_guardrails = evaluate_sales_message_guardrails(
+            generated_message,
+            expected_language=effective_language,
+        )
+        if message_guardrails.get("blocked_reasons"):
+            create_sales_audit_event(data.application_id, "whatsapp_ai_draft_blocked", {
+                "actor": "AI",
+                "message": generated_message,
+                "message_preview": generated_message[:240],
+                "message_length": len(generated_message),
+                "expected_language": effective_language,
+                "guardrail_result": message_guardrails,
+            })
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "AI-сообщение заблокировано правилами безопасности.",
+                    "blocked_reasons": message_guardrails.get("blocked_reasons", []),
+                    "warnings": message_guardrails.get("warnings", []),
+                },
+            )
+
+        create_sales_audit_event(data.application_id, "whatsapp_ai_draft_generated", {
+            "actor": "AI",
+            "message_preview": generated_message[:240],
+            "message_length": len(generated_message),
+            "expected_language": effective_language,
+            "guardrail_result": message_guardrails,
+        })
         
-        return {"success": True, "response": response.text.strip()}
+        return {"success": True, "response": generated_message, "guardrail_result": normalize_firestore_value(message_guardrails)}
         
     except HTTPException:
         raise

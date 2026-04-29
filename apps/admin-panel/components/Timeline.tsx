@@ -136,12 +136,57 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
   };
 
   const translateSalesCode = (value: string) => {
-    const key = `sales.value.${value.trim()}`;
+    const legacyMatches: Record<string, string> = {
+      'Operator approved action from CRM': 'operator_approved_action_from_crm',
+      'Operator skipped action from CRM': 'operator_skipped_action_from_crm',
+      'Operator requested manual handoff from CRM': 'operator_requested_manual_handoff',
+      'Recalculated from current sales state': 'recalculated_from_current_sales_state',
+    };
+    const normalizedValue = legacyMatches[value.trim()] || value.trim();
+    const key = `sales.value.${normalizedValue}`;
     const translated = t(key);
-    return translated === key ? value.replace(/_/g, ' ') : translated;
+    return translated === key ? normalizedValue.replace(/_/g, ' ') : translated;
   };
 
   const localizeSystemNote = (content: string) => {
+    if (content.startsWith('SALES_AUTOPILOT_UPDATED:')) {
+      const [, mode = '', status = '', safeToSend = 'False'] = content.split(':');
+      return [
+        t('timeline.salesDepartment.autopilotUpdated'),
+        t('timeline.salesDepartment.autopilotMode', { value: translateSalesCode(mode) }),
+        t('timeline.salesDepartment.autopilotStatus', { value: translateSalesCode(status) }),
+        t('timeline.salesDepartment.safeToSend', { value: safeToSend === 'True' ? t('common.yes') : t('common.no') }),
+      ].join('\n');
+    }
+
+    if (content.startsWith('SALES_AUTOPILOT_HANDOFF:')) {
+      const reason = content.replace('SALES_AUTOPILOT_HANDOFF:', '').trim();
+      return [
+        t('timeline.salesDepartment.handoff'),
+        t('timeline.salesDepartment.handoffReason', { value: translateSalesCode(reason) }),
+      ].join('\n');
+    }
+
+    if (content.startsWith('Autopilot mode changed to ')) {
+      const mode = content.match(/Autopilot mode changed to ([^.]+)\./)?.[1] || '';
+      const status = content.match(/Status: ([^.]+)\./)?.[1] || '';
+      const safeToSend = content.match(/Safe to send: ([^.]+)\./)?.[1] || 'False';
+      return [
+        t('timeline.salesDepartment.autopilotUpdated'),
+        mode ? t('timeline.salesDepartment.autopilotMode', { value: translateSalesCode(mode) }) : '',
+        status ? t('timeline.salesDepartment.autopilotStatus', { value: translateSalesCode(status) }) : '',
+        t('timeline.salesDepartment.safeToSend', { value: safeToSend === 'True' || safeToSend === 'true' ? t('common.yes') : t('common.no') }),
+      ].filter(Boolean).join('\n');
+    }
+
+    if (content.startsWith('Autopilot handoff:')) {
+      const reason = content.replace('Autopilot handoff:', '').trim();
+      return [
+        t('timeline.salesDepartment.handoff'),
+        t('timeline.salesDepartment.handoffReason', { value: translateSalesCode(reason) }),
+      ].join('\n');
+    }
+
     if (content.startsWith('Отдел продаж пересчитал состояние лида.')) {
       const clientState = content.match(/Состояние клиента: ([^.]+)\./)?.[1] || '';
       const nextAction = content.match(/Следующее действие: ([^.]+)\./)?.[1] || '';

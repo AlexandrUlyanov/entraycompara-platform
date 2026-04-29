@@ -9,6 +9,7 @@ import requests
 REFERRAL_URL = "https://g2e.eniplenitude.es/index.php?refid=60335660J3"
 GCS_BUCKET = os.environ.get("GCP_BUCKET_NAME", "entraycompara-invoices")
 TRACE_ENABLED = os.environ.get("ENI_TRACE_ENABLED", "").lower() in {"1", "true", "yes", "on"}
+DOWNLOAD_SIMULATION_PDF = os.environ.get("ENI_DOWNLOAD_SIMULATION_PDF", "").lower() in {"1", "true", "yes", "on"}
 SHORT_UI_WAIT_SECONDS = float(os.environ.get("ENI_SHORT_UI_WAIT_SECONDS", "0.2"))
 FORM_VALIDATION_WAIT_SECONDS = float(os.environ.get("ENI_FORM_VALIDATION_WAIT_SECONDS", "1.5"))
 DOWNLOAD_FALLBACK_WAIT_SECONDS = float(os.environ.get("ENI_DOWNLOAD_FALLBACK_WAIT_SECONDS", "2.0"))
@@ -41,7 +42,8 @@ async def run_eni_simulation(
 ) -> dict:
     """
     Автоматически проходит симуляцию на Eni Plenitude.
-    Возвращает dict с pdf_path и извлечёнными данными симуляции.
+    Возвращает dict с извлечёнными данными симуляции. pdf_path опционален,
+    если включён ENI_DOWNLOAD_SIMULATION_PDF=1.
     При interactive=True останавливается на странице тарифов и ждёт выбора менеджера.
     """
     trace_path = "/tmp/eni_trace.zip"
@@ -297,19 +299,32 @@ async def run_eni_simulation(
                 await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
                 await _take_step_screenshot(page, "09_after_tariff_selection")
 
-            # Шаг 10: Скачать PDF симуляции через CREAR CONTRATO → IMPRIMIR
-            await _report_progress("download_pdf", "Генерируем и скачиваем PDF", 96, "Формируем документ симуляции.")
-            print("[Eni] Step 10: Downloading simulation PDF...")
-            download_path = await _download_pdf_via_imprimir(page)
-            await _take_step_screenshot(page, "10_after_download")
+            # Шаг 10: Получить данные расчёта. PDF больше не обязателен: Eni периодически ломает IMPRIMIR.
+            if DOWNLOAD_SIMULATION_PDF:
+                await _report_progress("download_pdf", "Генерируем и скачиваем PDF", 96, "Формируем документ симуляции.")
+                print("[Eni] Step 10: Downloading simulation PDF...")
+                simulation_result = await _download_pdf_via_imprimir(page)
+                await _take_step_screenshot(page, "10_after_download")
+                completed_details = "PDF успешно получен."
+            else:
+                await _report_progress(
+                    "download_pdf",
+                    "Сохраняем данные симуляции",
+                    96,
+                    "Берём расчёт из выбранного тарифа без скачивания PDF.",
+                )
+                print("[Eni] Step 10: Capturing simulation data without PDF download...")
+                simulation_result = await _capture_simulation_result(page)
+                await _take_step_screenshot(page, "10_after_capture_result")
+                completed_details = "Данные симуляции получены без скачивания PDF."
 
-            await _report_progress("completed", "Симуляция завершена", 100, "PDF успешно получен.")
-            print(f"[Eni] Simulation completed. PDF saved to: {download_path.get('pdf_path')}")
+            await _report_progress("completed", "Симуляция завершена", 100, completed_details)
+            print(f"[Eni] Simulation completed. PDF path: {simulation_result.get('pdf_path') or 'skipped'}")
             if TRACE_ENABLED:
                 await context.tracing.stop(path=trace_path)
                 await _upload_trace(trace_path)
             await browser.close()
-            return download_path
+            return simulation_result
 
         except PlaywrightTimeout as e:
             if TRACE_ENABLED:
@@ -538,11 +553,8 @@ async def _click_send_simulation(page):
     raise EniSimulationError("Could not find send-simulation button")
 
 
-async def _download_pdf_via_imprimir(page) -> dict:
-    """Нажимает CREAR CONTRATO, затем IMPRIMIR и сохраняет скачанный PDF.
-    
-    Возвращает dict с путём к PDF и извлечёнными данными симуляции (цена, сбережения).
-    """
+async def _capture_simulation_result(page) -> dict:
+    """Нажимает CREAR CONTRATO и извлекает данные симуляции без скачивания PDF."""
     # Удаляем overlay'и и баннеры, чтобы клики не блокировались
     await _remove_all_overlays(page)
     await _dismiss_cookie_banner(page)
@@ -604,6 +616,15 @@ async def _download_pdf_via_imprimir(page) -> dict:
         return result;
     }""")
     print(f"[Eni] Extracted simulation data: {sim_data}")
+    return sim_data
+
+
+async def _download_pdf_via_imprimir(page) -> dict:
+    """Нажимает CREAR CONTRATO, затем IMPRIMIR и сохраняет скачанный PDF.
+    
+    Возвращает dict с путём к PDF и извлечёнными данными симуляции (цена, сбережения).
+    """
+    sim_data = await _capture_simulation_result(page)
 
     # Шаг 10b: Нажать IMPRIMIR с ожиданием скачивания
     print("[Eni] Clicking IMPRIMIR and waiting for download...")

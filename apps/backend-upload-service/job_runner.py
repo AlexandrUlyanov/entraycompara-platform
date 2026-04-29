@@ -174,21 +174,26 @@ async def main():
         extracted_percent = result.get("savings_percent")
         extracted_billing_days = result.get("billing_period_days")
 
-        # Upload PDF to GCS
-        today = datetime.utcnow()
-        prefix = f"simulation_files/{today.year}/{today.month:02}/{today.day:02}"
-        unique_name = f"{uuid.uuid4()}.pdf"
-        blob_name = f"{prefix}/{unique_name}"
+        # Upload PDF to GCS only when the simulator produced one.
+        # By default Eni PDF download is skipped, because IMPRIMIR is unstable while tariff data is already available.
+        pdf_url = None
+        if pdf_path and os.path.exists(pdf_path):
+            today = datetime.utcnow()
+            prefix = f"simulation_files/{today.year}/{today.month:02}/{today.day:02}"
+            unique_name = f"{uuid.uuid4()}.pdf"
+            blob_name = f"{prefix}/{unique_name}"
 
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(BUCKET_NAME)
-        blob = bucket.blob(blob_name)
-        blob.upload_from_filename(pdf_path)
-        blob.acl.all().grant_read()
-        blob.acl.save()
+            storage_client = storage.Client()
+            bucket = storage_client.bucket(BUCKET_NAME)
+            blob = bucket.blob(blob_name)
+            blob.upload_from_filename(pdf_path)
+            blob.acl.all().grant_read()
+            blob.acl.save()
 
-        pdf_url = f"https://storage.googleapis.com/{BUCKET_NAME}/{blob_name}"
-        print(f"[Job {task_id}] PDF uploaded: {pdf_url}")
+            pdf_url = f"https://storage.googleapis.com/{BUCKET_NAME}/{blob_name}"
+            print(f"[Job {task_id}] PDF uploaded: {pdf_url}")
+        else:
+            print(f"[Job {task_id}] PDF download skipped; creating simulation from extracted tariff data.")
 
         # Create simulation document
         sim_data = {
@@ -221,33 +226,35 @@ async def main():
         print(f"[Job {task_id}] Simulation doc created: {sim_id}")
 
         # Timeline event
+        timeline_content = (
+            "Автоматическая симуляция Eni завершена.\n"
+            f"CUPS: {cups}\n"
+            f"Поставщик: Eni Plenitude\n"
+            f"{f'PDF симуляции: {pdf_url}' if pdf_url else 'PDF симуляции: не скачивался, данные расчёта сохранены.'}\n"
+            f"Новый ежемесячный платёж: €{extracted_cost if extracted_cost is not None else 0.0}\n"
+            f"Экономия в месяц: €{extracted_savings if extracted_savings is not None else 'N/A'}\n"
+            f"Экономия: {extracted_percent if extracted_percent is not None else 'N/A'}%"
+        )
         await asyncio.to_thread(
             _create_timeline_event_sync,
             firestore_client,
             application_id,
-            (
-                "Автоматическая симуляция Eni завершена.\n"
-                f"CUPS: {cups}\n"
-                f"Поставщик: Eni Plenitude\n"
-                f"PDF симуляции: {pdf_url}\n"
-                f"Новый ежемесячный платёж: €{extracted_cost if extracted_cost is not None else 0.0}\n"
-                f"Экономия в месяц: €{extracted_savings if extracted_savings is not None else 'N/A'}\n"
-                f"Экономия: {extracted_percent if extracted_percent is not None else 'N/A'}%"
-            ),
+            timeline_content,
         )
 
         # Cleanup local file
-        try:
-            os.remove(pdf_path)
-        except Exception:
-            pass
+        if pdf_path:
+            try:
+                os.remove(pdf_path)
+            except Exception:
+                pass
 
         await _set_task({
             "status": "completed",
             "message": "Симуляция успешно создана.",
             "step_key": "completed",
             "step_label": "Симуляция завершена",
-            "step_details": "PDF сохранён и симуляция добавлена в CRM.",
+            "step_details": "Симуляция добавлена в CRM." if pdf_url else "Данные расчёта сохранены без скачивания PDF.",
             "progress_percent": 100,
             "simulation_id": sim_id,
             "simulation_file_url": pdf_url,

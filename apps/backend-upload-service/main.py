@@ -442,7 +442,8 @@ def create_timeline_event_internal(application_id: str, content: str, event_type
     }
     
     # Добавление документа в под-коллекцию
-    doc_ref.collection("timeline").add(new_event_data)
+    _, event_ref = doc_ref.collection("timeline").add(new_event_data)
+    return event_ref.id
 
 
 def _extract_filename_from_url(file_url: str) -> str:
@@ -717,6 +718,16 @@ def normalize_firestore_value(value):
     return value
 
 
+def _is_sales_department_internal_timeline_event(data: dict) -> bool:
+    content = str(data.get("content") or "")
+    created_by = str(data.get("created_by") or "")
+    if created_by == "System" and content.startswith("SALES_"):
+        return True
+    if created_by == "System" and content.startswith("Отдел продаж пересчитал состояние лида."):
+        return True
+    return False
+
+
 def _get_recent_timeline_items(doc_ref, max_events: int = 20) -> list[dict]:
     docs = (
         doc_ref.collection("timeline")
@@ -727,6 +738,8 @@ def _get_recent_timeline_items(doc_ref, max_events: int = 20) -> list[dict]:
     items: list[dict] = []
     for tdoc in docs:
         data = tdoc.to_dict() or {}
+        if _is_sales_department_internal_timeline_event(data):
+            continue
         data["id"] = tdoc.id
         items.append(normalize_firestore_value(data))
     return list(reversed(items))
@@ -1362,6 +1375,225 @@ def ensure_sales_followup(application_id: str, sales_state: dict) -> dict | None
         "scheduled_at": result.get("scheduled_at"),
     })
     return normalize_firestore_value(result)
+
+
+def cancel_superseded_sales_actions(application_id: str, *, run_id: str, reason: str | None):
+    try:
+        now = datetime.datetime.utcnow()
+        active_statuses = {SalesActionStatus.DRAFT.value, SalesActionStatus.READY.value}
+        docs = (
+            get_sales_department_actions_ref(application_id)
+            .order_by("created_at", direction=firestore.Query.DESCENDING)
+            .limit(25)
+            .stream()
+        )
+        cancelled_count = 0
+        for doc in docs:
+            data = doc.to_dict() or {}
+            if data.get("status") not in active_statuses:
+                continue
+            doc.reference.set({
+                "status": SalesActionStatus.CANCELLED.value,
+                "cancelled_at": now,
+                "updated_at": now,
+                "decision_reason": "superseded_by_sales_reanalysis",
+                "superseded_by_run_id": run_id,
+                "superseded_reason": reason,
+            }, merge=True)
+            cancelled_count += 1
+        if cancelled_count:
+            create_sales_audit_event(application_id, "actions_superseded", {
+                "run_id": run_id,
+                "reason": reason,
+                "cancelled_count": cancelled_count,
+            })
+    except Exception as exc:
+        print(f"[Sales Department] Failed to supersede old actions: {exc}")
+
+
+def run_sales_department_analysis(
+    application_id: str,
+    *,
+    trigger: str,
+    reason: str | None = None,
+    source_event_id: str | None = None,
+    add_timeline: bool = False,
+) -> dict:
+    doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+    doc = doc_ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+    app_data = doc.to_dict() or {}
+    state_ref = get_sales_department_state_ref(application_id)
+    started_at = datetime.datetime.utcnow()
+    run_ref = state_ref.collection("runs").document()
+    run_ref.set({
+        "run_id": run_ref.id,
+        "status": "running",
+        "trigger": trigger,
+        "reason": reason,
+        "source_event_id": source_event_id,
+        "started_at": started_at,
+        "completed_at": None,
+        "agents": [
+            {"agent_key": key, "status": "pending", "summary": None, "confidence": None}
+            for key in SALES_DEPARTMENT_AGENT_KEYS
+        ],
+    })
+
+    snapshot = build_sales_department_snapshot(application_id, doc_ref, app_data)
+    state_payload = analyze_sales_department_snapshot(snapshot)
+    completed_at = datetime.datetime.utcnow()
+    state_payload.update({
+        "updated_at": completed_at,
+        "last_run_id": run_ref.id,
+        "last_reanalysis_at": completed_at,
+        "last_reanalysis_trigger": trigger,
+        "last_reanalysis_reason": reason or trigger,
+        "last_event_id": source_event_id,
+        "snapshot_summary": build_sales_snapshot_summary(snapshot),
+        "freshness": {
+            "is_stale": False,
+            "stale_reasons": [],
+            "events_after_last_run_count": 0,
+            "current_inputs_hash": state_payload.get("last_inputs_hash"),
+            "last_inputs_hash": state_payload.get("last_inputs_hash"),
+            "snapshot_summary": build_sales_snapshot_summary(snapshot),
+        },
+        "is_stale": False,
+        "stale_reasons": [],
+        "events_after_last_run_count": 0,
+    })
+
+    cancel_superseded_sales_actions(application_id, run_id=run_ref.id, reason=reason)
+    action_payload = build_sales_action_payload(
+        application_id=application_id,
+        action_type=map_recommended_action_to_sales_action_type(
+            state_payload.get("recommended_action"),
+            snapshot.get("signals", {}),
+        ),
+        priority=state_payload.get("action_priority") or "normal",
+        reason=state_payload.get("friction_point") or "unknown",
+        payload={
+            "recommended_action": state_payload.get("recommended_action"),
+            "suggested_cta": state_payload.get("suggested_cta"),
+            "suggested_message": state_payload.get("suggested_message"),
+            "language": state_payload.get("language_used"),
+            "goal": state_payload.get("goal"),
+            "trigger": trigger,
+            "source_event_id": source_event_id,
+        },
+    )
+    guardrail_result = evaluate_sales_guardrails(
+        snapshot=snapshot,
+        action=action_payload,
+        message=state_payload.get("suggested_message"),
+        sales_state=state_payload,
+    )
+    persisted_action = persist_sales_action(application_id, action_payload, guardrail_result)
+    state_payload.update({
+        "next_action": persisted_action,
+        "guardrail_result": guardrail_result,
+        "safe_to_send": bool(guardrail_result.get("safe_to_execute")) and not guardrail_result.get("requires_operator_approval", True),
+        "needs_operator_review": bool(guardrail_result.get("requires_operator_approval", True)) or bool(guardrail_result.get("blocked_reasons")),
+        "metrics": build_sales_metrics(snapshot, list_sales_actions(application_id, limit=50)),
+    })
+    ensured_followup = ensure_sales_followup(application_id, state_payload)
+    state_payload["followups"] = list_sales_followups(application_id, limit=20)
+    if ensured_followup:
+        state_payload["next_followup"] = ensured_followup
+
+    create_sales_audit_event(application_id, "analysis_completed", {
+        "run_id": run_ref.id,
+        "trigger": trigger,
+        "reason": reason,
+        "source_event_id": source_event_id,
+        "snapshot_hash": state_payload.get("last_inputs_hash"),
+        "next_action_type": persisted_action.get("type"),
+        "next_action_id": persisted_action.get("action_id"),
+        "guardrail_result": guardrail_result,
+    })
+
+    run_payload = {
+        "run_id": run_ref.id,
+        "status": "completed",
+        "trigger": trigger,
+        "reason": reason,
+        "source_event_id": source_event_id,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "snapshot": snapshot,
+        "agents": state_payload.get("agents", []),
+        "result": state_payload,
+        "next_action": persisted_action,
+        "guardrail_result": guardrail_result,
+    }
+
+    state_ref.set(state_payload, merge=True)
+    run_ref.set(run_payload, merge=True)
+
+    if add_timeline:
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Отдел продаж пересчитал состояние лида.\n"
+                f"Причина: {reason or trigger}.\n"
+                f"Состояние клиента: {state_payload.get('client_state')}.\n"
+                f"Следующее действие: {state_payload.get('recommended_action')}.\n"
+                f"Структурное действие: {persisted_action.get('type')}.\n"
+                f"Safety: {'ok' if guardrail_result.get('safe_to_execute') else 'needs_review'}.\n"
+                f"Pipeline health: {state_payload.get('pipeline_health')}."
+            ),
+            event_type=EventType.NOTE,
+            created_by="System"
+        )
+
+    return {
+        "success": True,
+        "run_id": run_ref.id,
+        "state": normalize_firestore_value(state_payload),
+        "run": normalize_firestore_value(run_payload),
+    }
+
+
+def trigger_sales_department_reanalysis(
+    application_id: str,
+    reason: str,
+    source_event_id: str | None = None,
+) -> dict | None:
+    """Best-effort event-driven recalculation; never blocks the originating action."""
+    try:
+        return run_sales_department_analysis(
+            application_id,
+            trigger="event",
+            reason=reason,
+            source_event_id=source_event_id,
+            add_timeline=False,
+        )
+    except Exception as exc:
+        print(f"[Sales Department] Event reanalysis failed for {application_id}: {exc}")
+        try:
+            now = datetime.datetime.utcnow()
+            get_sales_department_state_ref(application_id).set({
+                "last_reanalysis_trigger": "event",
+                "last_reanalysis_reason": reason,
+                "last_event_id": source_event_id,
+                "last_reanalysis_error": str(exc),
+                "last_reanalysis_error_at": now,
+                "is_stale": True,
+                "stale_reasons": [reason],
+                "updated_at": now,
+            }, merge=True)
+            create_sales_audit_event(application_id, "analysis_failed", {
+                "trigger": "event",
+                "reason": reason,
+                "source_event_id": source_event_id,
+                "error": str(exc),
+            })
+        except Exception as audit_exc:
+            print(f"[Sales Department] Failed to record reanalysis error: {audit_exc}")
+        return None
 
 
 def update_sales_followup_decision(
@@ -2192,6 +2424,11 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
                     "needs_review": existing_data.get("needs_review", False),
                     "needs_review_fields": existing_data.get("needs_review_fields", []),
                 })
+                trigger_sales_department_reanalysis(
+                    application_id,
+                    reason="extraction_completed_existing_data",
+                    source_event_id=task_id,
+                )
                 return
 
         if not request.file_urls:
@@ -2309,12 +2546,22 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             "needs_review": needs_review,
             "needs_review_fields": needs_review_fields,
         })
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="extraction_completed",
+            source_event_id=task_id,
+        )
     except HTTPException as exc:
         update_proposal_extraction_task(application_id, task_id, {
             "status": "failed",
             "message": exc.detail if isinstance(exc.detail, str) else "Ошибка при извлечении данных.",
             "error": exc.detail,
         })
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="extraction_failed",
+            source_event_id=task_id,
+        )
     except Exception as exc:
         print(f"Extract data task error: {exc}")
         update_proposal_extraction_task(application_id, task_id, {
@@ -2322,6 +2569,11 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             "message": f"Ошибка при извлечении данных: {str(exc)}",
             "error": str(exc),
         })
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="extraction_failed",
+            source_event_id=task_id,
+        )
 
 def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
     """Отправляет файлы в Gemini с промптом для извлечения данных счета."""
@@ -3193,11 +3445,16 @@ async def submit_application(
         )
         
         # Используем внутреннюю функцию, не требующую авторизации оператора
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id, 
             content=timeline_content,
             event_type=EventType.NOTE,
             created_by="System (Public API)"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="lead_created",
+            source_event_id=event_id,
         )
 
         # 3. Отправка уведомления оператору
@@ -3376,124 +3633,12 @@ async def get_sales_department_state(application_id: str):
 async def analyze_sales_department(application_id: str, payload: SalesDepartmentAnalyzeRequest | None = Body(default=None)):
     """Собирает lead snapshot, пересчитывает sales state и сохраняет run для аудита/HUD."""
     try:
-        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
-        doc = doc_ref.get()
-        if not doc.exists:
-            raise HTTPException(status_code=404, detail="Заявка не найдена.")
-
-        app_data = doc.to_dict() or {}
-        state_ref = get_sales_department_state_ref(application_id)
-        started_at = datetime.datetime.utcnow()
-        run_ref = state_ref.collection("runs").document()
-        run_ref.set({
-            "run_id": run_ref.id,
-            "status": "running",
-            "trigger": "manual_analyze",
-            "started_at": started_at,
-            "completed_at": None,
-            "agents": [
-                {"agent_key": key, "status": "pending", "summary": None, "confidence": None}
-                for key in SALES_DEPARTMENT_AGENT_KEYS
-            ],
-        })
-
-        snapshot = build_sales_department_snapshot(application_id, doc_ref, app_data)
-        state_payload = analyze_sales_department_snapshot(snapshot)
-        completed_at = datetime.datetime.utcnow()
-        state_payload.update({
-            "updated_at": completed_at,
-            "last_run_id": run_ref.id,
-            "snapshot_summary": build_sales_snapshot_summary(snapshot),
-            "freshness": {
-                "is_stale": False,
-                "stale_reasons": [],
-                "events_after_last_run_count": 0,
-                "current_inputs_hash": state_payload.get("last_inputs_hash"),
-                "last_inputs_hash": state_payload.get("last_inputs_hash"),
-                "snapshot_summary": build_sales_snapshot_summary(snapshot),
-            },
-            "is_stale": False,
-            "stale_reasons": [],
-            "events_after_last_run_count": 0,
-        })
-        action_payload = build_sales_action_payload(
-            application_id=application_id,
-            action_type=map_recommended_action_to_sales_action_type(
-                state_payload.get("recommended_action"),
-                snapshot.get("signals", {}),
-            ),
-            priority=state_payload.get("action_priority") or "normal",
-            reason=state_payload.get("friction_point") or "unknown",
-            payload={
-                "recommended_action": state_payload.get("recommended_action"),
-                "suggested_cta": state_payload.get("suggested_cta"),
-                "suggested_message": state_payload.get("suggested_message"),
-                "language": state_payload.get("language_used"),
-                "goal": state_payload.get("goal"),
-            },
+        return run_sales_department_analysis(
+            application_id,
+            trigger="manual_analyze",
+            reason="manual_analyze",
+            add_timeline=True,
         )
-        guardrail_result = evaluate_sales_guardrails(
-            snapshot=snapshot,
-            action=action_payload,
-            message=state_payload.get("suggested_message"),
-            sales_state=state_payload,
-        )
-        persisted_action = persist_sales_action(application_id, action_payload, guardrail_result)
-        state_payload.update({
-            "next_action": persisted_action,
-            "guardrail_result": guardrail_result,
-            "safe_to_send": bool(guardrail_result.get("safe_to_execute")) and not guardrail_result.get("requires_operator_approval", True),
-            "needs_operator_review": bool(guardrail_result.get("requires_operator_approval", True)) or bool(guardrail_result.get("blocked_reasons")),
-            "metrics": build_sales_metrics(snapshot, list_sales_actions(application_id, limit=50)),
-        })
-        ensured_followup = ensure_sales_followup(application_id, state_payload)
-        state_payload["followups"] = list_sales_followups(application_id, limit=20)
-        if ensured_followup:
-            state_payload["next_followup"] = ensured_followup
-        create_sales_audit_event(application_id, "analysis_completed", {
-            "run_id": run_ref.id,
-            "snapshot_hash": state_payload.get("last_inputs_hash"),
-            "next_action_type": persisted_action.get("type"),
-            "next_action_id": persisted_action.get("action_id"),
-            "guardrail_result": guardrail_result,
-        })
-
-        run_payload = {
-            "run_id": run_ref.id,
-            "status": "completed",
-            "trigger": "manual_analyze",
-            "started_at": started_at,
-            "completed_at": completed_at,
-            "snapshot": snapshot,
-            "agents": state_payload.get("agents", []),
-            "result": state_payload,
-            "next_action": persisted_action,
-            "guardrail_result": guardrail_result,
-        }
-
-        state_ref.set(state_payload, merge=True)
-        run_ref.set(run_payload, merge=True)
-
-        create_timeline_event_internal(
-            application_id=application_id,
-            content=(
-                "Отдел продаж пересчитал состояние лида.\n"
-                f"Состояние клиента: {state_payload.get('client_state')}.\n"
-                f"Следующее действие: {state_payload.get('recommended_action')}.\n"
-                f"Структурное действие: {persisted_action.get('type')}.\n"
-                f"Safety: {'ok' if guardrail_result.get('safe_to_execute') else 'needs_review'}.\n"
-                f"Pipeline health: {state_payload.get('pipeline_health')}."
-            ),
-            event_type=EventType.NOTE,
-            created_by="System"
-        )
-
-        return {
-            "success": True,
-            "run_id": run_ref.id,
-            "state": normalize_firestore_value(state_payload),
-            "run": normalize_firestore_value(run_payload),
-        }
     except HTTPException:
         raise
     except Exception as e:
@@ -3881,11 +4026,16 @@ async def handoff_sales_department(application_id: str, payload: SalesDepartment
             "autopilot": handoff_payload,
         })
 
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=f"SALES_AUTOPILOT_HANDOFF:{payload.reason or 'operator_requested_manual_handoff'}",
             event_type=EventType.NOTE,
             created_by="System",
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="handoff_requested",
+            source_event_id=event_id,
         )
 
         return {
@@ -3924,11 +4074,16 @@ async def update_application_status(application_id: str, update_data: Applicatio
         doc_ref.update(update_fields)
         
         # АВТОМАТИЗАЦИЯ: Запись в Timeline об изменении статуса
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id, 
             content=f"Статус заявки изменен на '{new_status}' (вручную).",
             event_type=EventType.NOTE,
             created_by="Operator" # В реальной системе это будет ID авторизованного оператора
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="crm_status_changed",
+            source_event_id=event_id,
         )
         
         return {
@@ -3961,11 +4116,16 @@ async def update_application_service_type(application_id: str, update_data: Appl
             "updated_at": datetime.datetime.utcnow()
         })
 
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=f"Тип услуги изменён на '{update_data.service_type.value}'.",
             event_type=EventType.NOTE,
             created_by="Operator"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="service_type_changed",
+            source_event_id=event_id,
         )
         
         return {
@@ -3996,11 +4156,17 @@ async def update_application(application_id: str, update_data: ApplicationUpdate
             changed_fields = list(update_dict.keys())
             update_dict["updated_at"] = datetime.datetime.utcnow()
             doc_ref.update(update_dict)
-            create_timeline_event_internal(
+            event_id = create_timeline_event_internal(
                 application_id=application_id,
                 content=f"Карточка лида обновлена. Поля: {', '.join(changed_fields)}.",
                 event_type=EventType.NOTE,
                 created_by="Operator"
+            )
+            reason = "lead_language_changed" if "language" in changed_fields else "lead_profile_updated"
+            trigger_sales_department_reanalysis(
+                application_id,
+                reason=reason,
+                source_event_id=event_id,
             )
         
         return {
@@ -4054,7 +4220,7 @@ async def upload_application_files(application_id: str, files: list[UploadFile] 
         updated_files = existing_files + uploaded_paths
         doc_ref.update({"uploaded_files": updated_files, "updated_at": today})
 
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=(
                 f"Оператор добавил документы к заявке. Загружено новых файлов: {len(uploaded_paths)}.\n"
@@ -4062,6 +4228,11 @@ async def upload_application_files(application_id: str, files: list[UploadFile] 
             ),
             event_type=EventType.NOTE,
             created_by="Operator"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="files_uploaded",
+            source_event_id=event_id,
         )
         
         return {
@@ -4112,7 +4283,7 @@ async def proposal_extract_data(application_id: str, request: ExtractDataRequest
             "updated_at": datetime.datetime.utcnow(),
         })
 
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=(
                 "Запущено извлечение данных по документам.\n"
@@ -4120,6 +4291,11 @@ async def proposal_extract_data(application_id: str, request: ExtractDataRequest
             ),
             event_type=EventType.NOTE,
             created_by="Operator"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="extraction_started",
+            source_event_id=event_id,
         )
 
         worker = threading.Thread(
@@ -4272,7 +4448,7 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
         })
         
         # Запись в Timeline
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=(
                 f"Данные скорректированы оператором. Изменено полей: {len(changed_fields)}.\n"
@@ -4280,6 +4456,11 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
             ),
             event_type=EventType.NOTE,
             created_by="System"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="manual_correction_saved",
+            source_event_id=event_id,
         )
         
         return {"success": True, "message": "Данные обновлены."}
@@ -4362,11 +4543,16 @@ async def create_simulation(application_id: str, input_data: SimulationInput):
         sim_ref = doc_ref.collection("proposal_simulations").document()
         sim_ref.set(sim_data)
         
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=f"Создана симуляция.\n{_format_simulation_summary(sim_data)}",
             event_type=EventType.NOTE,
             created_by="System"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="simulation_created",
+            source_event_id=event_id,
         )
         
         return {"success": True, "simulation_id": sim_ref.id, "savings_monthly_eur": savings_monthly, "savings_percent": savings_percent}
@@ -4437,7 +4623,7 @@ async def update_simulation(application_id: str, simulation_id: str, update_data
         updates["updated_at"] = datetime.datetime.utcnow()
         sim_ref.update(updates)
 
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=(
                 "Симуляция обновлена.\n"
@@ -4445,6 +4631,11 @@ async def update_simulation(application_id: str, simulation_id: str, update_data
             ),
             event_type=EventType.NOTE,
             created_by="Operator"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="simulation_updated",
+            source_event_id=event_id,
         )
         
         return {"success": True, "message": "Симуляция обновлена."}
@@ -4473,7 +4664,7 @@ async def delete_simulation(application_id: str, simulation_id: str):
         sim_data = sim.to_dict() or {}
         sim_ref.delete()
 
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=(
                 "Симуляция удалена.\n"
@@ -4481,6 +4672,11 @@ async def delete_simulation(application_id: str, simulation_id: str):
             ),
             event_type=EventType.NOTE,
             created_by="Operator"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="simulation_deleted",
+            source_event_id=event_id,
         )
         
         return {"success": True, "message": "Симуляция удалена."}
@@ -4517,11 +4713,16 @@ async def select_simulation(application_id: str, simulation_id: str):
         # Ставим выбор на текущую
         sim_ref.update({"is_selected": True, "updated_at": datetime.datetime.utcnow()})
         
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=f"Выбрана симуляция для КП.\n{_format_simulation_summary(sim_data)}",
             event_type=EventType.NOTE,
             created_by="System"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="simulation_selected",
+            source_event_id=event_id,
         )
         
         return {"success": True, "message": "Симуляция выбрана."}
@@ -4563,6 +4764,24 @@ def _get_latest_task_status(application_id: str) -> dict | None:
 
 def _set_task_status(application_id: str, task_id: str, status: dict):
     _task_doc_ref(application_id, task_id).set(status, merge=True)
+
+def _trigger_sales_reanalysis_for_auto_task_if_needed(application_id: str, task_id: str, task: dict | None):
+    if not task or task.get("sales_reanalysis_triggered_at"):
+        return
+    status_value = task.get("status")
+    if status_value not in {"completed", "failed"}:
+        return
+    reason = "auto_simulation_completed" if status_value == "completed" else "auto_simulation_failed"
+    result = trigger_sales_department_reanalysis(
+        application_id,
+        reason=reason,
+        source_event_id=task_id,
+    )
+    _set_task_status(application_id, task_id, {
+        "sales_reanalysis_triggered_at": datetime.datetime.utcnow(),
+        "sales_reanalysis_run_id": (result or {}).get("run_id"),
+        "updated_at": datetime.datetime.utcnow(),
+    })
 
 def _start_eni_simulation_job(application_id: str, task_id: str, data: AutoCreateSimulationRequest) -> str:
     """Запускает Cloud Run Job для автоматической симуляции Eni."""
@@ -4644,7 +4863,7 @@ async def auto_create_simulation(application_id: str, request: AutoCreateSimulat
         # Запускаем Cloud Run Job
         _start_eni_simulation_job(application_id, task_id, request)
 
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=(
                 "Запущена автоматическая симуляция Eni.\n"
@@ -4654,6 +4873,11 @@ async def auto_create_simulation(application_id: str, request: AutoCreateSimulat
             ),
             event_type=EventType.NOTE,
             created_by="Operator"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="auto_simulation_started",
+            source_event_id=event_id,
         )
 
         return {
@@ -4681,6 +4905,8 @@ async def get_auto_simulation_status(application_id: str, task_id: str):
         task = _get_task_status(application_id, task_id)
         if not task:
             raise HTTPException(status_code=404, detail="Задача не найдена.")
+        _trigger_sales_reanalysis_for_auto_task_if_needed(application_id, task_id, task)
+        task = _get_task_status(application_id, task_id) or task
 
         return {
             "success": True,
@@ -4715,6 +4941,10 @@ async def get_latest_auto_simulation_status(application_id: str):
         task = _get_latest_task_status(application_id)
         if not task:
             return {"success": True, "task": None}
+        task_id = task.get("task_id")
+        if task_id:
+            _trigger_sales_reanalysis_for_auto_task_if_needed(application_id, task_id, task)
+            task = _get_task_status(application_id, task_id) or task
 
         return {
             "success": True,
@@ -5808,7 +6038,7 @@ async def generate_proposal(application_id: str, payload: ProposalGenerateReques
         })
         
         # Timeline
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=(
                 "Коммерческое предложение сгенерировано.\n"
@@ -5817,6 +6047,11 @@ async def generate_proposal(application_id: str, payload: ProposalGenerateReques
             ),
             event_type=EventType.NOTE,
             created_by="System"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="proposal_generated",
+            source_event_id=event_id,
         )
         
         return {"success": True, "proposal_file_url": proposal_url, "message": "КП сгенерировано."}
@@ -5887,7 +6122,7 @@ async def upload_proposal(application_id: str, file: UploadFile = File(...)):
             "updated_at": today
         })
 
-        create_timeline_event_internal(
+        event_id = create_timeline_event_internal(
             application_id=application_id,
             content=(
                 "Коммерческое предложение загружено оператором.\n"
@@ -5896,6 +6131,11 @@ async def upload_proposal(application_id: str, file: UploadFile = File(...)):
             ),
             event_type=EventType.NOTE,
             created_by="Operator"
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="proposal_uploaded",
+            source_event_id=event_id,
         )
         
         return {
@@ -6012,12 +6252,18 @@ async def create_timeline_event(application_id: str, event_data: TimelineCreate,
         })
 
         # Добавление документа в под-коллекцию
-        _, doc_ref = doc_ref.collection("timeline").add(new_event_data)
+        _, timeline_ref = doc_ref.collection("timeline").add(new_event_data)
+        event_reason = "outgoing_whatsapp_message" if event_data.type == EventType.WHATSAPP else "timeline_event_created"
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason=event_reason,
+            source_event_id=timeline_ref.id,
+        )
         
         return {
             "success": True,
             "message": "Запись в ленте успешно создана.",
-            "event_id": doc_ref.id
+            "event_id": timeline_ref.id
         }
         
     except HTTPException as e:
@@ -6087,6 +6333,11 @@ async def api_send_whatsapp(data: WhatsAppSendRequest):
             "wa_message_id": wa_message_id,
             "wa_status": "sent",
         })
+        trigger_sales_department_reanalysis(
+            data.application_id,
+            reason="outgoing_whatsapp_message",
+            source_event_id=event_ref.id,
+        )
         
         return {"success": True, "wa_message_id": wa_message_id}
         
@@ -6161,6 +6412,11 @@ async def api_send_whatsapp_media(
             "wa_message_id": wa_message_id,
             "wa_status": "sent",
         })
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="outgoing_whatsapp_message",
+            source_event_id=event_ref.id,
+        )
         
         return {"success": True, "wa_message_id": wa_message_id, "file_url": public_url}
         
@@ -6879,6 +7135,11 @@ async def api_send_whatsapp_document(data: WhatsAppDocumentRequest):
             "wa_message_id": wa_message_id,
             "wa_status": "sent",
         })
+        trigger_sales_department_reanalysis(
+            data.application_id,
+            reason="outgoing_whatsapp_message",
+            source_event_id=event_ref.id,
+        )
         
         return {"success": True, "wa_message_id": wa_message_id}
         
@@ -6938,6 +7199,11 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
             "status": Status.PROPOSAL.value,
             "updated_at": datetime.datetime.utcnow(),
         })
+        trigger_sales_department_reanalysis(
+            data.application_id,
+            reason="proposal_sent_via_whatsapp",
+            source_event_id=event_ref.id,
+        )
         
         return {
             "success": True,
@@ -7014,6 +7280,11 @@ async def api_send_whatsapp_first_message(data: WhatsAppFirstMessageRequest):
             "wa_message_id": wa_message_id,
             "wa_status": "sent",
         })
+        trigger_sales_department_reanalysis(
+            data.application_id,
+            reason="outgoing_whatsapp_message",
+            source_event_id=event_ref.id,
+        )
         
         return {"status": "success", "wa_message_id": wa_message_id}
         
@@ -7085,6 +7356,11 @@ async def whatsapp_webhook_receive(payload: dict = Body(...)):
                                 "direction": "incoming",
                                 "wa_message_id": wa_message_id,
                             })
+                            trigger_sales_department_reanalysis(
+                                matched_app_id,
+                                reason="incoming_whatsapp_message",
+                                source_event_id=event_ref.id,
+                            )
                         else:
                             print(f"WhatsApp webhook: no application found for phone {from_phone_raw}")
                 

@@ -296,6 +296,10 @@ export interface SalesDepartmentState {
   decision_trace?: SalesDepartmentDecisionTraceItem[];
   last_inputs_hash?: string;
   last_run_id?: string;
+  last_reanalysis_at?: string;
+  last_reanalysis_trigger?: string;
+  last_reanalysis_reason?: string;
+  last_event_id?: string | null;
   updated_at?: string;
   snapshot_summary?: SalesDepartmentSnapshotSummary;
   next_action?: SalesDepartmentNextAction;

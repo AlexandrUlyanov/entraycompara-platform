@@ -6,6 +6,7 @@ import {
   approveSalesDepartmentFollowup,
   cancelSalesDepartmentFollowup,
   getSalesDepartmentActions,
+  getSalesDepartmentAudit,
   getSalesDepartmentAutopilot,
   getSalesDepartmentFollowups,
   getSalesDepartmentState,
@@ -18,6 +19,7 @@ import {
 } from '../services/api';
 import {
   SalesDepartmentAgentStep,
+  SalesDepartmentAuditEvent,
   SalesDepartmentAutopilotMode,
   SalesDepartmentAutopilotState,
   SalesDepartmentFollowup,
@@ -762,6 +764,79 @@ const ActionQueuePanel: React.FC<{
   </div>
 );
 
+const SalesAuditTrailPanel: React.FC<{
+  audit: SalesDepartmentAuditEvent[];
+  isLoading: boolean;
+  t: TFunction;
+}> = ({ audit, isLoading, t }) => (
+  <div className="rounded-[24px] border border-slate-100 bg-white/80 p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{t('sales.audit.kicker')}</div>
+        <h4 className="mt-1 text-lg font-bold text-slate-900">{t('sales.audit.title')}</h4>
+        <p className="mt-1 text-sm text-slate-500">{t('sales.audit.description')}</p>
+      </div>
+      <span className="rounded-full border border-slate-100 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+        {isLoading ? t('sales.value.loading') : t('sales.audit.count', { count: audit.length })}
+      </span>
+    </div>
+
+    <div className="mt-4 space-y-3">
+      {isLoading && (
+        <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-200 p-5">
+          <Spinner size="h-5 w-5" />
+        </div>
+      )}
+      {!isLoading && audit.length === 0 && (
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-500">
+          {t('sales.audit.empty')}
+        </div>
+      )}
+      {!isLoading && audit.map((event) => {
+        const blockedReasons = event.guardrail_result?.blocked_reasons || [];
+        const warnings = event.guardrail_result?.warnings || [];
+        return (
+          <div key={event.audit_id || `${event.event_type}-${event.created_at}`} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-bold text-slate-900">{translateSalesValue(event.event_type, t)}</div>
+                <div className="mt-1 text-xs font-medium text-slate-500">
+                  {formatDateTime(event.created_at)} · {event.actor ? translateSalesValue(String(event.actor), t) : translateSalesValue(event.source, t)}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {event.action_id && (
+                  <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                    {t('sales.audit.action')}: {event.action_id}
+                  </span>
+                )}
+                {event.run_id && (
+                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+                    {t('sales.audit.run')}: {event.run_id}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {event.decision && (
+              <div className="mt-3 rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-600">
+                {t('sales.audit.decision')}: {translateSalesValue(String(event.decision), t)}
+              </div>
+            )}
+
+            {(blockedReasons.length > 0 || warnings.length > 0) && (
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <SafetySignalList title={t('sales.safety.blocked')} items={blockedReasons} tone="red" t={t} />
+                <SafetySignalList title={t('sales.safety.warnings')} items={warnings} tone="amber" t={t} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  </div>
+);
+
 const MessageStudio: React.FC<{
   message?: string | null;
   isBusy: boolean;
@@ -953,6 +1028,14 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     enabled: !!appId,
   });
   const {
+    data: auditData,
+    isLoading: isAuditLoading,
+  } = useQuery({
+    queryKey: ['salesDepartmentAudit', appId],
+    queryFn: () => getSalesDepartmentAudit(appId),
+    enabled: !!appId,
+  });
+  const {
     data: followupsData,
     isLoading: isFollowupsLoading,
   } = useQuery({
@@ -967,6 +1050,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
@@ -976,6 +1060,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -984,6 +1069,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -992,6 +1078,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -1000,6 +1087,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -1008,6 +1096,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentFollowups', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartment', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -1016,6 +1105,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
       updateSalesDepartmentAutopilot(appId, mode, enabled, `operator_selected_${mode}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -1023,12 +1113,14 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     mutationFn: () => recalculateSalesDepartmentAutopilot(appId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
     },
   });
   const handoffMutation = useMutation({
     mutationFn: () => handoffSalesDepartment(appId, 'operator_requested_manual_handoff'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
     },
   });
@@ -1038,12 +1130,14 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentActions', appId] });
+      queryClient.invalidateQueries({ queryKey: ['salesDepartmentAudit', appId] });
     },
   });
 
   const state = data?.state || null;
   const agents = state?.agents || data?.latest_run?.agents || [];
   const actions = actionsData?.actions || (state?.next_action ? [state.next_action] : []);
+  const audit = auditData?.audit || [];
   const followups = followupsData?.followups || state?.followups || [];
   const autopilot = autopilotData?.autopilot;
   const isActionBusy = approveActionMutation.isPending || skipActionMutation.isPending;
@@ -1129,6 +1223,8 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
               onSkip={(actionId) => skipActionMutation.mutate(actionId)}
               t={t}
             />
+
+            <SalesAuditTrailPanel audit={audit} isLoading={isAuditLoading} t={t} />
 
             <SalesMoleculePanel molecule={state.molecule} t={t} />
 

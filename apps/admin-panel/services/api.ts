@@ -1,5 +1,5 @@
 
-import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotResponse, SalesDepartmentActionsResponse, SalesDepartmentActionDecisionResponse, SalesDepartmentFollowupsResponse, SalesDepartmentFollowupDecisionResponse } from '../types';
+import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotResponse, SalesDepartmentActionsResponse, SalesDepartmentActionDecisionResponse, SalesDepartmentAuditResponse, SalesDepartmentFollowupsResponse, SalesDepartmentFollowupDecisionResponse } from '../types';
 
 const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
@@ -336,6 +336,14 @@ export const getLatestSalesDepartmentRun = async (applicationId: string): Promis
 
 export const getSalesDepartmentActions = async (applicationId: string): Promise<SalesDepartmentActionsResponse> => {
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/actions`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const getSalesDepartmentAudit = async (applicationId: string): Promise<SalesDepartmentAuditResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/audit`, {
     method: 'GET',
     headers: getHeaders(),
   });

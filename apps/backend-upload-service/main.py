@@ -812,6 +812,73 @@ def build_sales_snapshot_summary(snapshot: dict) -> dict:
     }
 
 
+def parse_sales_datetime(value) -> datetime.datetime | None:
+    if isinstance(value, datetime.datetime):
+        return value.replace(tzinfo=None)
+    if isinstance(value, str):
+        try:
+            return datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            return None
+    return None
+
+
+def hours_between_sales_dates(start, end) -> float | None:
+    start_dt = parse_sales_datetime(start)
+    end_dt = parse_sales_datetime(end)
+    if not start_dt or not end_dt or end_dt < start_dt:
+        return None
+    return round((end_dt - start_dt).total_seconds() / 3600, 1)
+
+
+def build_sales_metrics(snapshot: dict, actions: list[dict] | None = None) -> dict:
+    actions = actions or []
+    lead = snapshot.get("lead", {})
+    timeline = snapshot.get("timeline", [])
+    proposal_data = snapshot.get("proposal_data") or {}
+    simulations = snapshot.get("simulations") or []
+    selected_simulation = snapshot.get("selected_simulation") or {}
+    whatsapp = snapshot.get("whatsapp") or {}
+    created_at = lead.get("created_at")
+    now = datetime.datetime.utcnow()
+
+    first_operator_event = next(
+        (
+            item for item in timeline
+            if item.get("created_by") not in {None, "", "Client", "System"}
+        ),
+        None,
+    )
+    last_client_message = whatsapp.get("last_incoming")
+    blocked_actions = [
+        action for action in actions
+        if action.get("safe_to_execute") is False
+        or (action.get("guardrail_result") or {}).get("blocked_reasons")
+    ]
+    warning_actions = [
+        action for action in actions
+        if (action.get("guardrail_result") or {}).get("warnings")
+    ]
+
+    return {
+        "files_count": lead.get("uploaded_files_count", 0),
+        "timeline_events_count": len(timeline),
+        "whatsapp_incoming_count": whatsapp.get("incoming_count", 0),
+        "whatsapp_outgoing_count": whatsapp.get("outgoing_count", 0),
+        "simulations_count": len(simulations),
+        "has_selected_simulation": bool(selected_simulation),
+        "has_proposal": bool(lead.get("proposal_file_url") or lead.get("proposal_uploaded")),
+        "active_actions_count": len([action for action in actions if action.get("status") in {"draft", "ready", "approved"}]),
+        "blocked_actions_count": len(blocked_actions),
+        "warning_actions_count": len(warning_actions),
+        "time_to_first_operator_action_hours": hours_between_sales_dates(created_at, first_operator_event.get("created_at") if first_operator_event else None),
+        "time_to_extraction_hours": hours_between_sales_dates(created_at, proposal_data.get("extracted_at")),
+        "time_to_selected_simulation_hours": hours_between_sales_dates(created_at, selected_simulation.get("created_at") or selected_simulation.get("updated_at")),
+        "time_to_proposal_hours": hours_between_sales_dates(created_at, lead.get("updated_at")) if lead.get("proposal_file_url") or lead.get("proposal_uploaded") else None,
+        "last_client_message_age_hours": hours_between_sales_dates(last_client_message.get("created_at") if last_client_message else None, now),
+    }
+
+
 def evaluate_sales_state_freshness(application_id: str, doc_ref, app_data: dict, sales_state: dict | None) -> dict:
     sales_state = sales_state or {}
     snapshot = build_sales_department_snapshot(application_id, doc_ref, app_data)
@@ -835,21 +902,13 @@ def evaluate_sales_state_freshness(application_id: str, doc_ref, app_data: dict,
         stale_reasons.append("proposal_changed")
 
     updated_at = sales_state.get("updated_at")
-    if isinstance(updated_at, str):
-        try:
-            updated_at = datetime.datetime.fromisoformat(updated_at.replace("Z", "+00:00")).replace(tzinfo=None)
-        except Exception:
-            updated_at = None
+    updated_at = parse_sales_datetime(updated_at)
 
     events_after_last_run = []
     if isinstance(updated_at, datetime.datetime):
         for item in snapshot.get("timeline", []):
             created_at = item.get("created_at")
-            if isinstance(created_at, str):
-                try:
-                    created_at = datetime.datetime.fromisoformat(created_at.replace("Z", "+00:00")).replace(tzinfo=None)
-                except Exception:
-                    created_at = None
+            created_at = parse_sales_datetime(created_at)
             if isinstance(created_at, datetime.datetime) and created_at > updated_at:
                 events_after_last_run.append(item)
 
@@ -2912,10 +2971,12 @@ async def get_sales_department_state(application_id: str):
 
         state_payload = state_doc.to_dict() or {}
         freshness = evaluate_sales_state_freshness(application_id, doc_ref, doc.to_dict() or {}, state_payload)
+        current_snapshot = build_sales_department_snapshot(application_id, doc_ref, doc.to_dict() or {})
         state_payload["freshness"] = freshness
         state_payload["is_stale"] = freshness.get("is_stale", False)
         state_payload["stale_reasons"] = freshness.get("stale_reasons", [])
         state_payload["events_after_last_run_count"] = freshness.get("events_after_last_run_count", 0)
+        state_payload["metrics"] = build_sales_metrics(current_snapshot, list_sales_actions(application_id, limit=50))
 
         return {
             "success": True,
@@ -3002,6 +3063,7 @@ async def analyze_sales_department(application_id: str, payload: SalesDepartment
             "guardrail_result": guardrail_result,
             "safe_to_send": bool(guardrail_result.get("safe_to_execute")) and not guardrail_result.get("requires_operator_approval", True),
             "needs_operator_review": bool(guardrail_result.get("requires_operator_approval", True)) or bool(guardrail_result.get("blocked_reasons")),
+            "metrics": build_sales_metrics(snapshot, list_sales_actions(application_id, limit=50)),
         })
         create_sales_audit_event(application_id, "analysis_completed", {
             "run_id": run_ref.id,

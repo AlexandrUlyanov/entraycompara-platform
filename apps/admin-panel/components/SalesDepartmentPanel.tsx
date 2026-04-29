@@ -116,6 +116,13 @@ const formatDateTime = (value?: string): string => {
   });
 };
 
+const formatHours = (value?: number | null): string => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'n/a';
+  if (value < 1) return '<1h';
+  if (value < 48) return `${value}h`;
+  return `${Math.round(value / 24)}d`;
+};
+
 const getAgentLabel = (agentKey: string, t: TFunction): string =>
   translateIfExists(t, `sales.agent.${agentKey}`, agentKey.replace(/_/g, ' '));
 
@@ -222,6 +229,40 @@ const SalesControlHud: React.FC<{
             <div className="mt-1 font-semibold">{formatDateTime(state.updated_at)}</div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+
+const SalesMetricsPanel: React.FC<{
+  state: SalesDepartmentState;
+  t: TFunction;
+}> = ({ state, t }) => {
+  const metrics = state.metrics;
+  if (!metrics) return null;
+
+  return (
+    <div className="rounded-[24px] border border-slate-100 bg-white/80 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{t('sales.metrics.kicker')}</div>
+          <h4 className="mt-1 text-lg font-bold text-slate-900">{t('sales.metrics.title')}</h4>
+          <p className="mt-1 text-sm text-slate-500">{t('sales.metrics.description')}</p>
+        </div>
+        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${metrics.blocked_actions_count ? getStatusTone('needs_attention') : getStatusTone('healthy')}`}>
+          {metrics.blocked_actions_count ? t('sales.metrics.needsAttention') : t('sales.metrics.clean')}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <RadarTile label={t('sales.metrics.files')} value={metrics.files_count} tone="blue" />
+        <RadarTile label={t('sales.metrics.whatsapp')} value={`${metrics.whatsapp_incoming_count || 0}/${metrics.whatsapp_outgoing_count || 0}`} tone="green" />
+        <RadarTile label={t('sales.metrics.simulations')} value={metrics.simulations_count} tone={metrics.has_selected_simulation ? 'green' : 'amber'} />
+        <RadarTile label={t('sales.metrics.proposal')} value={metrics.has_proposal ? t('common.yes') : t('common.no')} tone={metrics.has_proposal ? 'green' : 'slate'} />
+        <RadarTile label={t('sales.metrics.activeActions')} value={metrics.active_actions_count} tone="indigo" />
+        <RadarTile label={t('sales.metrics.blockedActions')} value={metrics.blocked_actions_count} tone={metrics.blocked_actions_count ? 'red' : 'green'} />
+        <RadarTile label={t('sales.metrics.firstOperatorAction')} value={formatHours(metrics.time_to_first_operator_action_hours)} tone="blue" />
+        <RadarTile label={t('sales.metrics.lastClientMessage')} value={formatHours(metrics.last_client_message_age_hours)} tone="amber" />
       </div>
     </div>
   );
@@ -885,6 +926,8 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
               <RadarTile label={t('sales.radar.dealTemperature')} value={translateSalesValue(state.deal_temperature, t)} tone="amber" />
               <RadarTile label={t('sales.radar.actionPriority')} value={translateSalesValue(state.action_priority, t)} tone="blue" />
             </div>
+
+            <SalesMetricsPanel state={state} t={t} />
 
             <ActionPanel state={state} t={t} />
 

@@ -192,6 +192,24 @@ export interface SalesDepartmentFreshness {
   snapshot_summary?: SalesDepartmentSnapshotSummary;
 }
 
+export interface SalesDepartmentMetrics {
+  files_count?: number;
+  timeline_events_count?: number;
+  whatsapp_incoming_count?: number;
+  whatsapp_outgoing_count?: number;
+  simulations_count?: number;
+  has_selected_simulation?: boolean;
+  has_proposal?: boolean;
+  active_actions_count?: number;
+  blocked_actions_count?: number;
+  warning_actions_count?: number;
+  time_to_first_operator_action_hours?: number | null;
+  time_to_extraction_hours?: number | null;
+  time_to_selected_simulation_hours?: number | null;
+  time_to_proposal_hours?: number | null;
+  last_client_message_age_hours?: number | null;
+}
+
 export interface SalesDepartmentDecisionTraceItem {
   step: string;
   value?: string | null;
@@ -282,6 +300,7 @@ export interface SalesDepartmentState {
   is_stale?: boolean;
   stale_reasons?: string[];
   events_after_last_run_count?: number;
+  metrics?: SalesDepartmentMetrics;
 }
 
 export interface SalesDepartmentRun {

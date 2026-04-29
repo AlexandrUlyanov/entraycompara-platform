@@ -3278,7 +3278,7 @@ async def recalculate_sales_department_autopilot(application_id: str):
             enabled=bool(current.get("enabled")),
             sales_state=sales_state,
         )
-        autopilot_payload["last_reason"] = "Recalculated from current sales state"
+        autopilot_payload["last_reason"] = "recalculated_from_current_sales_state"
         get_sales_department_autopilot_ref(application_id).set(autopilot_payload, merge=True)
         create_sales_audit_event(application_id, "autopilot_recalculated", {
             "mode": autopilot_payload.get("mode"),

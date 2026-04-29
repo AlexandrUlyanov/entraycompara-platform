@@ -64,6 +64,9 @@ const translateSalesText = (text: string | null | undefined, t: TFunction): stri
     'No automatic send is allowed in the current safety phase.': 'sales.text.agent.noAutoSend',
     'Manual mode is active. No automatic actions are allowed.': 'sales.text.autopilot.manual',
     'Manual mode is active. AI can analyze, but cannot prepare or send actions automatically.': 'sales.text.autopilot.manualAnalyzeOnly',
+    'Assisted Auto can prepare recommendations for operator approval. Sending remains manual.': 'sales.text.autopilot.assistedPrepareOnly',
+    'Full Auto is selected but locked until safety guardrails are implemented and approved.': 'sales.text.autopilot.fullAutoLocked',
+    'Lead is under manual operator control after handoff.': 'sales.text.autopilot.handoffManualControl',
   };
 
   if (exactMatches[trimmed]) {

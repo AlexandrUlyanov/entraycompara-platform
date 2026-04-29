@@ -346,7 +346,7 @@ export const approveSalesDepartmentAction = async (applicationId: string, action
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/actions/${actionId}/approve`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({ reason: reason || 'Operator approved action from CRM' }),
+    body: JSON.stringify({ reason: reason || 'operator_approved_action_from_crm' }),
   });
   return handleApiError(response);
 };
@@ -355,7 +355,7 @@ export const skipSalesDepartmentAction = async (applicationId: string, actionId:
   const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/sales-department/actions/${actionId}/skip`, {
     method: 'POST',
     headers: getHeaders(),
-    body: JSON.stringify({ reason: reason || 'Operator skipped action from CRM' }),
+    body: JSON.stringify({ reason: reason || 'operator_skipped_action_from_crm' }),
   });
   return handleApiError(response);
 };

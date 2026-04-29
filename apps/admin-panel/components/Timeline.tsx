@@ -142,6 +142,24 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
   };
 
   const localizeSystemNote = (content: string) => {
+    if (content.startsWith('SALES_AUTOPILOT_UPDATED:')) {
+      const [, mode = '', status = '', safeToSend = 'False'] = content.split(':');
+      return [
+        t('timeline.salesDepartment.autopilotUpdated'),
+        t('timeline.salesDepartment.autopilotMode', { value: translateSalesCode(mode) }),
+        t('timeline.salesDepartment.autopilotStatus', { value: translateSalesCode(status) }),
+        t('timeline.salesDepartment.safeToSend', { value: safeToSend === 'True' ? t('common.yes') : t('common.no') }),
+      ].join('\n');
+    }
+
+    if (content.startsWith('SALES_AUTOPILOT_HANDOFF:')) {
+      const reason = content.replace('SALES_AUTOPILOT_HANDOFF:', '').trim();
+      return [
+        t('timeline.salesDepartment.handoff'),
+        t('timeline.salesDepartment.handoffReason', { value: translateSalesCode(reason) }),
+      ].join('\n');
+    }
+
     if (content.startsWith('Отдел продаж пересчитал состояние лида.')) {
       const clientState = content.match(/Состояние клиента: ([^.]+)\./)?.[1] || '';
       const nextAction = content.match(/Следующее действие: ([^.]+)\./)?.[1] || '';

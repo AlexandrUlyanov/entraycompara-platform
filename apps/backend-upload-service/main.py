@@ -1539,7 +1539,7 @@ def build_default_autopilot_state(application_id: str) -> dict:
         "safe_to_send": False,
         "full_auto_enabled": False,
         "handoff_required": False,
-        "last_decision": "Manual mode is active. No automatic actions are allowed.",
+        "last_decision": "autopilot_manual_active",
         "last_reason": None,
         "updated_at": now,
         "created_at": now,
@@ -1603,13 +1603,13 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
 
     if mode == AutopilotMode.MANUAL.value or not enabled:
         status_value = "manual_control"
-        decision = "Manual mode is active. AI can analyze, but cannot prepare or send actions automatically."
+        decision = "autopilot_manual_analyze_only"
     elif mode == AutopilotMode.ASSISTED_AUTO.value:
         status_value = "assisted_ready" if safe_to_prepare else "assisted_waiting"
-        decision = "Assisted Auto can prepare recommendations for operator approval. Sending remains manual."
+        decision = "autopilot_assisted_prepare_only"
     else:
         status_value = "full_auto_pilot_locked"
-        decision = "Full Auto is selected but locked until safety guardrails are implemented and approved."
+        decision = "autopilot_full_auto_locked"
 
     return {
         "application_id": application_id,
@@ -3244,11 +3244,7 @@ async def update_sales_department_autopilot(application_id: str, payload: SalesD
 
         create_timeline_event_internal(
             application_id=application_id,
-            content=(
-                f"Autopilot mode changed to {payload.mode.value}. "
-                f"Status: {autopilot_payload.get('status')}. "
-                f"Safe to send: {autopilot_payload.get('safe_to_send')}."
-            ),
+            content=f"SALES_AUTOPILOT_UPDATED:{payload.mode.value}:{autopilot_payload.get('status')}:{autopilot_payload.get('safe_to_send')}",
             event_type=EventType.NOTE,
             created_by="System",
         )
@@ -3321,7 +3317,7 @@ async def handoff_sales_department(application_id: str, payload: SalesDepartment
             "handoff_required": True,
             "handoff_reason": payload.reason,
             "assigned_to": payload.assigned_to,
-            "last_decision": "Lead is under manual operator control after handoff.",
+            "last_decision": "autopilot_handoff_manual_control",
             "updated_at": now,
         }
         get_sales_department_autopilot_ref(application_id).set(handoff_payload, merge=True)
@@ -3333,7 +3329,7 @@ async def handoff_sales_department(application_id: str, payload: SalesDepartment
 
         create_timeline_event_internal(
             application_id=application_id,
-            content=f"Autopilot handoff: {payload.reason}",
+            content=f"SALES_AUTOPILOT_HANDOFF:{payload.reason or 'operator_requested_manual_handoff'}",
             event_type=EventType.NOTE,
             created_by="System",
         )

@@ -781,7 +781,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
   });
   const updateAutopilotMutation = useMutation({
     mutationFn: ({ mode, enabled }: { mode: SalesDepartmentAutopilotMode; enabled: boolean }) =>
-      updateSalesDepartmentAutopilot(appId, mode, enabled, `Operator selected ${mode}`),
+      updateSalesDepartmentAutopilot(appId, mode, enabled, `operator_selected_${mode}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
@@ -794,7 +794,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
     },
   });
   const handoffMutation = useMutation({
-    mutationFn: () => handoffSalesDepartment(appId, 'Operator requested manual handoff from CRM'),
+    mutationFn: () => handoffSalesDepartment(appId, 'operator_requested_manual_handoff'),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesDepartmentAutopilot', appId] });
       queryClient.invalidateQueries({ queryKey: ['timeline', appId] });

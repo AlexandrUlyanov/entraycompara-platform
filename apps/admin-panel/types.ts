@@ -206,6 +206,37 @@ export interface SalesDepartmentMolecule {
   auto_send_allowed?: boolean;
 }
 
+export interface SalesDepartmentGuardrailResult {
+  safe_to_execute?: boolean;
+  blocked_reasons?: string[];
+  warnings?: string[];
+  requires_operator_approval?: boolean;
+  checked_at?: string;
+}
+
+export interface SalesDepartmentNextAction {
+  action_id?: string;
+  application_id?: string;
+  type?: string;
+  status?: string;
+  priority?: string;
+  reason?: string;
+  requires_approval?: boolean;
+  safe_to_execute?: boolean;
+  payload?: {
+    recommended_action?: string;
+    suggested_cta?: string;
+    suggested_message?: string | null;
+    language?: string;
+    goal?: string;
+    [key: string]: unknown;
+  };
+  guardrail_result?: SalesDepartmentGuardrailResult;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface SalesDepartmentState {
   version?: number;
   status?: string;
@@ -234,6 +265,10 @@ export interface SalesDepartmentState {
   last_run_id?: string;
   updated_at?: string;
   snapshot_summary?: SalesDepartmentSnapshotSummary;
+  next_action?: SalesDepartmentNextAction;
+  guardrail_result?: SalesDepartmentGuardrailResult;
+  safe_to_send?: boolean;
+  needs_operator_review?: boolean;
 }
 
 export interface SalesDepartmentRun {
@@ -272,6 +307,7 @@ export interface SalesDepartmentAutopilotState {
   allowed_actions?: string[];
   blocked_reasons?: string[];
   warnings?: string[];
+  guardrail_result?: SalesDepartmentGuardrailResult;
   full_auto_enabled?: boolean;
   handoff_required?: boolean;
   handoff_reason?: string;

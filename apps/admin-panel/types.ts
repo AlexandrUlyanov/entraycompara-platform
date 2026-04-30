@@ -165,6 +165,24 @@ export interface LatestAutoSimulationTaskResponse {
   task: AutoSimulationTaskStatus | null;
 }
 
+export interface WhatsAppConnectionHealth {
+  configured: boolean;
+  ready_to_send: boolean;
+  webhook_ready: boolean;
+  api_version: string;
+  phone_number_id_present: boolean;
+  access_token_present: boolean;
+  verify_token_present: boolean;
+  meta_ok: boolean;
+  meta_error?: string | null;
+  phone_number?: string | null;
+  verified_name?: string | null;
+  quality_rating?: string | null;
+  code_verification_status?: string | null;
+  webhook_callback_url?: string | null;
+  checked_at?: string | null;
+}
+
 export type SalesDepartmentAgentStatus = 'pending' | 'running' | 'completed' | 'needs_attention' | 'failed' | string;
 
 export interface SalesDepartmentAgentStep {

@@ -1,5 +1,5 @@
 
-import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotResponse, SalesDepartmentActionsResponse, SalesDepartmentActionDecisionResponse, SalesDepartmentAuditResponse, SalesDepartmentFollowupsResponse, SalesDepartmentFollowupDecisionResponse } from '../types';
+import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, WhatsAppConnectionHealth, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotResponse, SalesDepartmentActionsResponse, SalesDepartmentActionDecisionResponse, SalesDepartmentAuditResponse, SalesDepartmentFollowupsResponse, SalesDepartmentFollowupDecisionResponse } from '../types';
 
 const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
@@ -222,6 +222,14 @@ export const generateSignedUrl = async (gcsPath: string): Promise<{ url: string 
 };
 
 // --- WhatsApp API ---
+
+export const fetchWhatsAppConnectionHealth = async (): Promise<WhatsAppConnectionHealth> => {
+  const response = await fetch(`${API_BASE_URL}/whatsapp/health`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
 
 export const sendWhatsAppMessage = async (applicationId: string, message: string): Promise<{ success: boolean; wa_message_id?: string }> => {
   const response = await fetch(`${API_BASE_URL}/whatsapp/send`, {

@@ -16,7 +16,7 @@ from typing import List, Optional, Dict, Any
 from enum import Enum 
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Query, status, Header, Body
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Depends, Query, status, Header, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from google.cloud import storage, firestore 
 from pydantic import BaseModel
@@ -6435,6 +6435,55 @@ async def delete_timeline_event(application_id: str, event_id: str):
 
 
 # --- WhatsApp Business API Endpoints ---
+
+@app.get("/api/whatsapp/health", tags=["WhatsApp"], dependencies=[Depends(authenticate_operator)])
+async def api_whatsapp_health(request: Request):
+    """Возвращает безопасный статус подключения WhatsApp Cloud API без отправки сообщений."""
+    phone_number_id_present = bool(WHATSAPP_PHONE_NUMBER_ID)
+    access_token_present = bool(WHATSAPP_ACCESS_TOKEN)
+    verify_token_present = bool(WHATSAPP_VERIFY_TOKEN)
+    configured = phone_number_id_present and access_token_present
+    webhook_ready = verify_token_present
+    meta_ok = False
+    meta_error = None
+    meta_details = {}
+
+    if configured:
+        try:
+            url = f"https://graph.facebook.com/{WHATSAPP_API_VERSION}/{WHATSAPP_PHONE_NUMBER_ID}"
+            response = requests.get(
+                url,
+                params={"fields": "id,display_phone_number,verified_name,quality_rating,code_verification_status"},
+                headers={"Authorization": f"Bearer {WHATSAPP_ACCESS_TOKEN}"},
+                timeout=10,
+            )
+            response.raise_for_status()
+            meta_details = response.json()
+            meta_ok = True
+        except requests.exceptions.HTTPError as e:
+            meta_error = e.response.text if getattr(e, "response", None) is not None else str(e)
+        except Exception as e:
+            meta_error = str(e)
+
+    callback_url = str(request.base_url).rstrip("/") + "/api/whatsapp/webhook"
+
+    return {
+        "configured": configured,
+        "ready_to_send": configured and meta_ok,
+        "webhook_ready": webhook_ready,
+        "api_version": WHATSAPP_API_VERSION,
+        "phone_number_id_present": phone_number_id_present,
+        "access_token_present": access_token_present,
+        "verify_token_present": verify_token_present,
+        "meta_ok": meta_ok,
+        "meta_error": meta_error,
+        "phone_number": meta_details.get("display_phone_number"),
+        "verified_name": meta_details.get("verified_name"),
+        "quality_rating": meta_details.get("quality_rating"),
+        "code_verification_status": meta_details.get("code_verification_status"),
+        "webhook_callback_url": callback_url,
+        "checked_at": datetime.datetime.utcnow().isoformat() + "Z",
+    }
 
 @app.post("/api/whatsapp/send", tags=["WhatsApp"], dependencies=[Depends(authenticate_operator)])
 async def api_send_whatsapp(data: WhatsAppSendRequest):

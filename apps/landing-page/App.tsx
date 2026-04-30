@@ -16,6 +16,7 @@ import Footer from './components/Footer.tsx';
 import CookieConsentBanner from './components/CookieConsentBanner.tsx';
 import SEOMetadata from './components/SEOMetadata.tsx';
 import PostSubmitPage from './components/PostSubmitPage.tsx';
+import ClientAreaPage from './components/ClientAreaPage.tsx';
 import { LanguageProvider, useLanguage } from './context/LanguageContext.tsx';
 
 const PrivacyPolicyPage = lazy(() => import('./components/PrivacyPolicyPage.tsx'));
@@ -85,7 +86,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     const hash = currentPage;
-    const isTopLevelPage = hash === '#/privacy-policy' || hash === '#/terms-conditions' || hash === '#/solicitud-recibida';
+    const isTopLevelPage = hash === '#/privacy-policy' || hash === '#/terms-conditions' || hash === '#/solicitud-recibida' || hash.startsWith('#/area/c/');
 
     if (isTopLevelPage) {
       window.scrollTo(0, 0);
@@ -103,7 +104,10 @@ const AppContent: React.FC = () => {
   }, [currentPage]);
 
   let pageContent;
-  switch (currentPage) {
+  if (currentPage.startsWith('#/area/c/')) {
+    const token = decodeURIComponent(currentPage.replace('#/area/c/', '').split('?')[0]);
+    pageContent = <ClientAreaPage token={token} />;
+  } else switch (currentPage) {
     case '#/privacy-policy':
       pageContent = (
         <Suspense fallback={<PageLoader />}>

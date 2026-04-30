@@ -240,6 +240,11 @@ app.get('/service-worker.js', (req, res) => {
    return res.sendFile(path.join(publicPath, 'service-worker.js'));
 });
 
+app.get('/area/c/:token', (req, res) => {
+    const token = encodeURIComponent(req.params.token || '');
+    return res.redirect(302, `/#/area/c/${token}`);
+});
+
 app.use('/public', express.static(publicPath));
 app.use(express.static(staticPath));
 

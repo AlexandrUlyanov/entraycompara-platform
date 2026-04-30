@@ -36,6 +36,16 @@ WHATSAPP_VERIFY_TOKEN
 
 Они прокидываются в Cloud Run backend через `deploy-staging.yml` и `deploy-production.yml`.
 
+Текущие справочные идентификаторы Meta:
+
+```text
+WhatsApp number: +34 611 97 49 84
+Phone Number ID: 1004089872798979
+WhatsApp Business Account ID: 1507025721025530
+```
+
+Backend сейчас использует `Phone Number ID`. `WhatsApp Business Account ID` нужен для настройки Meta Business, шаблонов и диагностики в кабинете Meta, но напрямую не используется в runtime API.
+
 ## Meta permissions
 
 Access Token должен иметь права:

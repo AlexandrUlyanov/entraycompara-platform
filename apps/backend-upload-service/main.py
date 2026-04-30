@@ -12,6 +12,7 @@ import threading
 import difflib
 import unicodedata
 import hashlib
+import hmac
 import secrets
 from urllib.parse import quote
 from typing import List, Optional, Dict, Any 
@@ -66,6 +67,7 @@ FIRESTORE_COLLECTION = "applications"
 WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_VERIFY_TOKEN = os.environ.get("WHATSAPP_VERIFY_TOKEN")
+WHATSAPP_APP_SECRET = os.environ.get("WHATSAPP_APP_SECRET")
 WHATSAPP_API_VERSION = "v25.0"
 WHATSAPP_PUBLIC_NUMBER = re.sub(r"\D", "", os.environ.get("WHATSAPP_PUBLIC_NUMBER", "+34611974984"))
 CLIENT_AREA_BASE_URL = os.environ.get("CLIENT_AREA_BASE_URL", "https://entraycompara.com")
@@ -3259,6 +3261,10 @@ def build_whatsapp_activation_url(public_code: str, verification_code: str) -> s
     return f"https://wa.me/{WHATSAPP_PUBLIC_NUMBER}?text={quote(message, safe='')}"
 
 
+def build_client_area_url(secure_token: str) -> str:
+    return f"{CLIENT_AREA_BASE_URL.rstrip('/')}/#/area/c/{quote(secure_token, safe='')}"
+
+
 def get_client_visible_label(client_visible_status: str | None, fallback_status: str | None = None) -> str:
     if client_visible_status in CLIENT_VISIBLE_STATUS_LABELS:
         return CLIENT_VISIBLE_STATUS_LABELS[client_visible_status]
@@ -3271,6 +3277,192 @@ def get_client_visible_label(client_visible_status: str | None, fallback_status:
     if fallback_status == Status.DEAL_LOST.value:
         return CLIENT_VISIBLE_STATUS_LABELS["lost"]
     return CLIENT_VISIBLE_STATUS_LABELS["invoice_uploaded"]
+
+
+def verify_meta_signature(raw_body: bytes, signature_header: str | None) -> bool:
+    if not WHATSAPP_APP_SECRET:
+        print("WhatsApp webhook signature verification skipped: WHATSAPP_APP_SECRET is not configured.")
+        return True
+    if not signature_header or not signature_header.startswith("sha256="):
+        return False
+    expected = hmac.new(
+        WHATSAPP_APP_SECRET.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    received = signature_header.split("=", 1)[1]
+    return hmac.compare_digest(expected, received)
+
+
+def parse_whatsapp_activation_text(text: str) -> tuple[str, str] | None:
+    if not text:
+        return None
+    public_code_match = re.search(r"\bEC[-\s]?(\d{6})\b", text, flags=re.IGNORECASE)
+    if not public_code_match:
+        return None
+    public_code = f"EC-{public_code_match.group(1)}"
+
+    compact_text = re.sub(r"\D", "", text)
+    code_match = re.search(r"(\d{6})(?!.*\d{6})", compact_text)
+    if not code_match:
+        return None
+    return public_code, code_match.group(1)
+
+
+def create_whatsapp_timeline_event(
+    application_id: str,
+    content: str,
+    created_by: str,
+    direction: str,
+    wa_message_id: str | None = None,
+    wa_status: str | None = None,
+) -> str:
+    event_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id).collection("timeline").document()
+    event_ref.set({
+        "application_id": application_id,
+        "content": content,
+        "type": EventType.WHATSAPP.value,
+        "created_by": created_by,
+        "created_at": datetime.datetime.utcnow(),
+        "direction": direction,
+        "wa_message_id": wa_message_id,
+        "wa_status": wa_status,
+    })
+    return event_ref.id
+
+
+def send_safe_whatsapp_message(to_phone: str, message: str) -> str | None:
+    try:
+        result = send_whatsapp_message(to_phone, message)
+        return result.get("messages", [{}])[0].get("id")
+    except Exception as exc:
+        print(f"WhatsApp auto-reply send failed: {exc}")
+        return None
+
+
+def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_message_id: str) -> bool:
+    parsed = parse_whatsapp_activation_text(text_body)
+    if not parsed:
+        return False
+
+    public_code, verification_code = parsed
+    result = find_application_by_public_code(public_code)
+    if not result:
+        send_safe_whatsapp_message(
+            from_phone_raw,
+            "No hemos podido validar el código. Por favor, revisa el código que aparece en la página de confirmación o solicita uno nuevo.",
+        )
+        return True
+
+    application_id, app_data = result
+    now = datetime.datetime.utcnow()
+    doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+    create_whatsapp_timeline_event(
+        application_id,
+        text_body,
+        "Client",
+        "incoming",
+        wa_message_id=wa_message_id,
+    )
+
+    expected_hash = app_data.get("verification_code_hash") or ""
+    attempts = int(app_data.get("verification_code_attempts") or 0)
+    expires_at = app_data.get("verification_code_expires_at")
+
+    if attempts >= 10:
+        doc_ref.update({
+            "verification_code_attempts": attempts + 1,
+            "updated_at": now,
+        })
+        create_timeline_event_internal(
+            application_id,
+            f"WhatsApp-активация заблокирована по лимиту попыток. Код заявки: {public_code}.",
+            EventType.NOTE,
+            "System (WhatsApp Webhook)",
+        )
+        send_safe_whatsapp_message(
+            from_phone_raw,
+            "No hemos podido validar el código. Por favor, revisa el código que aparece en la página de confirmación o solicita uno nuevo.",
+        )
+        return True
+
+    if isinstance(expires_at, datetime.datetime) and expires_at < now:
+        doc_ref.update({
+            "verification_code_attempts": attempts + 1,
+            "updated_at": now,
+        })
+        create_timeline_event_internal(
+            application_id,
+            f"WhatsApp-активация не выполнена: код истёк. Код заявки: {public_code}.",
+            EventType.NOTE,
+            "System (WhatsApp Webhook)",
+        )
+        send_safe_whatsapp_message(
+            from_phone_raw,
+            "Este código ha caducado. Puedes solicitar un nuevo código desde la página de tu solicitud.",
+        )
+        return True
+
+    if not expected_hash or not hmac.compare_digest(expected_hash, hash_client_secret(verification_code)):
+        doc_ref.update({
+            "verification_code_attempts": attempts + 1,
+            "updated_at": now,
+        })
+        create_timeline_event_internal(
+            application_id,
+            f"WhatsApp-активация не выполнена: неверный код. Код заявки: {public_code}.",
+            EventType.NOTE,
+            "System (WhatsApp Webhook)",
+        )
+        send_safe_whatsapp_message(
+            from_phone_raw,
+            "No hemos podido validar el código. Por favor, revisa el código que aparece en la página de confirmación o solicita uno nuevo.",
+        )
+        return True
+
+    secure_token = generate_secure_client_token()
+    client_area_url = build_client_area_url(secure_token)
+    from_phone = normalize_phone(from_phone_raw)
+    doc_ref.update({
+        "whatsapp_verified": True,
+        "whatsapp_verified_at": now,
+        "whatsapp_verified_phone": from_phone,
+        "client_area_enabled": True,
+        "client_area_enabled_at": now,
+        "secure_token_hash": hash_client_secret(secure_token),
+        "secure_token_created_at": now,
+        "secure_token_revoked_at": None,
+        "verification_code_attempts": attempts + 1,
+        "updated_at": now,
+    })
+    activation_event_id = create_timeline_event_internal(
+        application_id,
+        f"WhatsApp подтверждён клиентом. Área personal активирована: {client_area_url}",
+        EventType.NOTE,
+        "System (WhatsApp Webhook)",
+    )
+
+    reply = (
+        "Perfecto, hemos activado tu área personal.\n"
+        "Puedes consultar el estado de tu análisis aquí:\n"
+        f"{client_area_url}\n"
+        "Te avisaremos por WhatsApp cuando tu propuesta esté lista."
+    )
+    outgoing_message_id = send_safe_whatsapp_message(from_phone_raw, reply)
+    create_whatsapp_timeline_event(
+        application_id,
+        reply,
+        "System",
+        "outgoing",
+        wa_message_id=outgoing_message_id,
+        wa_status="sent" if outgoing_message_id else None,
+    )
+    trigger_sales_department_reanalysis(
+        application_id,
+        reason="whatsapp_verified",
+        source_event_id=activation_event_id,
+    )
+    return True
 
 
 def get_extracted_billing_days(extracted_data: dict) -> int | None:
@@ -7678,9 +7870,15 @@ async def whatsapp_webhook_verify(
 
 
 @app.post("/api/whatsapp/webhook", tags=["WhatsApp"])
-async def whatsapp_webhook_receive(payload: dict = Body(...)):
+async def whatsapp_webhook_receive(request: Request):
     """Получение входящих сообщений и статусов доставки от Meta."""
     try:
+        raw_body = await request.body()
+        signature_header = request.headers.get("X-Hub-Signature-256")
+        if not verify_meta_signature(raw_body, signature_header):
+            raise HTTPException(status_code=403, detail="Invalid webhook signature")
+
+        payload = json.loads(raw_body.decode("utf-8") or "{}")
         entries = payload.get("entry", [])
         for entry in entries:
             for change in entry.get("changes", []):
@@ -7692,6 +7890,9 @@ async def whatsapp_webhook_receive(payload: dict = Body(...)):
                         from_phone_raw = msg.get("from", "")
                         text_body = msg.get("text", {}).get("body", "")
                         wa_message_id = msg.get("id", "")
+
+                        if handle_whatsapp_activation_message(from_phone_raw, text_body, wa_message_id):
+                            continue
                         
                         from_phone = normalize_phone(from_phone_raw)
                         fallback_phone = None
@@ -7713,20 +7914,17 @@ async def whatsapp_webhook_receive(payload: dict = Body(...)):
                                 break
                         
                         if matched_app_id:
-                            event_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(matched_app_id).collection("timeline").document()
-                            event_ref.set({
-                                "application_id": matched_app_id,
-                                "content": text_body,
-                                "type": EventType.WHATSAPP.value,
-                                "created_by": "Client",
-                                "created_at": datetime.datetime.utcnow(),
-                                "direction": "incoming",
-                                "wa_message_id": wa_message_id,
-                            })
+                            event_id = create_whatsapp_timeline_event(
+                                matched_app_id,
+                                text_body,
+                                "Client",
+                                "incoming",
+                                wa_message_id=wa_message_id,
+                            )
                             trigger_sales_department_reanalysis(
                                 matched_app_id,
                                 reason="incoming_whatsapp_message",
-                                source_event_id=event_ref.id,
+                                source_event_id=event_id,
                             )
                         else:
                             print(f"WhatsApp webhook: no application found for phone {from_phone_raw}")
@@ -7781,6 +7979,8 @@ async def whatsapp_webhook_receive(payload: dict = Body(...)):
                     else:
                         print(f"WhatsApp status: no application found for phone {recipient_phone_raw}")
                             
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"WhatsApp Webhook Error: {e}")
     

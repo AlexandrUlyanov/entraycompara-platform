@@ -195,6 +195,8 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - `WHATSAPP_VERIFY_TOKEN` — Verify Token для верификации webhook'ов Meta
 - `GEMINI_API_KEY` — API-ключ Google Gemini для генерации ответов ИИ-ассистента
 
+Подробная инструкция по WhatsApp Cloud API и CRM health-check: `docs/whatsapp-cloud-api.md`.
+
 ---
 
 ## 4.5. Настройка WhatsApp Webhooks в Meta (Facebook Developers)
@@ -224,12 +226,13 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 
 ### 4. Проверка работы
 1. Задеплой бэкенд (push в `main` запустит staging-деплой автоматически)
-2. Убедись, что Cloud Run сервис получил env vars:
+2. Открой CRM → **Настройки** → **Подключение WhatsApp** и проверь **WhatsApp Connection Health**
+3. Убедись, что Cloud Run сервис получил env vars:
    ```bash
    gcloud run services describe backend-upload-service-staging --region=europe-west1 --format='value(spec.template.spec.containers[0].env)'
    ```
-3. Отправь тестовое сообщение на номер WhatsApp Business
-4. Проверь, что оно появилось в Timeline заявки с соответствующим телефоном клиента
+4. Отправь тестовое сообщение на номер WhatsApp Business
+5. Проверь, что оно появилось в Timeline заявки с соответствующим телефоном клиента
 
 ### Важно
 - **Номер телефона клиента в заявке** должен совпадать с номером, с которого отправлено сообщение (с учётом нормализации — только цифры).
@@ -237,6 +240,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
   - Доступен ли бэкенд по HTTPS (Cloud Run должен быть развёрнут)
   - Совпадает ли `hub.verify_token` с `WHATSAPP_VERIFY_TOKEN`
   - Возвращает ли `GET /api/whatsapp/webhook` именно `hub_challenge` (число), а не строку
+- `GET /api/whatsapp/health` — read-only проверка, она не отправляет сообщения клиентам.
 - **Staging и продакшен используют одинаковый Firestore**. Входящие сообщения из продакшена webhook'а будут отображаться в staging CRM и наоборот.
 
 ---
@@ -280,6 +284,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - `POST /api/applications/{id}/timeline` — добавление события в таймлайн
 - `DELETE /api/applications/{id}/timeline/{note_id}` — удаление события
 - `POST /api/generate-signed-url` — подписанная ссылка на файл из GCS
+- `GET /api/whatsapp/health` — read-only статус подключения WhatsApp Cloud API для CRM Settings
 - `POST /api/whatsapp/send` — отправка сообщения клиенту через WhatsApp Business API
 - `GET /api/whatsapp/webhook` — верификация webhook от Meta
 - `POST /api/whatsapp/webhook` — получение входящих сообщений от Meta
@@ -302,11 +307,13 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 **Email-уведомления**: Отправка через Gmail SMTP (`ulyanov.ht@gmail.com` → `ulyanov.ht@gmail.com`) при создании заявки. HTML-письмо содержит ссылки на загруженные файлы.
 
 **WhatsApp Business API**:
+- Статус подключения проверяется через `GET /api/whatsapp/health`
 - Исходящие сообщения отправляются через `POST /api/whatsapp/send`
 - Входящие сообщения принимаются на `POST /api/whatsapp/webhook`
 - Webhook URL: `https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api/whatsapp/webhook`
 - Сообщения автоматически привязываются к заявке по номеру телефона клиента (нормализация: `re.sub(r'\D', '', phone)`)
 - В Timeline сохраняется `direction: incoming/outgoing` и `created_by: Client/Operator`
+- `health` endpoint ничего не отправляет клиентам, он читает env vars и делает read-only запрос к Meta Graph API.
 
 **AI Assistant (Gemini)**:
 - Эндпоинт: `POST /api/ai/generate-response` — генерирует ответ менеджера на основе истории WhatsApp-переписки, данных заявки и базы знаний компании
@@ -345,6 +352,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - `DetailView.tsx` — детальный просмотр заявки, смена статуса/типа услуги, удаление
 - `Timeline.tsx` — таймлайн коммуникаций (NOTE, WHATSAPP, CALL, EMAIL)
 - `WhatsAppChatPanel.tsx` — панель для отправки/получения WhatsApp сообщений
+- `SettingsView.tsx` — настройки CRM, первый раздел `Подключение WhatsApp` с `WhatsApp Connection Health`
 - `Auth.tsx` — простая авторизация по секретному ключу (сохраняется в `localStorage` как `authToken`)
 - `services/api.ts` — HTTP-клиент к бэкенду (хардкожен `API_BASE_URL`)
 - `ProposalBuilder.tsx` — 3-стадийный конструктор КП (Stage 1: DataExtractionPanel, Stage 2: SimulationPanel, Stage 3: ProposalPreviewPanel)
@@ -353,6 +361,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 - В `Timeline.tsx` сообщения WhatsApp отображаются в виде chat bubbles (входящие слева, исходящие справа)
 - Оператор может отправить сообщение, выбрав тип **WhatsApp** в форме Timeline
 - Добавлена кнопка **Email** для создания email-заметок
+- В `SettingsView.tsx` есть раздел **Подключение WhatsApp** с **WhatsApp Connection Health**: секреты, Meta API, webhook, phone number quality.
 
 **AI Assistant в CRM**:
 - В `WhatsAppChatPanel.tsx` добавлена кнопка «ИИ ответ» (⚡) в заголовке чата
@@ -497,4 +506,4 @@ npm install <package>
 
 ---
 
-*Документ актуален на: апрель 2026*
+*Документ актуален на: 30 апреля 2026*

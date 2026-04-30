@@ -12,6 +12,8 @@ import threading
 import difflib
 import unicodedata
 import hashlib
+import secrets
+from urllib.parse import quote
 from typing import List, Optional, Dict, Any 
 from enum import Enum 
 from email.mime.multipart import MIMEMultipart
@@ -65,6 +67,9 @@ WHATSAPP_PHONE_NUMBER_ID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
 WHATSAPP_ACCESS_TOKEN = os.environ.get("WHATSAPP_ACCESS_TOKEN")
 WHATSAPP_VERIFY_TOKEN = os.environ.get("WHATSAPP_VERIFY_TOKEN")
 WHATSAPP_API_VERSION = "v25.0"
+WHATSAPP_PUBLIC_NUMBER = re.sub(r"\D", "", os.environ.get("WHATSAPP_PUBLIC_NUMBER", "+34611974984"))
+CLIENT_AREA_BASE_URL = os.environ.get("CLIENT_AREA_BASE_URL", "https://entraycompara.com")
+CLIENT_TOKEN_HASH_SECRET = os.environ.get("CLIENT_TOKEN_HASH_SECRET") or OPERATOR_SECRET_KEY or WHATSAPP_VERIFY_TOKEN or "entraycompara-dev-token-secret"
 # -------------------------
 
 # --- Настройки Gemini AI ---
@@ -3179,6 +3184,95 @@ def normalize_phone(phone: str) -> str:
     return re.sub(r'\D', '', phone)
 
 
+CLIENT_VISIBLE_STATUS_LABELS = {
+    "invoice_uploaded": "Factura recibida",
+    "invoice_processing": "Estamos leyendo tu factura",
+    "data_extracted": "Datos principales detectados",
+    "needs_review": "Revisión manual en curso",
+    "comparison_in_progress": "Comparando tarifas",
+    "simulation_ready": "Simulación preparada",
+    "proposal_ready": "Propuesta lista",
+    "proposal_sent": "Propuesta enviada",
+    "client_contacted": "Hablando con el asesor",
+    "proposal_accepted": "Propuesta aceptada",
+    "switching_in_progress": "Cambio en trámite",
+    "completed": "Proceso finalizado",
+    "lost": "Proceso cerrado",
+    "error": "Necesitamos revisar tu caso",
+}
+
+
+def hash_client_secret(value: str) -> str:
+    return hashlib.sha256(f"{CLIENT_TOKEN_HASH_SECRET}:{value}".encode("utf-8")).hexdigest()
+
+
+def generate_verification_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def format_verification_code(code: str) -> str:
+    compact = re.sub(r"\D", "", code or "")
+    if len(compact) == 6:
+        return f"{compact[:3]} {compact[3:]}"
+    return code
+
+
+def generate_secure_client_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def generate_unique_public_code(max_attempts: int = 20) -> str:
+    for _ in range(max_attempts):
+        code = f"EC-{secrets.randbelow(1_000_000):06d}"
+        existing = list(
+            firestore_client.collection(FIRESTORE_COLLECTION)
+            .where("public_code", "==", code)
+            .limit(1)
+            .stream()
+        )
+        if not existing:
+            return code
+    raise RuntimeError("Unable to generate a unique public application code.")
+
+
+def find_application_by_public_code(public_code: str) -> tuple[str, dict] | None:
+    normalized_code = re.sub(r"\s+", "", (public_code or "").strip().upper())
+    if not re.fullmatch(r"EC-\d{6}", normalized_code):
+        return None
+
+    docs = (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .where("public_code", "==", normalized_code)
+        .limit(1)
+        .stream()
+    )
+    for doc in docs:
+        if doc.exists:
+            data = doc.to_dict() or {}
+            data["id"] = doc.id
+            return doc.id, data
+    return None
+
+
+def build_whatsapp_activation_url(public_code: str, verification_code: str) -> str:
+    message = f"Hola, soy cliente de Entra y Compara. Mi código es {public_code} / {verification_code}."
+    return f"https://wa.me/{WHATSAPP_PUBLIC_NUMBER}?text={quote(message, safe='')}"
+
+
+def get_client_visible_label(client_visible_status: str | None, fallback_status: str | None = None) -> str:
+    if client_visible_status in CLIENT_VISIBLE_STATUS_LABELS:
+        return CLIENT_VISIBLE_STATUS_LABELS[client_visible_status]
+    if fallback_status == Status.PROPOSAL.value:
+        return CLIENT_VISIBLE_STATUS_LABELS["proposal_ready"]
+    if fallback_status == Status.ANALYSIS.value:
+        return CLIENT_VISIBLE_STATUS_LABELS["invoice_processing"]
+    if fallback_status == Status.CONTRACT_WON.value:
+        return CLIENT_VISIBLE_STATUS_LABELS["completed"]
+    if fallback_status == Status.DEAL_LOST.value:
+        return CLIENT_VISIBLE_STATUS_LABELS["lost"]
+    return CLIENT_VISIBLE_STATUS_LABELS["invoice_uploaded"]
+
+
 def get_extracted_billing_days(extracted_data: dict) -> int | None:
     if not extracted_data:
         return None
@@ -3417,6 +3511,7 @@ def send_notification_email(application_data: dict, application_id: str, uploade
                 <p>Поступила новая заявка на услугу. Требуется немедленное рассмотрение.</p>
                 
                 <div class="data-block">
+                    <strong>Код заявки:</strong> {application_data.get('public_code', application_id)}<br>
                     <strong>ID Заявки:</strong> {application_id}<br>
                     <strong>Дата:</strong> {application_data['submission_date'].strftime('%Y-%m-%d %H:%M:%S UTC')}
                 </div>
@@ -3480,6 +3575,11 @@ async def submit_application(
     service_type: str = Form(...),
     notes: Optional[str] = Form(None),
     language: Optional[str] = Form(None),
+    source_page: Optional[str] = Form(None),
+    utm_source: Optional[str] = Form(None),
+    utm_medium: Optional[str] = Form(None),
+    utm_campaign: Optional[str] = Form(None),
+    consent_version: Optional[str] = Form(None),
     invoiceFiles: list[UploadFile] = File(...) 
 ):
     """Прием заявки, загрузка файлов, отправка уведомления и АВТОМАТИЧЕСКАЯ запись в Timeline."""
@@ -3509,7 +3609,14 @@ async def submit_application(
             print(f"GCS Upload Error: {e}") 
             raise HTTPException(status_code=500, detail=f"Ошибка при загрузке файла {f.filename} в GCS.")
             
+    public_code = generate_unique_public_code()
+    verification_code = generate_verification_code()
+    secure_token = generate_secure_client_token()
+    verification_expires_at = today + datetime.timedelta(hours=24)
+    whatsapp_url = build_whatsapp_activation_url(public_code, verification_code)
+
     application_data = {
+        "public_code": public_code,
         "client_name": client_name,
         "client_phone": client_phone,
         "client_email": client_email or '',
@@ -3518,7 +3625,30 @@ async def submit_application(
         "language": language or 'es',
         "uploaded_files": uploaded_paths, # Здесь теперь публичные ссылки
         "submission_date": today,
-        "status": Status.NEW_LEAD.value # Устанавливаем статус 'New Lead'
+        "created_at": today,
+        "updated_at": today,
+        "status": Status.NEW_LEAD.value, # Устанавливаем статус 'New Lead'
+        "client_visible_status": "invoice_uploaded",
+        "client_visible_label": get_client_visible_label("invoice_uploaded", Status.NEW_LEAD.value),
+        "whatsapp_verified": False,
+        "whatsapp_verified_at": None,
+        "whatsapp_verified_phone": "",
+        "client_area_enabled": False,
+        "client_area_enabled_at": None,
+        "secure_token_hash": hash_client_secret(secure_token),
+        "secure_token_created_at": today,
+        "secure_token_revoked_at": None,
+        "verification_code_hash": hash_client_secret(verification_code),
+        "verification_code_expires_at": verification_expires_at,
+        "verification_code_attempts": 0,
+        "verification_code_last_sent_at": today,
+        "verification_code_resend_count": 0,
+        "source_page": source_page or "",
+        "utm_source": utm_source or "",
+        "utm_medium": utm_medium or "",
+        "utm_campaign": utm_campaign or "",
+        "consent_version": consent_version or "",
+        "consent_accepted_at": today if consent_version else None,
     }
 
     try:
@@ -3529,7 +3659,7 @@ async def submit_application(
 
         # 2. АВТОМАТИЗАЦИЯ: Создание первой записи в Timeline
         timeline_content = (
-            f"Заявка создана клиентом. Статус: '{Status.NEW_LEAD.value}'. "
+            f"Заявка создана клиентом. Код: {public_code}. Статус: '{Status.NEW_LEAD.value}'. "
             f"Загружено файлов: {len(uploaded_paths)}.\n"
             f"Документы:\n{_format_file_links(uploaded_paths)}"
         )
@@ -3547,6 +3677,16 @@ async def submit_application(
             source_event_id=event_id,
         )
 
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Сгенерирован код WhatsApp-активации для клиента. "
+                f"Public code: {public_code}. Срок действия: {verification_expires_at.isoformat()} UTC."
+            ),
+            event_type=EventType.NOTE,
+            created_by="System (Public API)",
+        )
+
         # 3. Отправка уведомления оператору
         email_sent = send_notification_email(application_data, application_id, uploaded_paths)
 
@@ -3554,11 +3694,50 @@ async def submit_application(
             "success": True,
             "message": f"Заявка успешно принята, файлы загружены. Уведомление: {'отправлено' if email_sent else 'ошибка отправки'}.",
             "application_id": application_id,
-            "uploaded_files": uploaded_paths
+            "uploaded_files": uploaded_paths,
+            "application": {
+                "id": application_id,
+                "public_code": public_code,
+                "verification_code": verification_code,
+                "verification_code_display": format_verification_code(verification_code),
+                "status": Status.NEW_LEAD.value,
+                "client_visible_status": "invoice_uploaded",
+                "client_visible_label": get_client_visible_label("invoice_uploaded", Status.NEW_LEAD.value),
+                "client_area_url": None,
+                "whatsapp_url": whatsapp_url,
+                "created_at": today.isoformat(),
+                "verification_code_expires_at": verification_expires_at.isoformat(),
+            }
         }
     except Exception as e:
         print(f"Firestore Save Error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при сохранении данных в Firestore.")
+
+
+@app.get("/api/application/status/{public_code}", tags=["Public Client Area"])
+async def get_public_application_status(public_code: str):
+    """Возвращает ограниченный клиентский статус заявки без персональных данных."""
+    try:
+        result = find_application_by_public_code(public_code)
+        if not result:
+            raise HTTPException(status_code=404, detail="Solicitud no encontrada.")
+
+        _, app_data = result
+        client_visible_status = app_data.get("client_visible_status")
+        status_value = app_data.get("status")
+
+        return {
+            "public_code": app_data.get("public_code"),
+            "client_visible_status": client_visible_status or "invoice_uploaded",
+            "client_visible_label": get_client_visible_label(client_visible_status, status_value),
+            "whatsapp_verified": bool(app_data.get("whatsapp_verified")),
+            "client_area_enabled": bool(app_data.get("client_area_enabled")),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Public application status error: {e}")
+        raise HTTPException(status_code=500, detail="Error al consultar el estado de la solicitud.")
 
 
 # ----------------------------------------------------------------------
@@ -3589,11 +3768,11 @@ def transform_firestore_doc(doc: firestore.DocumentSnapshot) -> Dict[str, Any]:
     data = doc.to_dict()
     if data:
         data['id'] = doc.id
-        if isinstance(data.get('submission_date'), datetime.datetime):
-            data['submission_date'] = data['submission_date'].isoformat()
-        if isinstance(data.get('analysis_started_at'), datetime.datetime):
-            data['analysis_started_at'] = data['analysis_started_at'].isoformat()
-        return data
+        data["client_visible_label"] = get_client_visible_label(
+            data.get("client_visible_status"),
+            data.get("status"),
+        )
+        return normalize_firestore_value(data)
     return None
 
 # --- 1. GET /api/applications (Список с фильтрацией и пагинацией) ---
@@ -3643,7 +3822,8 @@ async def list_applications(
                 r for r in results if 
                 term in r.get('client_name', '').lower() or
                 term in r.get('client_phone', '').lower() or
-                term in r.get('client_email', '').lower()
+                term in r.get('client_email', '').lower() or
+                term in r.get('public_code', '').lower()
             ]
             results = filtered_results
 

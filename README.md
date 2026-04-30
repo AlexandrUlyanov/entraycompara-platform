@@ -1,135 +1,180 @@
 # Entraycompara Platform
 
-Монорепозиторий, содержащий полную кодовую базу всех сервисов Entraycompara.
+Монорепозиторий Entraycompara: публичный лендинг, внутренняя CRM и backend API для обработки заявок, документов, WhatsApp-коммуникации, AI-извлечения данных, симуляций и коммерческих предложений.
 
-🔗 **GitHub**: https://github.com/AlexandrUlyanov/entraycompara-platform  
-☁️ **GCP Project**: `entraycompara`
-
----
-
-## Что входит в платформу
-
-| Сервис | Описание | Домен / URL |
-|--------|----------|-------------|
-| **Landing Page** | Публичный лендинг для привлечения клиентов | `https://entraycompara.com` |
-| **Admin Panel (CRM)** | Внутренняя CRM для операторов | `https://crm.entraycompara.com` |
-| **Backend Upload Service** | API для загрузки файлов, email-уведомлений, управления заявками | `https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app` |
+GitHub: https://github.com/AlexandrUlyanov/entraycompara-platform
+GCP Project: `entraycompara`
 
 ---
 
-## Структура репозитория
+## Сервисы
 
-```
+| Сервис | Папка | Назначение | Домен / URL |
+|--------|-------|------------|-------------|
+| Landing Page | `apps/landing-page/` | Публичный сайт для сбора заявок | `https://entraycompara.com` |
+| Admin Panel / CRM | `apps/admin-panel/` | CRM операторов, воронка, таймлайн, КП, Sales Department, настройки | `https://crm.entraycompara.com` |
+| Backend Upload Service | `apps/backend-upload-service/` | FastAPI API, Firestore, GCS, WhatsApp, Gemini, генерация КП | `https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app` |
+
+---
+
+## Структура
+
+```text
 entraycompara-platform/
 ├── apps/
-│   ├── landing-page/              # Лендинг (React + Express)
-│   ├── admin-panel/               # CRM (React + Express)
-│   └── backend-upload-service/    # Backend API (Python + FastAPI)
-├── infra/
-│   ├── cloud-run-configs/         # JSON-конфигурации Cloud Run
-│   └── cloud-build-triggers.json  # Старые Cloud Build триггеры
+│   ├── landing-page/              # React + Express, публичный лендинг
+│   ├── admin-panel/               # React + Express, CRM
+│   └── backend-upload-service/    # Python/FastAPI backend
+├── docs/                          # ТЗ, rollout-документы и интеграционные инструкции
+├── infra/                         # Cloud Run конфиги и старые Cloud Build артефакты
 ├── .github/workflows/
-│   └── deploy.yml                 # Автодеплой в единственное окружение (staging)
-├── AGENTS.md                      # ← Обязательно к прочтению для разработчиков
-└── README.md                      # Этот файл
+│   ├── deploy-staging.yml         # Автодеплой staging при push в main
+│   └── deploy-production.yml      # Ручной production deploy
+├── AGENTS.md                      # Обязательные инструкции для LLM/разработчиков
+└── README.md
 ```
 
 ---
 
-## Архитектура деплоя
+## Деплой
 
-### Активные сервисы в Google Cloud Run
+### Staging
 
-| Сервис | Регион | Назначение | Домен |
-|--------|--------|------------|-------|
-| `entraycompara-landing-page-staging` | `europe-west1` | **Лендинг** | `https://entraycompara.com` |
-| `entraycompara-adminpanel-staging` | `europe-west1` | **CRM** | `https://crm.entraycompara.com` |
-| `backend-upload-service-staging` | `europe-west1` | **Backend API** | — |
+`push` в `main` запускает `.github/workflows/deploy-staging.yml`.
 
-### Базы данных
-- **Firestore Native:** `projects/entraycompara/databases/(default)` в `europe-west1`
-- **Коллекция заявок:** `applications`
-- **Подколлекция событий:** `applications/{id}/timeline`
+| Сервис Cloud Run | Регион | Что деплоит |
+|------------------|--------|-------------|
+| `backend-upload-service-staging` | `europe-west1` | Backend API |
+| `entraycompara-landing-page-staging` | `europe-west1` | Landing, домен `entraycompara.com` |
+| `entraycompara-adminpanel-staging` | `europe-west1` | CRM, домен `crm.entraycompara.com` |
 
-### Хранилище (GCS)
-- `gs://entraycompara-invoices/` — загруженные файлы клиентов
-- `gs://ai-studio-bucket-910753338248-us-west1/` — артефакты AI Studio
+### Production
 
-### Secrets (Google Secret Manager)
-- `GMAIL_USER`
-- `GMAIL_APP_PASSWORD`
-- `deepapi`
-- `deepseek-api-key-invoice-fn`
-- `sendgrid-api-key`
+Production деплоится только вручную через `.github/workflows/deploy-production.yml` после явного подтверждения.
+
+| Сервис Cloud Run | Регион |
+|------------------|--------|
+| `backend-upload-service` | `europe-west1` |
+| `entraycompara-landing-page-prod` | `us-west1` |
+| `entraycompara-adminpanel` | `us-west1` |
 
 ---
 
-## CI/CD & Git Flow
+## Данные и инфраструктура
 
-Мы используем упрощённый **Git Flow** с двумя основными ветками:
+- Firestore: `projects/entraycompara/databases/(default)` в `europe-west1`
+- Основная коллекция: `applications`
+- Таймлайн: `applications/{id}/timeline`
+- GCS bucket: `gs://entraycompara-invoices/`
+- AI Studio artifacts: `gs://ai-studio-bucket-910753338248-us-west1/`
 
+Важно: staging и production используют один Firestore и один GCS bucket. Любые тесты на staging могут затронуть реальные данные.
+
+---
+
+## Ключевые возможности
+
+- Загрузка заявок и документов с лендинга.
+- CRM с таблицей, Kanban, карточкой лида и таймлайном.
+- WhatsApp Cloud API: исходящие сообщения, входящие webhook, статусы sent/delivered/read/failed.
+- CRM Settings: раздел `Настройки CRM` → `Подключение WhatsApp` → `WhatsApp Connection Health`.
+- AI Assistant для черновиков WhatsApp-сообщений.
+- Sales Department AI: Next Best Action, safety guardrails, follow-up control, audit trail.
+- Proposal Builder: извлечение данных, симуляции, генерация PDF-КП.
+- Eni auto-simulation runner через Cloud Run Job.
+
+---
+
+## Frontend `compiled/`
+
+Landing и CRM в Docker не собираются через Vite. Docker копирует готовую сборку из `compiled/`.
+
+Если меняешь frontend:
+
+```bash
+cd apps/admin-panel
+npm install --legacy-peer-deps
+npm run build
 ```
-feature/*  →  dev  →  staging
+
+Затем скопируй `dist/` в `compiled/`. На PowerShell:
+
+```powershell
+$compiled = Resolve-Path 'compiled'
+$dist = Resolve-Path 'dist'
+Get-ChildItem -LiteralPath $compiled.Path -Force | Remove-Item -Recurse -Force
+Copy-Item -Path (Join-Path $dist.Path '*') -Destination $compiled.Path -Recurse -Force
 ```
 
-| Ветка | Назначение | Триггер деплоя |
-|-------|------------|----------------|
-| `dev` | Активная разработка. От неё создаются `feature/*` ветки. | Нет |
-| `staging` | Основное окружение. На него автодеплоится код и к нему привязаны домены. | **Auto** на push в `staging` → `*-staging` (europe-west1) |
-
-### Деплой (автоматический)
-**Триггер**: push в `staging`
-
-При каждом push GitHub Actions собирает Docker-образы всех трёх приложений и деплоит их в Cloud Run сервисы в `europe-west1`, к которым привязаны боевые домены.
-
-### GitHub Secrets
-- `GCP_SA_KEY` — ключ сервисного аккаунта для GCP
-- `BACKEND_OPERATOR_SECRET_KEY` — секретный ключ бэкенда
+То же правило действует для `apps/landing-page/`.
 
 ---
 
 ## Локальный запуск
 
-### Landing Page
-```bash
-cd apps/landing-page
-npm install
-npm run dev
-```
+### CRM
 
-### Admin Panel
 ```bash
 cd apps/admin-panel
 npm install --legacy-peer-deps
 npm run dev
 ```
 
+### Landing
+
+```bash
+cd apps/landing-page
+npm install
+npm run dev
+```
+
 ### Backend
+
 ```bash
 cd apps/backend-upload-service
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8080
 ```
 
----
-
-## Критически важно для разработчиков
-
-> ⚠️ **Прочитай `AGENTS.md` перед любыми изменениями!**
-
-Основные правила:
-- **Фронтенды** (`landing-page`, `admin-panel`) деплоятся из папки `compiled/`, а не из `dist/` после локальной сборки.
-- Если меняешь исходники фронтенда, обязательно пересобери проект и скопируй `dist/` в `compiled/`.
-- **Staging использует продакшен-данные**: Firestore и GCS bucket — единственные источники данных.
+Swagger: `http://localhost:8080/docs`
 
 ---
 
-## История проекта
+## Важные документы
 
-Проект был создан из двух отдельных репозиториев (`EntraycomparaPROD` и `crm.entraycompara`) плюс бэкенд, который существовал только в Cloud Run. Все исходники были выгружены из ZIP-архивов Google Cloud Storage для гарантии идентичности с продакшеном.
+- `AGENTS.md` — обязательные правила работы с проектом.
+- `docs/README.md` — индекс документации.
+- `docs/whatsapp-cloud-api.md` — WhatsApp Cloud API и Connection Health.
+- `docs/sales-department-rollout.md` — rollout Sales Department.
+- `docs/roadmap-sales-department-autopilot.md` — roadmap автопилота.
 
 ---
 
-*Документ актуален на: апрель 2026*
+## Проверки
+
+Backend:
+
+```bash
+python -m py_compile apps\backend-upload-service\main.py apps\backend-upload-service\job_runner.py
+python -m unittest discover -s apps/backend-upload-service/tests
+```
+
+CRM:
+
+```bash
+cd apps/admin-panel
+npm run build
+```
+
+Landing:
+
+```bash
+cd apps/landing-page
+npm run build
+```
+
+---
+
+Документ актуален на: 30 апреля 2026.

@@ -1,70 +1,187 @@
 # Backend Upload Service
 
-Python/FastAPI сервис для обработки заявок: загрузка файлов в Google Cloud Storage, отправка email-уведомлений, управление заявками и таймлайном в Firestore.
+Python/FastAPI backend Entraycompara. Отвечает за заявки, файлы, Firestore, GCS, email, WhatsApp Cloud API, Gemini, извлечение данных, симуляции и генерацию PDF-КП.
 
 ## Стек
 
 - Python 3.12
-- FastAPI
-- Uvicorn
-- google-cloud-storage
-- google-cloud-firestore
-- python-multipart
-- pydantic
+- FastAPI + Uvicorn
+- Google Cloud Storage
+- Google Cloud Firestore
+- `requests`
+- `google-generativeai`
+- Playwright/Chromium для Eni simulation runner
+- `fpdf2` и PDF tooling для КП
 
 ## Структура
 
-```
+```text
 backend-upload-service/
-├── main.py             # FastAPI приложение
-├── Dockerfile          # Образ для Cloud Run
-├── requirements.txt    # Python-зависимости
-├── Procfile            # Для совместимости с Heroku/gcloud buildpacks
-└── README.md           # Этот файл
+├── main.py                 # FastAPI application
+├── eni_simulator.py        # Playwright automation для Eni
+├── job_runner.py           # Cloud Run Job entrypoint для авто-симуляции
+├── retailer_catalog.py     # Каталог коммерциализаторов
+├── requirements.txt
+├── Dockerfile
+└── README.md
 ```
 
-## Локальная разработка
+## Локальный запуск
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8080
 ```
 
-Swagger UI будет доступен по адресу: `http://localhost:8080/docs`
+Swagger UI: `http://localhost:8080/docs`
 
-## Основные эндпоинты
+## Авторизация операторов
 
-### Публичные
-- `POST /api/submit_application` — отправка заявки с файлами
-  - Сохраняет файлы в `gs://entraycompara-invoices/submissions/YYYY/MM/DD/`
-  - Создаёт документ в Firestore (`applications`)
-  - Отправляет email-уведомление оператору через Gmail SMTP
+Операторские endpoints требуют:
 
-### Для операторов (требуется Bearer `OPERATOR_SECRET_KEY`)
-- `GET /api/applications` — список заявок (с пагинацией, фильтрами, поиском)
-- `GET /api/applications/{id}` — детали заявки
-- `PUT /api/applications/{id}/status` — смена статуса
-- `PUT /api/applications/{id}/service_type` — смена типа услуги
-- `DELETE /api/applications/{id}` — удаление заявки
-- `GET /api/applications/{id}/timeline` — таймлайн событий
-- `POST /api/applications/{id}/timeline` — добавление события
-- `DELETE /api/applications/{id}/timeline/{event_id}` — удаление события
-- `POST /api/generate-signed-url` — генерация подписанной ссылки на файл GCS
+```http
+Authorization: Bearer <OPERATOR_SECRET_KEY>
+```
+
+CRM хранит токен в `localStorage` как `authToken`.
+
+## Основные endpoints
+
+### Public
+
+- `POST /api/submit_application` — создать заявку и загрузить файлы.
+- `GET /api/whatsapp/webhook` — Meta webhook verification.
+- `POST /api/whatsapp/webhook` — входящие WhatsApp сообщения и статусы доставки.
+
+### Applications
+
+- `GET /api/applications`
+- `GET /api/applications/{id}`
+- `PUT /api/applications/{id}`
+- `PUT /api/applications/{id}/status`
+- `PUT /api/applications/{id}/service_type`
+- `DELETE /api/applications/{id}`
+- `POST /api/applications/{id}/upload-files`
+
+### Timeline
+
+- `GET /api/applications/{id}/timeline`
+- `POST /api/applications/{id}/timeline`
+- `DELETE /api/applications/{id}/timeline/{event_id}`
+
+### WhatsApp
+
+- `GET /api/whatsapp/health` — read-only health snapshot для CRM Settings.
+- `POST /api/whatsapp/send` — отправка текстового сообщения.
+- `POST /api/whatsapp/send-media` — загрузка и отправка файла.
+- `POST /api/whatsapp/send-document` — отправка уже доступного URL документа.
+- `POST /api/whatsapp/send-proposal` — отправка PDF-КП.
+- `POST /api/whatsapp/send-first-message` — первое template-сообщение `hola`.
+
+### AI Assistant
+
+- `POST /api/ai/generate-response` — черновик WhatsApp-сообщения от sales agent.
+
+### Proposal Builder
+
+- `POST /api/applications/{id}/proposal/extract-data`
+- `GET /api/applications/{id}/proposal/extract-data/{task_id}/status`
+- `GET /api/applications/{id}/proposal/extract-data/latest`
+- `PUT /api/applications/{id}/proposal/extracted-data`
+- `GET /api/applications/{id}/proposal/extracted-data`
+- `GET /api/applications/{id}/proposal/retailers`
+- `POST /api/applications/{id}/proposal/simulations`
+- `GET /api/applications/{id}/proposal/simulations`
+- `PUT /api/applications/{id}/proposal/simulations/{sim_id}`
+- `DELETE /api/applications/{id}/proposal/simulations/{sim_id}`
+- `POST /api/applications/{id}/proposal/simulations/{sim_id}/select`
+- `POST /api/applications/{id}/proposal/simulations/auto-create`
+- `GET /api/applications/{id}/proposal/simulations/auto-create/{task_id}/status`
+- `GET /api/applications/{id}/proposal/simulations/auto-create/latest`
+- `POST /api/applications/{id}/proposal/generate`
+- `GET /api/applications/{id}/proposal/preview`
+
+### Sales Department
+
+- `GET /api/applications/{id}/sales-department/state`
+- `POST /api/applications/{id}/sales-department/analyze`
+- `GET /api/applications/{id}/sales-department/actions`
+- `POST /api/applications/{id}/sales-department/actions/{action_id}/approve`
+- `POST /api/applications/{id}/sales-department/actions/{action_id}/skip`
+- `GET /api/applications/{id}/sales-department/audit`
+- `GET /api/applications/{id}/sales-department/followups`
+- `POST /api/applications/{id}/sales-department/followups/{followup_id}/approve`
+- `POST /api/applications/{id}/sales-department/followups/{followup_id}/skip`
+- `POST /api/applications/{id}/sales-department/followups/{followup_id}/cancel`
+- `POST /api/applications/{id}/sales-department/followups/{followup_id}/reschedule`
+- `PUT /api/applications/{id}/sales-department/autopilot`
+- `POST /api/applications/{id}/sales-department/handoff`
+
+## WhatsApp Cloud API
+
+Backend использует Meta Graph API version `v25.0`.
+
+Нужные переменные:
+
+| Переменная | Назначение |
+|------------|------------|
+| `WHATSAPP_PHONE_NUMBER_ID` | ID номера в WhatsApp Business |
+| `WHATSAPP_ACCESS_TOKEN` | Token с `whatsapp_business_messaging` и `whatsapp_business_management` |
+| `WHATSAPP_VERIFY_TOKEN` | Verify token для Meta webhook |
+
+`GET /api/whatsapp/health` проверяет:
+
+- наличие `WHATSAPP_PHONE_NUMBER_ID`
+- наличие `WHATSAPP_ACCESS_TOKEN`
+- наличие `WHATSAPP_VERIFY_TOKEN`
+- доступность Meta Graph API
+- данные номера: display phone, verified name, quality rating
+- webhook callback URL
+
+Endpoint ничего не отправляет клиентам.
+
+Подробно: `docs/whatsapp-cloud-api.md`.
+
+## Gemini
+
+Переменные:
+
+| Переменная | Назначение | Default |
+|------------|------------|---------|
+| `GEMINI_API_KEY` | API key Google Gemini | — |
+| `GEMINI_MODEL` | модель для WhatsApp/Sales AI | `gemini-2.5-flash-lite` |
+| `GEMINI_INVOICE_EXTRACTION_MODEL` | модель извлечения счетов | `gemini-2.5-pro` |
+
+## Sales Department Kill Switch
+
+```text
+SALES_DEPARTMENT_AUTOMATION_ENABLED=false
+```
+
+Отключает event-driven reanalysis и автопилотные действия. Ручные чтения и действия оператора остаются доступны.
 
 ## Переменные окружения
 
-| Переменная | Описание | Значение по умолчанию |
-|------------|----------|----------------------|
-| `GCP_BUCKET_NAME` | GCS бакет для файлов | `entraycompara-invoices` |
-| `OPERATOR_SECRET_KEY` | Секретный ключ для авторизации операторов | — |
-| `GMAIL_USER` | Gmail-адрес для SMTP | из Secret Manager |
-| `GMAIL_APP_PASSWORD` | App-пароль Gmail | из Secret Manager |
+| Переменная | Описание |
+|------------|----------|
+| `GCP_BUCKET_NAME` | GCS bucket, default `entraycompara-invoices` |
+| `OPERATOR_SECRET_KEY` | Bearer token для CRM |
+| `GMAIL_USER` | Gmail SMTP user |
+| `GMAIL_APP_PASSWORD` | Gmail app password |
+| `WHATSAPP_PHONE_NUMBER_ID` | Meta WhatsApp phone number id |
+| `WHATSAPP_ACCESS_TOKEN` | Meta access token |
+| `WHATSAPP_VERIFY_TOKEN` | Meta webhook verify token |
+| `GEMINI_API_KEY` | Google Gemini key |
+| `GEMINI_MODEL` | Gemini model для AI assistant |
+| `GEMINI_INVOICE_EXTRACTION_MODEL` | Gemini model для extraction |
+| `SALES_DEPARTMENT_AUTOMATION_ENABLED` | kill switch Sales Department |
 
 ## CORS
 
-Разрешённые origins:
+Разрешены:
+
 - `*`
 - `http://localhost:3000`
 - `https://entraycompara.com`
@@ -72,7 +189,17 @@ Swagger UI будет доступен по адресу: `http://localhost:8080
 
 ## Деплой
 
-- **Staging**: `https://backend-upload-service-staging-910753338248.europe-west1.run.app/docs`
-- **Production**: `https://backend-upload-service-910753338248.europe-west1.run.app/docs`
+- Staging: `backend-upload-service-staging` в `europe-west1`
+- Production: `backend-upload-service` в `europe-west1`
 
-Автодеплой настроен через GitHub Actions (`.github/workflows/deploy-staging.yml`).
+Staging deploy запускается при push в `main`.
+Production deploy только вручную.
+
+## Проверки
+
+```bash
+python -m py_compile apps\backend-upload-service\main.py apps\backend-upload-service\job_runner.py
+python -m unittest discover -s apps/backend-upload-service/tests
+```
+
+Документ актуален на: 30 апреля 2026.

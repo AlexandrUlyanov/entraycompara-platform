@@ -4,6 +4,12 @@
 
 This rollout covers the CRM Sales Department module: Next Best Action UI, sales molecule state, audit trail, follow-up controls, guardrails, and autopilot control.
 
+Related operational documents:
+
+- `docs/whatsapp-cloud-api.md` for WhatsApp Cloud API, webhook, and Connection Health.
+- `apps/admin-panel/README.md` for the CRM Settings screen.
+- `apps/backend-upload-service/README.md` for Sales Department and WhatsApp endpoints.
+
 ## Default Mode
 
 - Keep every lead in `manual` mode by default.
@@ -35,12 +41,14 @@ Rollback:
 ## Staging Verification
 
 1. Open a lead in CRM.
-2. Confirm the Next Best Action card is visible above the Sales Control HUD.
-3. Confirm no raw internal codes are visible in RU or ES UI.
-4. Click refresh analysis and verify audit trail gets a new entry.
-5. In manual mode, confirm `safe_to_send` remains false.
-6. In assisted mode, confirm the system prepares but does not send without approval.
-7. Create or reschedule a follow-up and confirm the timeline/audit entry is localized.
+2. Confirm the simplified Next Best Action card is the primary Sales Department surface.
+3. Confirm diagnostics, molecule/audit, automation, and follow-up details are behind collapsible sections.
+4. Confirm no raw internal codes are visible in RU or ES UI.
+5. Click refresh analysis and verify audit trail gets a new entry.
+6. In manual mode, confirm `safe_to_send` remains false.
+7. In assisted mode, confirm the system prepares but does not send without approval.
+8. Create or reschedule a follow-up and confirm the timeline/audit entry is localized.
+9. Open CRM Settings -> WhatsApp Connection and confirm Connection Health loads before testing WhatsApp-dependent flows.
 
 ## Production Rollout
 
@@ -63,3 +71,5 @@ Rollback:
 ```bash
 python -m unittest discover -s apps/backend-upload-service/tests
 ```
+
+Документ актуален на: 30 апреля 2026.

@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { WhatsAppIcon, CloudArrowUpIcon, DocumentIcon, XCircleIcon, UserIconGeneric, BoltIcon, DocumentArrowUpIcon, UsersIconHero, FireIcon, WifiIcon, DevicePhoneMobileIcon } from './Icons.tsx';
 import { useLanguage } from '../context/LanguageContext.tsx';
+import { savePostSubmitPayload } from './PostSubmitPage.tsx';
 
 interface FileUploadFormProps {
   buttonText?: string;
@@ -263,7 +264,13 @@ const FileUploadForm: React.FC<FileUploadFormProps> = ({
         throw new Error(errorPayloadMessage);
       }
       
-      await response.json(); 
+      const submitResult = await response.json();
+
+      if (submitResult?.application?.public_code) {
+        savePostSubmitPayload(submitResult);
+        window.location.hash = '#/solicitud-recibida';
+        return;
+      }
       
       let successMsg = t('fileUploadForm.success_message');
       

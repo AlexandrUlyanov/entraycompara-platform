@@ -4,6 +4,7 @@ import DetailView from './components/DetailView';
 import Header from './components/Header';
 import Auth from './components/Auth';
 import CRMLayout from './components/CRMLayout';
+import SettingsView from './components/SettingsView';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useTranslation } from './i18n';
 import { Application } from './types';
@@ -12,7 +13,7 @@ const queryClient = new QueryClient();
 
 function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('authToken'));
-  const [activeView, setActiveView] = useState<{ view: 'dashboard' | 'detail'; appId: string | null; appDataFromList?: Application }>({ view: 'dashboard', appId: null });
+  const [activeView, setActiveView] = useState<{ view: 'dashboard' | 'detail' | 'settings'; appId: string | null; appDataFromList?: Application }>({ view: 'dashboard', appId: null });
   const { setLanguage } = useTranslation();
   const mainRef = useRef<HTMLElement>(null);
 
@@ -38,6 +39,12 @@ function App() {
     setActiveView({ view: 'dashboard', appId: null });
   };
 
+  const handleOpenSettings = () => {
+    setActiveView({ view: 'settings', appId: null });
+    window.scrollTo(0, 0);
+    mainRef.current?.scrollTo(0, 0);
+  };
+
   if (!token) {
     return <Auth onTokenSet={handleTokenSet} />;
   }
@@ -45,10 +52,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <CRMLayout>
-        <Header onLogout={handleLogout} onLogoClick={handleBackToDashboard} setLanguage={setLanguage} />
+        <Header onLogout={handleLogout} onLogoClick={handleBackToDashboard} onSettingsClick={handleOpenSettings} setLanguage={setLanguage} />
         <main ref={mainRef} className="p-4 sm:p-6 lg:p-10 flex-1 overflow-auto">
           {activeView.view === 'dashboard' ? (
             <Dashboard onSelectApplication={handleSelectApplication} />
+          ) : activeView.view === 'settings' ? (
+            <SettingsView />
           ) : (
             <DetailView appId={activeView.appId!} appDataFromList={activeView.appDataFromList} onBack={handleBackToDashboard} />
           )}

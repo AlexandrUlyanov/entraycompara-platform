@@ -4,6 +4,7 @@ import { useTranslation } from '../i18n';
 interface HeaderProps {
   onLogout: () => void;
   onLogoClick: () => void;
+  onSettingsClick: () => void;
   setLanguage: (lang: 'ru' | 'es') => void;
 }
 
@@ -25,7 +26,7 @@ const LanguageSwitcher: React.FC<{ setLanguage: (lang: 'ru' | 'es') => void }> =
 };
 
 
-const Header: React.FC<HeaderProps> = ({ onLogout, onLogoClick, setLanguage }) => {
+const Header: React.FC<HeaderProps> = ({ onLogout, onLogoClick, onSettingsClick, setLanguage }) => {
   const { t } = useTranslation();
   return (
     <header className="sticky top-0 z-30 bg-white/60 backdrop-blur-2xl border-b border-white/20 shadow-sm">
@@ -40,6 +41,15 @@ const Header: React.FC<HeaderProps> = ({ onLogout, onLogoClick, setLanguage }) =
             <h1 className="text-xl font-semibold text-secondary tracking-tight">{t('header.title')}</h1>
           </div>
           <div className="flex items-center gap-5">
+            <button
+              onClick={onSettingsClick}
+              className="group inline-flex items-center px-5 py-2.5 text-sm font-medium text-secondary-light bg-white/50 hover:bg-white rounded-full border border-transparent hover:border-slate-200 shadow-sm transition-all duration-200"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-slate-400 group-hover:text-primary-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h3m-6 6h9m-12 6h15M5 6h.01M5 12h.01M5 18h.01" />
+              </svg>
+              <span className="group-hover:text-secondary">{t('header.settings')}</span>
+            </button>
             <LanguageSwitcher setLanguage={setLanguage} />
             <div className="h-6 w-px bg-slate-300/50 mx-1"></div>
             <button

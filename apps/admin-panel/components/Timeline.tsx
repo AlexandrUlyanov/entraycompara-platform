@@ -145,7 +145,7 @@ const Timeline: React.FC<TimelineProps> = ({ appId }) => {
     const normalizedValue = legacyMatches[value.trim()] || value.trim();
     const key = `sales.value.${normalizedValue}`;
     const translated = t(key);
-    return translated === key ? normalizedValue.replace(/_/g, ' ') : translated;
+    return translated === key ? t('sales.value.untranslated') : translated;
   };
 
   const localizeSystemNote = (content: string) => {

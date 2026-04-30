@@ -59,7 +59,10 @@ const translateSalesValue = (value: string | number | null | undefined, t: TFunc
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
   const slugKey = `sales.value.${slug}`;
-  return translateIfExists(t, slugKey, normalized.replace(/_/g, ' '));
+  const slugTranslation = t(slugKey);
+  if (slugTranslation !== slugKey) return slugTranslation;
+
+  return t('sales.value.untranslated');
 };
 
 const translateSalesText = (text: string | null | undefined, t: TFunction): string => {
@@ -646,6 +649,106 @@ const ActionPanel: React.FC<{
   );
 };
 
+const NextBestActionHero: React.FC<{
+  state: SalesDepartmentState;
+  isBusy: boolean;
+  onRefresh: () => void;
+  onInsertMessage: () => void;
+  onApproveAction: (actionId: string) => void;
+  onSkipAction: (actionId: string) => void;
+  t: TFunction;
+}> = ({ state, isBusy, onRefresh, onInsertMessage, onApproveAction, onSkipAction, t }) => {
+  const nextAction = state.next_action;
+  const guardrails = state.guardrail_result || nextAction?.guardrail_result;
+  const blockedReasons = guardrails?.blocked_reasons || [];
+  const warnings = guardrails?.warnings || [];
+  const isSafe = Boolean(guardrails?.safe_to_execute || nextAction?.safe_to_execute);
+  const canApprove = Boolean(nextAction?.action_id && nextAction.status === 'ready' && nextAction.safe_to_execute && blockedReasons.length === 0);
+  const canInsertMessage = Boolean(state.suggested_message);
+
+  return (
+    <div className="relative overflow-hidden rounded-[30px] border border-blue-100 bg-gradient-to-br from-blue-950 via-blue-800 to-sky-600 p-6 text-white shadow-apple">
+      <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-24 left-1/3 h-52 w-52 rounded-full bg-emerald-300/20 blur-3xl" />
+
+      <div className="relative grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-blue-100">{t('sales.nextBest.kicker')}</div>
+          <h4 className="mt-2 text-2xl font-black leading-tight">
+            {translateSalesValue(nextAction?.type || state.recommended_action || 'NO_ACTION', t)}
+          </h4>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-blue-50">
+            {translateSalesText(state.why_now, t) || t('sales.nextBest.defaultWhy')}
+          </p>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onInsertMessage}
+              disabled={!canInsertMessage || isBusy}
+              className="rounded-2xl bg-emerald-400 px-4 py-2.5 text-sm font-bold text-emerald-950 shadow-sm transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t('sales.nextBest.insertMessage')}
+            </button>
+            <button
+              type="button"
+              onClick={() => nextAction?.action_id && onApproveAction(nextAction.action_id)}
+              disabled={!canApprove || isBusy}
+              className="rounded-2xl bg-white px-4 py-2.5 text-sm font-bold text-blue-900 shadow-sm transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t('sales.nextBest.approveAction')}
+            </button>
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isBusy}
+              className="rounded-2xl border border-white/30 bg-white/10 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t('sales.nextBest.refresh')}
+            </button>
+            <button
+              type="button"
+              onClick={() => nextAction?.action_id && onSkipAction(nextAction.action_id)}
+              disabled={!nextAction?.action_id || isBusy}
+              className="rounded-2xl border border-white/25 bg-transparent px-4 py-2.5 text-sm font-semibold text-blue-50 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t('sales.nextBest.skipAction')}
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-[24px] border border-white/20 bg-white/10 p-4 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-blue-100">{t('sales.nextBest.safety')}</div>
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${isSafe && blockedReasons.length === 0 ? 'bg-emerald-300 text-emerald-950' : 'bg-amber-200 text-amber-950'}`}>
+              {isSafe && blockedReasons.length === 0 ? t('sales.safety.safe') : t('sales.safety.needsReview')}
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3 text-sm">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-blue-100">{t('sales.nextBest.goal')}</div>
+              <div className="mt-1 font-semibold text-white">{translateSalesValue(state.goal, t)}</div>
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-blue-100">{t('sales.nextBest.evidence')}</div>
+              <div className="mt-1 text-blue-50">{translateSalesValue(state.friction_point, t)} · {translateSalesValue(state.deal_stage, t)}</div>
+            </div>
+            {(blockedReasons.length > 0 || warnings.length > 0) && (
+              <div className="flex flex-wrap gap-2">
+                {[...blockedReasons, ...warnings].slice(0, 4).map((item) => (
+                  <span key={item} className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold text-white">
+                    {translateSalesValue(item, t)}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const StaleStateBanner: React.FC<{
   state: SalesDepartmentState;
   isPending: boolean;
@@ -1165,6 +1268,11 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
   const isActionBusy = approveActionMutation.isPending || skipActionMutation.isPending;
   const isFollowupBusy = approveFollowupMutation.isPending || skipFollowupMutation.isPending || cancelFollowupMutation.isPending || rescheduleFollowupMutation.isPending;
   const isAutopilotBusy = updateAutopilotMutation.isPending || recalculateAutopilotMutation.isPending || handoffMutation.isPending;
+  const insertSuggestedMessage = () => {
+    if (!state?.suggested_message) return;
+    onInsertMessage?.(state.suggested_message);
+    logDraftInsertedMutation.mutate(state.suggested_message);
+  };
 
   return (
     <section className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">
@@ -1220,6 +1328,16 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
               t={t}
             />
 
+            <NextBestActionHero
+              state={state}
+              isBusy={analyzeMutation.isPending || isActionBusy || logDraftInsertedMutation.isPending}
+              onRefresh={() => analyzeMutation.mutate()}
+              onInsertMessage={insertSuggestedMessage}
+              onApproveAction={(actionId) => approveActionMutation.mutate(actionId)}
+              onSkipAction={(actionId) => skipActionMutation.mutate(actionId)}
+              t={t}
+            />
+
             <SalesControlHud state={state} autopilot={autopilot} isAnalyzing={analyzeMutation.isPending} t={t} />
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1256,11 +1374,7 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
               message={state.suggested_message}
               isBusy={logDraftInsertedMutation.isPending}
               t={t}
-              onInsert={() => {
-                if (!state.suggested_message) return;
-                onInsertMessage?.(state.suggested_message);
-                logDraftInsertedMutation.mutate(state.suggested_message);
-              }}
+              onInsert={insertSuggestedMessage}
             />
 
             <AutopilotControl

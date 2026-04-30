@@ -3256,6 +3256,24 @@ def find_application_by_public_code(public_code: str) -> tuple[str, dict] | None
     return None
 
 
+def find_application_by_secure_token(secure_token: str) -> tuple[str, dict] | None:
+    token_hash = hash_client_secret(secure_token or "")
+    docs = (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .where("secure_token_hash", "==", token_hash)
+        .limit(1)
+        .stream()
+    )
+    for doc in docs:
+        if doc.exists:
+            data = doc.to_dict() or {}
+            if data.get("secure_token_revoked_at") or not data.get("client_area_enabled"):
+                return None
+            data["id"] = doc.id
+            return doc.id, data
+    return None
+
+
 def build_whatsapp_activation_url(public_code: str, verification_code: str) -> str:
     message = f"Hola, soy cliente de Entra y Compara. Mi código es {public_code} / {verification_code}."
     return f"https://wa.me/{WHATSAPP_PUBLIC_NUMBER}?text={quote(message, safe='')}"
@@ -3329,6 +3347,92 @@ def create_whatsapp_timeline_event(
         "wa_status": wa_status,
     })
     return event_ref.id
+
+
+def build_uploaded_files_payload(uploaded_files: list[str] | None) -> list[dict]:
+    files = []
+    for index, file_url in enumerate(uploaded_files or [], start=1):
+        files.append({
+            "id": str(index),
+            "file_name": _extract_filename_from_url(file_url),
+            "file_url": file_url,
+            "status": "uploaded",
+        })
+    return files
+
+
+def get_client_visible_timeline(doc_ref, max_events: int = 30) -> list[dict]:
+    try:
+        docs = (
+            doc_ref.collection("timeline")
+            .where("visible_to_client", "==", True)
+            .limit(max_events)
+            .stream()
+        )
+        events = []
+        for event_doc in docs:
+            data = event_doc.to_dict() or {}
+            data["id"] = event_doc.id
+            events.append(normalize_firestore_value(data))
+        return sorted(events, key=lambda item: item.get("created_at") or "")
+    except Exception as exc:
+        print(f"Client area timeline read error: {exc}")
+        return []
+
+
+def get_client_visible_simulations(doc_ref) -> list[dict]:
+    simulations = []
+    for simulation in _get_simulations_snapshot(doc_ref, max_items=20):
+        if simulation.get("visible_to_client") or simulation.get("is_selected"):
+            simulations.append(simulation)
+    return simulations
+
+
+def build_client_area_payload(application_id: str, app_data: dict) -> dict:
+    doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+    proposal_data = _get_proposal_data_snapshot(doc_ref)
+    simulations = get_client_visible_simulations(doc_ref)
+    proposal_url = app_data.get("proposal_file_url")
+    proposal = None
+    if proposal_url:
+        proposal = {
+            "status": "ready" if app_data.get("proposal_uploaded") else "uploaded",
+            "pdf_url": proposal_url,
+            "sent_at": app_data.get("proposal_sent_at"),
+            "accepted_at": app_data.get("proposal_accepted_at"),
+        }
+
+    client_visible_status = app_data.get("client_visible_status")
+    return normalize_firestore_value({
+        "application": {
+            "id": application_id,
+            "public_code": app_data.get("public_code"),
+            "status": app_data.get("status", Status.NEW_LEAD.value),
+            "client_visible_status": client_visible_status or "invoice_uploaded",
+            "client_visible_label": get_client_visible_label(client_visible_status, app_data.get("status")),
+            "created_at": app_data.get("created_at") or app_data.get("submission_date"),
+            "submission_date": app_data.get("submission_date"),
+            "whatsapp_verified": bool(app_data.get("whatsapp_verified")),
+            "client_area_enabled": bool(app_data.get("client_area_enabled")),
+        },
+        "client": {
+            "name": app_data.get("client_name"),
+            "phone": app_data.get("client_phone"),
+            "email": app_data.get("client_email"),
+            "service_type": app_data.get("service_type"),
+            "language": app_data.get("language", "es"),
+        },
+        "files": build_uploaded_files_payload(app_data.get("uploaded_files")),
+        "extracted_data": proposal_data.get("extracted_data") or {},
+        "proposal_data": proposal_data,
+        "simulations": simulations,
+        "proposal": proposal,
+        "events": get_client_visible_timeline(doc_ref),
+        "cta": {
+            "whatsapp_url": f"https://wa.me/{WHATSAPP_PUBLIC_NUMBER}",
+            "can_accept_proposal": bool(proposal_url),
+        },
+    })
 
 
 def send_safe_whatsapp_message(to_phone: str, message: str) -> str | None:
@@ -3930,6 +4034,86 @@ async def get_public_application_status(public_code: str):
     except Exception as e:
         print(f"Public application status error: {e}")
         raise HTTPException(status_code=500, detail="Error al consultar el estado de la solicitud.")
+
+
+@app.get("/api/client-area/{secure_token}", tags=["Public Client Area"])
+async def get_client_area(secure_token: str):
+    """Возвращает безопасный payload личного кабинета по secure token."""
+    try:
+        result = find_application_by_secure_token(secure_token)
+        if not result:
+            raise HTTPException(status_code=404, detail="Área personal no encontrada.")
+        application_id, app_data = result
+        return build_client_area_payload(application_id, app_data)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Client area error: {e}")
+        raise HTTPException(status_code=500, detail="Error al cargar el área personal.")
+
+
+@app.post("/api/client-area/{secure_token}/accept-proposal", tags=["Public Client Area"])
+async def accept_client_area_proposal(secure_token: str):
+    """Позволяет клиенту принять КП из личного кабинета."""
+    try:
+        result = find_application_by_secure_token(secure_token)
+        if not result:
+            raise HTTPException(status_code=404, detail="Área personal no encontrada.")
+
+        application_id, app_data = result
+        proposal_url = app_data.get("proposal_file_url")
+        if not proposal_url:
+            raise HTTPException(status_code=400, detail="La propuesta aún no está disponible.")
+
+        now = datetime.datetime.utcnow()
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc_ref.update({
+            "status": Status.CONTRACT_WON.value,
+            "client_visible_status": "proposal_accepted",
+            "client_visible_label": get_client_visible_label("proposal_accepted", Status.CONTRACT_WON.value),
+            "proposal_accepted_at": now,
+            "updated_at": now,
+        })
+        event_id = create_timeline_event_internal(
+            application_id,
+            (
+                "Cliente aceptó la propuesta desde el área personal.\n"
+                f"Public code: {app_data.get('public_code')}.\n"
+                f"Propuesta: {proposal_url}"
+            ),
+            EventType.NOTE,
+            "Client Area",
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="proposal_accepted",
+            source_event_id=event_id,
+        )
+
+        if app_data.get("whatsapp_verified") and app_data.get("client_phone"):
+            reply = "Muchas gracias por confirmar. Seguimos con la gestión y le iremos informando de los siguientes pasos."
+            outgoing_message_id = send_safe_whatsapp_message(app_data.get("client_phone"), reply)
+            create_whatsapp_timeline_event(
+                application_id,
+                reply,
+                "System",
+                "outgoing",
+                wa_message_id=outgoing_message_id,
+                wa_status="sent" if outgoing_message_id else None,
+            )
+
+        return {
+            "success": True,
+            "status": Status.CONTRACT_WON.value,
+            "client_visible_status": "proposal_accepted",
+            "client_visible_label": get_client_visible_label("proposal_accepted", Status.CONTRACT_WON.value),
+            "accepted_at": now.isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Accept proposal error: {e}")
+        raise HTTPException(status_code=500, detail="Error al aceptar la propuesta.")
 
 
 # ----------------------------------------------------------------------

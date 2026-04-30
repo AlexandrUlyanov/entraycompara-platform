@@ -15,6 +15,7 @@ import LiveRequestsBlock from './components/LiveRequestsBlock.tsx';
 import Footer from './components/Footer.tsx';
 import CookieConsentBanner from './components/CookieConsentBanner.tsx';
 import SEOMetadata from './components/SEOMetadata.tsx';
+import PostSubmitPage from './components/PostSubmitPage.tsx';
 import { LanguageProvider, useLanguage } from './context/LanguageContext.tsx';
 
 const PrivacyPolicyPage = lazy(() => import('./components/PrivacyPolicyPage.tsx'));
@@ -84,9 +85,9 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     const hash = currentPage;
-    const isPolicyPage = hash === '#/privacy-policy' || hash === '#/terms-conditions';
+    const isTopLevelPage = hash === '#/privacy-policy' || hash === '#/terms-conditions' || hash === '#/solicitud-recibida';
 
-    if (isPolicyPage) {
+    if (isTopLevelPage) {
       window.scrollTo(0, 0);
     } else if (hash.startsWith('#/') && hash.length > 2) {
       const anchorId = hash.substring(2);
@@ -116,6 +117,9 @@ const AppContent: React.FC = () => {
           <TermsConditionsPage />
         </Suspense>
       );
+      break;
+    case '#/solicitud-recibida':
+      pageContent = <PostSubmitPage />;
       break;
     default:
       pageContent = (

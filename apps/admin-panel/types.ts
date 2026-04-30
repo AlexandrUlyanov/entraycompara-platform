@@ -35,11 +35,26 @@ export interface ApplicationNote {
 
 export interface Application {
   id: string;
+  public_code?: string;
   submission_date: string;
   client_name: string;
   client_phone: string;
   service_type: ServiceType;
   status: Status;
+  client_visible_status?: string;
+  client_visible_label?: string;
+  whatsapp_verified?: boolean;
+  whatsapp_verified_at?: string;
+  whatsapp_verified_phone?: string;
+  client_area_enabled?: boolean;
+  client_area_enabled_at?: string;
+  client_area_url?: string;
+  verification_code_expires_at?: string;
+  verification_code_last_sent_at?: string;
+  verification_code_attempts?: number;
+  verification_code_resend_count?: number;
+  proposal_sent_at?: string;
+  proposal_accepted_at?: string;
   // Fields available in detail view
   client_email?: string;
   notes?: string; // Deprecated in favor of timeline, but kept for backward compatibility

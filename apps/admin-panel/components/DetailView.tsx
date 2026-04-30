@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote, updateApplication, uploadApplicationFiles, sendWhatsAppDocument, uploadProposal, sendProposalViaWhatsApp } from '../services/api';
+import { fetchApplicationById, updateApplicationStatus, deleteApplicationById, updateApplicationServiceType, createTimelineNote, updateApplication, uploadApplicationFiles, sendWhatsAppDocument, uploadProposal, sendProposalViaWhatsApp, resendApplicationVerificationCode } from '../services/api';
 import { Status, Application, ServiceType, NoteType } from '../types';
 import Spinner from './Spinner';
 import StatusBadge from './StatusBadge';
@@ -9,6 +9,7 @@ import FileLink from './FileLink';
 import WhatsAppChatPanel from './WhatsAppChatPanel';
 import ProposalBuilder from './ProposalBuilder';
 import SalesDepartmentPanel from './SalesDepartmentPanel';
+import ClientFlowBadges from './ClientFlowBadges';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 
@@ -26,6 +27,13 @@ const getAnalysisHours = (startedAt?: string): string | null => {
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   if (diffHours < 1) return '<1h';
   return `${diffHours}h`;
+};
+
+const formatOptionalDate = (value?: string): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString();
 };
 
 const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack }) => {
@@ -48,6 +56,19 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const copyToClipboard = async (value?: string, successMessage?: string) => {
+    if (!value) {
+      showToast(t('clientFlow.copyUnavailable'));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast(successMessage || t('clientFlow.copied'));
+    } catch {
+      showToast(t('clientFlow.copyError'));
+    }
   };
 
   const { data: application, isLoading, isError, error } = useQuery<Application | undefined, Error>({
@@ -151,6 +172,19 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
     },
   });
 
+  const resendCodeMutation = useMutation({
+    mutationFn: () => resendApplicationVerificationCode(appId),
+    onSuccess: async (data) => {
+      queryClient.invalidateQueries({ queryKey: ['application', appId] });
+      queryClient.invalidateQueries({ queryKey: ['applications'] });
+      queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
+      await copyToClipboard(data.activation_message, t('clientFlow.resendCopied'));
+    },
+    onError: (error) => {
+      showToast((error as Error).message || t('clientFlow.resendError'));
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: () => deleteApplicationById(appId),
     onSuccess: () => {
@@ -241,7 +275,9 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                 <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-2">
                         <h2 className="text-3xl font-bold text-secondary">{application.client_name}</h2>
-                        <span className="px-2.5 py-1 rounded-lg text-xs font-mono bg-slate-100 text-slate-500 tracking-wide">#{application.id.slice(0,6)}</span>
+                        <span className="px-2.5 py-1 rounded-lg text-xs font-mono bg-blue-50 text-blue-700 border border-blue-100 tracking-wide">
+                            {application.public_code || `#${application.id.slice(0,6)}`}
+                        </span>
                     </div>
                     <p className="text-secondary-light flex items-center text-sm font-medium">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1.5 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -249,6 +285,7 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                         </svg>
                         {new Date(application.submission_date).toLocaleString()}
                     </p>
+                    <ClientFlowBadges application={application} />
                 </div>
                 <div className="flex-shrink-0">
                     <div className="scale-110 origin-top-right">
@@ -427,6 +464,78 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
 
         {/* Right Column: Actions & Documents */}
         <div className="space-y-8 lg:pt-[88px]">
+            {/* Client Area Flow Card */}
+            <div className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">
+                <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-blue-50/80 to-emerald-50/60">
+                    <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">{t('clientFlow.panel.title')}</h3>
+                    <p className="text-xs text-slate-500 mt-1">{t('clientFlow.panel.subtitle')}</p>
+                </div>
+                <div className="p-5 space-y-4">
+                    <div className="grid grid-cols-1 gap-3">
+                        <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-100">
+                            <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1">{t('clientFlow.publicCode')}</p>
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="font-mono text-lg font-bold text-secondary">{application.public_code || '—'}</span>
+                                <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(application.public_code, t('clientFlow.codeCopied'))}
+                                    className="px-3 py-1.5 rounded-full bg-white text-xs font-semibold text-primary border border-blue-100 hover:bg-blue-50 transition-colors"
+                                >
+                                    {t('clientFlow.copy')}
+                                </button>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className={`p-4 rounded-2xl border ${application.whatsapp_verified ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'}`}>
+                                <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">{t('clientFlow.whatsapp.title')}</p>
+                                <p className={`text-sm font-bold ${application.whatsapp_verified ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                    {application.whatsapp_verified ? t('clientFlow.whatsapp.verified') : t('clientFlow.whatsapp.pending')}
+                                </p>
+                                <p className="text-[11px] text-slate-500 mt-1">{formatOptionalDate(application.whatsapp_verified_at)}</p>
+                            </div>
+                            <div className={`p-4 rounded-2xl border ${application.client_area_enabled ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-50 border-slate-100'}`}>
+                                <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">{t('clientFlow.area.title')}</p>
+                                <p className={`text-sm font-bold ${application.client_area_enabled ? 'text-indigo-700' : 'text-slate-500'}`}>
+                                    {application.client_area_enabled ? t('clientFlow.area.active') : t('clientFlow.area.inactive')}
+                                </p>
+                                <p className="text-[11px] text-slate-500 mt-1">{formatOptionalDate(application.client_area_enabled_at)}</p>
+                            </div>
+                        </div>
+                        <div className="p-4 rounded-2xl bg-white border border-slate-100">
+                            <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mb-1">{t('clientFlow.visibleStatus')}</p>
+                            <p className="text-sm font-semibold text-secondary">
+                                {application.client_visible_status
+                                    ? t(`clientFlow.status.${application.client_visible_status}`)
+                                    : (application.client_visible_label || t('clientFlow.status.unknown'))}
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <button
+                            type="button"
+                            onClick={() => copyToClipboard(application.client_area_url, t('clientFlow.linkCopied'))}
+                            disabled={!application.client_area_url}
+                            className="w-full px-4 py-3 rounded-2xl bg-primary text-white text-sm font-bold hover:bg-primary-600 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed transition-all"
+                        >
+                            {t('clientFlow.copyClientAreaLink')}
+                        </button>
+                        {!application.client_area_url && (
+                            <p className="text-[11px] leading-relaxed text-slate-400">
+                                {t('clientFlow.linkUnavailableHint')}
+                            </p>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => resendCodeMutation.mutate()}
+                            disabled={!application.public_code || application.whatsapp_verified || resendCodeMutation.isPending}
+                            className="w-full px-4 py-3 rounded-2xl bg-white text-primary text-sm font-bold border border-blue-100 hover:bg-blue-50 disabled:bg-slate-50 disabled:text-slate-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                        >
+                            {resendCodeMutation.isPending && <Spinner size="h-4 w-4" />}
+                            {resendCodeMutation.isPending ? t('clientFlow.resendingCode') : t('clientFlow.resendCode')}
+                        </button>
+                    </div>
+                </div>
+            </div>
             
             {/* Status Card */}
             <div className="bg-white/80 backdrop-blur-xl rounded-[30px] shadow-apple border border-white/40 overflow-hidden">

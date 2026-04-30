@@ -201,6 +201,28 @@ const SafetySignalList: React.FC<{
   );
 };
 
+const DiagnosticSection: React.FC<{
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}> = ({ title, description, children, defaultOpen = false }) => (
+  <details className="group rounded-[24px] border border-slate-100 bg-white/80 shadow-sm" open={defaultOpen}>
+    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5">
+      <div>
+        <h4 className="text-base font-bold text-slate-900">{title}</h4>
+        <p className="mt-1 text-sm text-slate-500">{description}</p>
+      </div>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg font-bold text-slate-500 transition group-open:rotate-45">
+        +
+      </span>
+    </summary>
+    <div className="border-t border-slate-100 p-5">
+      {children}
+    </div>
+  </details>
+);
+
 const RadarTile: React.FC<{ label: string; value?: string | number | null; tone?: string }> = ({ label, value, tone = 'slate' }) => {
   const toneClasses: Record<string, string> = {
     blue: 'from-blue-50 to-white border-blue-100',
@@ -591,6 +613,49 @@ const SalesMoleculePanel: React.FC<{
   );
 };
 
+const SalesMoleculeStrip: React.FC<{
+  molecule?: SalesDepartmentMolecule;
+  agents: SalesDepartmentAgentStep[];
+  t: TFunction;
+}> = ({ molecule, agents, t }) => {
+  const roles = molecule?.roles || [];
+  const groups = ['analysis', 'strategy', 'safety', 'operations'];
+
+  const getGroupStatus = (group: string) => {
+    const groupRoles = roles.filter((role) => (role.group || 'operations') === group);
+    if (groupRoles.length > 0) {
+      if (groupRoles.some((role) => role.status === 'failed' || role.status === 'blocked')) return 'blocked';
+      if (groupRoles.some((role) => role.status === 'running' || role.status === 'pending')) return 'running';
+      if (groupRoles.every((role) => role.status === 'completed')) return 'completed';
+      return groupRoles[0]?.status || 'ready';
+    }
+    const fallbackAgent = agents.find((agent) => agent.agent_key.includes(group));
+    return fallbackAgent?.status || 'ready';
+  };
+
+  return (
+    <div className="rounded-[24px] border border-slate-100 bg-white/80 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{t('sales.compactMolecule.kicker')}</div>
+          <div className="mt-1 text-sm font-semibold text-slate-700">{t('sales.compactMolecule.title')}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {groups.map((group) => {
+            const status = getGroupStatus(group);
+            return (
+              <span key={group} className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${getStatusTone(status)}`}>
+                <span className="h-2 w-2 rounded-full bg-current" />
+                {getMoleculeGroupLabel(group, t)}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ActionPanel: React.FC<{
   state: SalesDepartmentState;
   t: TFunction;
@@ -680,6 +745,15 @@ const NextBestActionHero: React.FC<{
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-blue-50">
             {translateSalesText(state.why_now, t) || t('sales.nextBest.defaultWhy')}
           </p>
+
+          {state.suggested_message && (
+            <div className="mt-5 rounded-[22px] border border-white/20 bg-white/10 p-4 backdrop-blur">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-blue-100">{t('sales.nextBest.message')}</div>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-white">
+                {state.suggested_message}
+              </p>
+            </div>
+          )}
 
           <div className="mt-5 flex flex-wrap gap-2">
             <button
@@ -1338,96 +1412,100 @@ const SalesDepartmentPanel: React.FC<SalesDepartmentPanelProps> = ({ appId, onIn
               t={t}
             />
 
-            <SalesControlHud state={state} autopilot={autopilot} isAnalyzing={analyzeMutation.isPending} t={t} />
+            <SalesMoleculeStrip molecule={state.molecule} agents={agents} t={t} />
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <RadarTile label={t('sales.radar.clientState')} value={translateSalesValue(state.client_state, t)} tone="blue" />
               <RadarTile label={t('sales.radar.friction')} value={translateSalesValue(state.friction_point, t)} tone="amber" />
               <RadarTile label={t('sales.radar.replyProbability')} value={formatPercent(state.reply_probability)} tone="green" />
               <RadarTile label={t('sales.radar.dealStage')} value={translateSalesValue(state.deal_stage, t)} tone="slate" />
-              <RadarTile label={t('sales.radar.engagement')} value={translateSalesValue(state.engagement_level, t)} tone="indigo" />
-              <RadarTile label={t('sales.radar.trust')} value={formatPercent(state.trust_level)} tone="green" />
-              <RadarTile label={t('sales.radar.dealTemperature')} value={translateSalesValue(state.deal_temperature, t)} tone="amber" />
-              <RadarTile label={t('sales.radar.actionPriority')} value={translateSalesValue(state.action_priority, t)} tone="blue" />
             </div>
 
-            <SalesMetricsPanel state={state} t={t} />
-
-            <ActionPanel state={state} t={t} />
-
-            <ActionQueuePanel
-              actions={actions}
-              isLoading={isActionsLoading}
-              isBusy={isActionBusy}
-              onApprove={(actionId) => approveActionMutation.mutate(actionId)}
-              onSkip={(actionId) => skipActionMutation.mutate(actionId)}
-              t={t}
-            />
-
-            <SalesAuditTrailPanel audit={audit} isLoading={isAuditLoading} t={t} />
-
-            <SalesMoleculePanel molecule={state.molecule} t={t} />
-
-            <DecisionTracePanel state={state} t={t} />
-
-            <MessageStudio
-              message={state.suggested_message}
-              isBusy={logDraftInsertedMutation.isPending}
-              t={t}
-              onInsert={insertSuggestedMessage}
-            />
-
-            <AutopilotControl
-              autopilot={autopilot}
-              isLoading={isAutopilotLoading}
-              isBusy={isAutopilotBusy}
-              onModeChange={(mode, enabled) => updateAutopilotMutation.mutate({ mode, enabled })}
-              onRecalculate={() => recalculateAutopilotMutation.mutate()}
-              onHandoff={() => handoffMutation.mutate()}
-              t={t}
-            />
-
-            <FollowUpDealPanel state={state} autopilot={autopilot} t={t} />
-
-            <FollowupCenterPanel
-              followups={followups}
-              isLoading={isFollowupsLoading}
-              isBusy={isFollowupBusy}
-              onApprove={(followupId) => approveFollowupMutation.mutate(followupId)}
-              onSkip={(followupId) => skipFollowupMutation.mutate(followupId)}
-              onCancel={(followupId) => cancelFollowupMutation.mutate(followupId)}
-              onReschedule={(followupId) => rescheduleFollowupMutation.mutate(followupId)}
-              t={t}
-            />
-
-            <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
-              <div className="rounded-[24px] border border-slate-100 bg-white/70 p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">{t('sales.pipeline.title')}</h4>
-                  <span className="text-xs font-medium text-slate-400">{t('sales.pipeline.updated', { time: formatDateTime(state.updated_at) })}</span>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {agents.length > 0 ? (
-                    agents.map((agent) => <AgentStep key={agent.agent_key} agent={agent} t={t} />)
-                  ) : (
-                    <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
-                      {t('sales.pipeline.empty')}
+            <div className="space-y-3">
+              <DiagnosticSection title={t('sales.diagnostics.context.title')} description={t('sales.diagnostics.context.description')}>
+                <div className="space-y-5">
+                  <SalesControlHud state={state} autopilot={autopilot} isAnalyzing={analyzeMutation.isPending} t={t} />
+                  <SalesMetricsPanel state={state} t={t} />
+                  <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
+                    <div className="rounded-[24px] border border-slate-100 bg-white/70 p-5">
+                      <div className="flex items-center justify-between gap-3">
+                        <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">{t('sales.pipeline.title')}</h4>
+                        <span className="text-xs font-medium text-slate-400">{t('sales.pipeline.updated', { time: formatDateTime(state.updated_at) })}</span>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        {agents.length > 0 ? (
+                          agents.map((agent) => <AgentStep key={agent.agent_key} agent={agent} t={t} />)
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+                            {t('sales.pipeline.empty')}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
 
-              <div className="rounded-[24px] border border-slate-100 bg-slate-50/70 p-5">
-                <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">{t('sales.context.title')}</h4>
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <RadarTile label={t('sales.context.files')} value={state.snapshot_summary?.uploaded_files_count ?? 0} />
-                  <RadarTile label={t('sales.context.events')} value={state.snapshot_summary?.timeline_events_count ?? 0} />
-                  <RadarTile label={t('sales.context.data')} value={state.snapshot_summary?.has_extracted_data ? t('sales.context.exists') : t('sales.context.none')} />
-                  <RadarTile label={t('sales.context.proposal')} value={state.snapshot_summary?.has_proposal ? t('sales.context.ready') : t('sales.context.none')} />
-                  <RadarTile label={t('sales.context.simulation')} value={state.snapshot_summary?.has_selected_simulation ? t('sales.context.selected') : t('sales.context.none')} />
-                  <RadarTile label={t('sales.context.language')} value={state.language_used || 'auto'} />
+                    <div className="rounded-[24px] border border-slate-100 bg-slate-50/70 p-5">
+                      <h4 className="text-sm font-bold uppercase tracking-wider text-slate-500">{t('sales.context.title')}</h4>
+                      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                        <RadarTile label={t('sales.context.files')} value={state.snapshot_summary?.uploaded_files_count ?? 0} />
+                        <RadarTile label={t('sales.context.events')} value={state.snapshot_summary?.timeline_events_count ?? 0} />
+                        <RadarTile label={t('sales.context.data')} value={state.snapshot_summary?.has_extracted_data ? t('sales.context.exists') : t('sales.context.none')} />
+                        <RadarTile label={t('sales.context.proposal')} value={state.snapshot_summary?.has_proposal ? t('sales.context.ready') : t('sales.context.none')} />
+                        <RadarTile label={t('sales.context.simulation')} value={state.snapshot_summary?.has_selected_simulation ? t('sales.context.selected') : t('sales.context.none')} />
+                        <RadarTile label={t('sales.context.language')} value={state.language_used || 'auto'} />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </DiagnosticSection>
+
+              <DiagnosticSection title={t('sales.diagnostics.safety.title')} description={t('sales.diagnostics.safety.description')}>
+                <div className="space-y-5">
+                  <ActionPanel state={state} t={t} />
+                  <ActionQueuePanel
+                    actions={actions}
+                    isLoading={isActionsLoading}
+                    isBusy={isActionBusy}
+                    onApprove={(actionId) => approveActionMutation.mutate(actionId)}
+                    onSkip={(actionId) => skipActionMutation.mutate(actionId)}
+                    t={t}
+                  />
+                  <DecisionTracePanel state={state} t={t} />
+                </div>
+              </DiagnosticSection>
+
+              <DiagnosticSection title={t('sales.diagnostics.molecule.title')} description={t('sales.diagnostics.molecule.description')}>
+                <div className="space-y-5">
+                  <SalesMoleculePanel molecule={state.molecule} t={t} />
+                  <SalesAuditTrailPanel audit={audit} isLoading={isAuditLoading} t={t} />
+                </div>
+              </DiagnosticSection>
+
+              <DiagnosticSection title={t('sales.diagnostics.automation.title')} description={t('sales.diagnostics.automation.description')}>
+                <div className="space-y-5">
+                  <AutopilotControl
+                    autopilot={autopilot}
+                    isLoading={isAutopilotLoading}
+                    isBusy={isAutopilotBusy}
+                    onModeChange={(mode, enabled) => updateAutopilotMutation.mutate({ mode, enabled })}
+                    onRecalculate={() => recalculateAutopilotMutation.mutate()}
+                    onHandoff={() => handoffMutation.mutate()}
+                    t={t}
+                  />
+
+                  <FollowUpDealPanel state={state} autopilot={autopilot} t={t} />
+
+                  <FollowupCenterPanel
+                    followups={followups}
+                    isLoading={isFollowupsLoading}
+                    isBusy={isFollowupBusy}
+                    onApprove={(followupId) => approveFollowupMutation.mutate(followupId)}
+                    onSkip={(followupId) => skipFollowupMutation.mutate(followupId)}
+                    onCancel={(followupId) => cancelFollowupMutation.mutate(followupId)}
+                    onReschedule={(followupId) => rescheduleFollowupMutation.mutate(followupId)}
+                    t={t}
+                  />
+                </div>
+              </DiagnosticSection>
             </div>
           </div>
         )}

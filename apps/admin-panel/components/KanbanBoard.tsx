@@ -5,6 +5,7 @@ import { Application, Status, NoteType } from '../types';
 import { useTranslation } from '../i18n';
 import { updateApplicationStatus, deleteApplicationById, createTimelineNote } from '../services/api';
 import ConfirmModal from './ConfirmModal';
+import ClientFlowBadges from './ClientFlowBadges';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface KanbanBoardProps {
@@ -213,7 +214,7 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ applications, onSelectApplica
                                                         <div className="flex justify-between items-start mb-2.5">
                                                             <div className="flex items-center gap-1.5">
                                                                 <span className="text-[10px] font-mono text-slate-400 uppercase bg-slate-50/80 px-2 py-1 rounded-md">
-                                                                    #{app.id.slice(0,6)}
+                                                                    {app.public_code || `#${app.id.slice(0,6)}`}
                                                                 </span>
                                                                 {app.status === Status.Analysis && app.analysis_started_at && (
                                                                     <span className="text-[10px] font-semibold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-md">
@@ -236,8 +237,9 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ applications, onSelectApplica
                                                         
                                                         <h4 className="font-bold text-secondary mb-1 text-sm truncate" title={app.client_name}>{app.client_name}</h4>
                                                         <p className="text-xs text-secondary-light mb-3.5 truncate font-medium">{app.client_phone}</p>
+                                                        <ClientFlowBadges application={app} compact />
                                                         
-                                                        <div className="flex items-center justify-between pt-3 border-t border-slate-50">
+                                                        <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-50">
                                                             <span className="inline-flex items-center px-2 py-1 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600">
                                                                 {t(`serviceType.${app.service_type.replace(' ', '')}`)}
                                                             </span>

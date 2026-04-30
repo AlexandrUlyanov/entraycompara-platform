@@ -6,6 +6,7 @@ import Spinner from './Spinner';
 import StatusBadge from './StatusBadge';
 import Pagination from './Pagination';
 import KanbanBoard from './KanbanBoard';
+import ClientFlowBadges from './ClientFlowBadges';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { useTranslation } from '../i18n';
 
@@ -217,6 +218,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectApplication }) => {
                             <th scope="col" className="px-8 py-5 font-semibold tracking-wide">{t('dashboard.tableId')}</th>
                             <th scope="col" className="px-6 py-5 font-semibold tracking-wide">{t('dashboard.tableClient')}</th>
                             <th scope="col" className="px-6 py-5 font-semibold tracking-wide">{t('dashboard.tableServiceType')}</th>
+                            <th scope="col" className="px-6 py-5 font-semibold tracking-wide">{t('dashboard.tableClientFlow')}</th>
                             <th scope="col" className="px-6 py-5 font-semibold tracking-wide">{t('dashboard.tableLanguage')}</th>
                             <th scope="col" className="px-6 py-5 font-semibold tracking-wide">{t('dashboard.tableDate')}</th>
                             <th scope="col" className="px-8 py-5 font-semibold text-right tracking-wide">{t('dashboard.tableStatus')}</th>
@@ -230,7 +232,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectApplication }) => {
                                 onClick={() => onSelectApplication(app)}
                             >
                                 <td className="px-8 py-5 font-mono text-xs text-slate-400 group-hover:text-primary-500 transition-colors">
-                                    #{app.id.substring(0, 8)}...
+                                    <div className="font-bold text-slate-600 group-hover:text-primary-600">
+                                        {app.public_code || `#${app.id.substring(0, 8)}`}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 mt-1">#{app.id.substring(0, 8)}</div>
                                 </td>
                                 <td className="px-6 py-5">
                                 <div className="flex flex-col">
@@ -242,6 +247,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectApplication }) => {
                                     <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 border border-transparent group-hover:border-slate-200 transition-all">
                                     {t(`serviceType.${app.service_type.replace(' ', '')}`)}
                                     </span>
+                                </td>
+                                <td className="px-6 py-5 min-w-[260px]">
+                                    <ClientFlowBadges application={app} />
                                 </td>
                                 <td className="px-6 py-5">
                                     <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-50 text-blue-600 border border-transparent group-hover:border-blue-200 transition-all uppercase">
@@ -257,7 +265,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onSelectApplication }) => {
                             </tr>
                             ))}
                             {data?.applications.length === 0 && (
-                                <tr><td colSpan={6} className="text-center py-20 text-slate-400">{t('dashboard.empty')}</td></tr>
+                                <tr><td colSpan={7} className="text-center py-20 text-slate-400">{t('dashboard.empty')}</td></tr>
                             )}
                         </tbody>
                     </table>

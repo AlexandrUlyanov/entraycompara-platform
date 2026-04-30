@@ -3533,6 +3533,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         "whatsapp_verified_phone": from_phone,
         "client_area_enabled": True,
         "client_area_enabled_at": now,
+        "client_area_url": client_area_url,
         "secure_token_hash": hash_client_secret(secure_token),
         "secure_token_created_at": now,
         "secure_token_revoked_at": None,
@@ -3931,6 +3932,7 @@ async def submit_application(
         "whatsapp_verified_phone": "",
         "client_area_enabled": False,
         "client_area_enabled_at": None,
+        "client_area_url": None,
         "secure_token_hash": hash_client_secret(secure_token),
         "secure_token_created_at": today,
         "secure_token_revoked_at": None,
@@ -4232,6 +4234,79 @@ async def get_application_details(application_id: str):
     except Exception as e:
         print(f"Firestore Detail Error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении данных заявки.")
+
+
+@app.post("/api/applications/{application_id}/verification-code/resend", tags=["Management"], dependencies=[Depends(authenticate_operator)])
+async def resend_application_verification_code(application_id: str):
+    """Перевыпускает WhatsApp verification code для заявки из CRM."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail=f"Заявка с ID {application_id} не найдена.")
+
+        app_data = doc.to_dict() or {}
+        public_code = app_data.get("public_code")
+        if not public_code:
+            raise HTTPException(status_code=400, detail="У заявки нет публичного EC-кода.")
+        if app_data.get("whatsapp_verified"):
+            raise HTTPException(status_code=400, detail="WhatsApp уже подтверждён для этой заявки.")
+
+        now = datetime.datetime.utcnow()
+        last_sent = app_data.get("verification_code_last_sent_at")
+        resend_count = int(app_data.get("verification_code_resend_count") or 0)
+
+        if isinstance(last_sent, datetime.datetime):
+            seconds_since_last = (now - last_sent.replace(tzinfo=None)).total_seconds()
+            if seconds_since_last < 60:
+                raise HTTPException(status_code=429, detail="Новый код можно запросить не чаще одного раза в 60 секунд.")
+            if last_sent.date() != now.date():
+                resend_count = 0
+
+        if resend_count >= 5:
+            raise HTTPException(status_code=429, detail="Достигнут дневной лимит перевыпуска кодов.")
+
+        verification_code = generate_verification_code()
+        verification_expires_at = now + datetime.timedelta(hours=24)
+        whatsapp_url = build_whatsapp_activation_url(public_code, verification_code)
+        activation_message = f"Hola, soy cliente de Entra y Compara. Mi código es {public_code} / {verification_code}."
+
+        doc_ref.update({
+            "verification_code_hash": hash_client_secret(verification_code),
+            "verification_code_expires_at": verification_expires_at,
+            "verification_code_attempts": 0,
+            "verification_code_last_sent_at": now,
+            "verification_code_resend_count": resend_count + 1,
+            "updated_at": now,
+        })
+
+        create_timeline_event_internal(
+            application_id,
+            (
+                "WhatsApp verification code перевыпущен оператором.\n"
+                f"Public code: {public_code}.\n"
+                f"Истекает: {verification_expires_at.isoformat()}Z."
+            ),
+            EventType.NOTE,
+            "Operator",
+        )
+
+        return {
+            "success": True,
+            "public_code": public_code,
+            "verification_code": verification_code,
+            "verification_code_display": format_verification_code(verification_code),
+            "verification_code_expires_at": verification_expires_at.isoformat(),
+            "verification_code_resend_count": resend_count + 1,
+            "whatsapp_url": whatsapp_url,
+            "activation_message": activation_message,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Verification code resend error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при перевыпуске кода подтверждения.")
 
 
 @app.get("/api/applications/{application_id}/sales-department/state", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])

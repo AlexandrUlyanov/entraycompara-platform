@@ -125,6 +125,23 @@ export const fetchApplicationById = async (id: string): Promise<Application | un
   return application;
 };
 
+export const resendApplicationVerificationCode = async (id: string): Promise<{
+  success: boolean;
+  public_code: string;
+  verification_code: string;
+  verification_code_display: string;
+  verification_code_expires_at: string;
+  verification_code_resend_count: number;
+  whatsapp_url: string;
+  activation_message: string;
+}> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${id}/verification-code/resend`, {
+    method: 'POST',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
 export const updateApplicationStatus = async (id: string, newStatus: Status): Promise<{ success: boolean, message: string }> => {
   const response = await fetch(`${API_BASE_URL}/applications/${id}/status`, {
     method: 'PUT',

@@ -75,6 +75,11 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
 GEMINI_INVOICE_EXTRACTION_MODEL = os.environ.get("GEMINI_INVOICE_EXTRACTION_MODEL", "gemini-2.5-pro")
 # -------------------------
 
+SALES_DEPARTMENT_AUTOMATION_ENABLED = (
+    os.environ.get("SALES_DEPARTMENT_AUTOMATION_ENABLED", "true").strip().lower()
+    not in {"0", "false", "no", "off"}
+)
+
 INVOICE_EXTRACTION_FIELDS = [
     "cups",
     "client_type",
@@ -705,6 +710,10 @@ def get_sales_department_followups_ref(application_id: str):
         .document("state")
         .collection("followups")
     )
+
+
+def is_sales_department_automation_enabled() -> bool:
+    return SALES_DEPARTMENT_AUTOMATION_ENABLED
 
 
 def normalize_firestore_value(value):
@@ -1574,6 +1583,32 @@ def trigger_sales_department_reanalysis(
     source_event_id: str | None = None,
 ) -> dict | None:
     """Best-effort event-driven recalculation; never blocks the originating action."""
+    if not is_sales_department_automation_enabled():
+        now = datetime.datetime.utcnow()
+        try:
+            get_sales_department_state_ref(application_id).set({
+                "last_reanalysis_trigger": "event",
+                "last_reanalysis_reason": reason,
+                "last_event_id": source_event_id,
+                "last_reanalysis_skipped": True,
+                "last_reanalysis_skip_reason": "sales_automation_disabled",
+                "updated_at": now,
+            }, merge=True)
+            create_sales_audit_event(application_id, "analysis_skipped", {
+                "trigger": "event",
+                "reason": reason,
+                "source_event_id": source_event_id,
+                "skip_reason": "sales_automation_disabled",
+            })
+        except Exception as audit_exc:
+            print(f"[Sales Department] Failed to record automation-disabled skip: {audit_exc}")
+        return {
+            "success": False,
+            "skipped": True,
+            "reason": "sales_automation_disabled",
+            "updated_at": now,
+        }
+
     try:
         return run_sales_department_analysis(
             application_id,
@@ -2293,6 +2328,12 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
     safe_to_prepare = bool(enabled and has_recommended_action and pipeline_health != "blocked")
     blocked_reasons: list[str] = []
     warnings: list[str] = []
+
+    automation_enabled = is_sales_department_automation_enabled()
+    if not automation_enabled:
+        blocked_reasons.append("sales_automation_disabled")
+        enabled = False
+        safe_to_prepare = False
 
     if not sales_state:
         blocked_reasons.append("missing_sales_state")

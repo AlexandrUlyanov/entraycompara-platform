@@ -11,6 +11,7 @@
 | `whatsapp-cloud-api.md` | WhatsApp Cloud API, webhook, CRM Settings и Connection Health |
 | `sales-department-rollout.md` | Rollout, kill switch и проверка Sales Department |
 | `roadmap-sales-department-autopilot.md` | Roadmap автопилота обработки лидов |
+| `tz-post-submit-client-area.md` | Актуальное ТЗ post-submit flow, WhatsApp-активации и личного кабинета клиента |
 
 ## Технические задания и проектный архив
 

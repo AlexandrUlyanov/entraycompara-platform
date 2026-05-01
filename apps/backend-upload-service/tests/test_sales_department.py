@@ -41,6 +41,7 @@ def install_dependency_stubs():
     fastapi.Query = passthrough_default
     fastapi.Header = passthrough_default
     fastapi.Body = passthrough_default
+    fastapi.Request = object
     fastapi.status = types.SimpleNamespace(
         HTTP_201_CREATED=201,
         HTTP_204_NO_CONTENT=204,
@@ -221,6 +222,71 @@ class SalesDepartmentAutopilotTests(unittest.TestCase):
         self.assertFalse(result["enabled"])
         self.assertFalse(result["safe_to_send"])
         self.assertIn("sales_automation_disabled", result["blocked_reasons"])
+
+
+class PostSubmitSecurityHelperTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.main = load_main()
+
+    def test_verification_code_generation_and_formatting(self):
+        code = self.main.generate_verification_code()
+
+        self.assertRegex(code, r"^\d{6}$")
+        self.assertEqual(self.main.format_verification_code("739284"), "739 284")
+
+    def test_client_secret_hash_does_not_store_plaintext(self):
+        value = "739284"
+        hashed = self.main.hash_client_secret(value)
+
+        self.assertNotEqual(hashed, value)
+        self.assertEqual(hashed, self.main.hash_client_secret(value))
+        self.assertRegex(hashed, r"^[a-f0-9]{64}$")
+
+    def test_parse_whatsapp_activation_text(self):
+        parsed = self.main.parse_whatsapp_activation_text(
+            "Hola, soy cliente de Entra y Compara. Mi código es EC-482913 / 739284."
+        )
+
+        self.assertEqual(parsed, ("EC-482913", "739284"))
+
+    def test_verification_attempt_window_limits_short_bursts(self):
+        now = self.main.datetime.datetime(2026, 5, 1, 12, 0, 0)
+        app_data = {
+            "verification_code_attempt_window_started_at": now - self.main.datetime.timedelta(seconds=30),
+            "verification_code_attempt_window_count": 4,
+        }
+
+        window_started_at, window_count = self.main.get_verification_attempt_window(app_data, now)
+        update = self.main.build_verification_attempt_update(2, window_started_at, window_count, now)
+
+        self.assertEqual(window_count, 4)
+        self.assertEqual(update["verification_code_attempts"], 3)
+        self.assertEqual(update["verification_code_attempt_window_count"], 5)
+
+    def test_verification_attempt_window_resets_after_timeout(self):
+        now = self.main.datetime.datetime(2026, 5, 1, 12, 0, 0)
+        app_data = {
+            "verification_code_attempt_window_started_at": now - self.main.datetime.timedelta(seconds=120),
+            "verification_code_attempt_window_count": 5,
+        }
+
+        window_started_at, window_count = self.main.get_verification_attempt_window(app_data, now)
+
+        self.assertEqual(window_started_at, now)
+        self.assertEqual(window_count, 0)
+
+    def test_meta_signature_validation(self):
+        raw_body = b'{"entry":[]}'
+        self.main.WHATSAPP_APP_SECRET = "test-secret"
+        signature = self.main.hmac.new(
+            b"test-secret",
+            raw_body,
+            self.main.hashlib.sha256,
+        ).hexdigest()
+
+        self.assertTrue(self.main.verify_meta_signature(raw_body, f"sha256={signature}"))
+        self.assertFalse(self.main.verify_meta_signature(raw_body, "sha256=bad"))
 
 
 if __name__ == "__main__":

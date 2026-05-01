@@ -12,6 +12,8 @@
 | `sales-department-rollout.md` | Rollout, kill switch и проверка Sales Department |
 | `roadmap-sales-department-autopilot.md` | Roadmap автопилота обработки лидов |
 | `tz-post-submit-client-area.md` | Актуальное ТЗ post-submit flow, WhatsApp-активации и личного кабинета клиента |
+| `security-gdpr-guardrails.md` | Security/GDPR guardrails для кодов, токенов, webhook и GCS signed URL migration |
+| `post-submit-client-area-qa.md` | QA checklist и safe E2E-план для post-submit/client area MVP |
 
 ## Технические задания и проектный архив
 
@@ -25,4 +27,4 @@
 
 Если фактическое поведение кода конфликтует с историческим ТЗ, приоритет у текущего кода, `README.md`, `AGENTS.md` и актуальных rollout-документов.
 
-Документ актуален на: 30 апреля 2026.
+Документ актуален на: 1 мая 2026.

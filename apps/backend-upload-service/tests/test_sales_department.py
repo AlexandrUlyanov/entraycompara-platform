@@ -289,5 +289,65 @@ class PostSubmitSecurityHelperTests(unittest.TestCase):
         self.assertFalse(self.main.verify_meta_signature(raw_body, "sha256=bad"))
 
 
+class ClientVisibleStatusTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.main = load_main()
+
+    def test_client_visible_label_mapping_uses_spanish_customer_labels(self):
+        self.assertEqual(
+            self.main.get_client_visible_label("proposal_sent", self.main.Status.PROPOSAL.value),
+            "Propuesta enviada",
+        )
+        self.assertEqual(
+            self.main.get_client_visible_label("switching_in_progress", self.main.Status.CONTRACT_WON.value),
+            "Cambio en trámite",
+        )
+
+    def test_client_visible_label_falls_back_for_legacy_crm_statuses(self):
+        self.assertEqual(
+            self.main.get_client_visible_label(None, self.main.Status.ANALYSIS.value),
+            "Estamos leyendo tu factura",
+        )
+        self.assertEqual(
+            self.main.get_client_visible_label(None, self.main.Status.PROPOSAL.value),
+            "Propuesta lista",
+        )
+        self.assertEqual(
+            self.main.get_client_visible_label(None, self.main.Status.NEW_LEAD.value),
+            "Factura recibida",
+        )
+
+    def test_client_area_payload_handles_legacy_application_without_new_fields(self):
+        original_proposal_snapshot = self.main._get_proposal_data_snapshot
+        original_simulations = self.main.get_client_visible_simulations
+        original_timeline = self.main.get_client_visible_timeline
+        self.main._get_proposal_data_snapshot = lambda doc_ref: {}
+        self.main.get_client_visible_simulations = lambda doc_ref: []
+        self.main.get_client_visible_timeline = lambda doc_ref: []
+        try:
+            payload = self.main.build_client_area_payload(
+                "app-legacy",
+                {
+                    "public_code": "EC-111222",
+                    "status": self.main.Status.ANALYSIS.value,
+                    "client_name": "Legacy Client",
+                    "client_phone": "+34111111111",
+                    "client_email": "legacy@example.com",
+                    "service_type": "Electricity Comparison",
+                    "uploaded_files": [],
+                },
+            )
+        finally:
+            self.main._get_proposal_data_snapshot = original_proposal_snapshot
+            self.main.get_client_visible_simulations = original_simulations
+            self.main.get_client_visible_timeline = original_timeline
+
+        self.assertEqual(payload["application"]["client_visible_status"], "invoice_uploaded")
+        self.assertEqual(payload["application"]["client_visible_label"], "Estamos leyendo tu factura")
+        self.assertFalse(payload["application"]["whatsapp_verified"])
+        self.assertFalse(payload["application"]["client_area_enabled"])
+
+
 if __name__ == "__main__":
     unittest.main()

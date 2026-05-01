@@ -3413,6 +3413,51 @@ def parse_whatsapp_activation_text(text: str) -> tuple[str, str] | None:
     return public_code, all_codes[-1]
 
 
+def extract_whatsapp_verification_code(text: str) -> str | None:
+    if not text:
+        return None
+    all_codes = re.findall(r"\d{6}", re.sub(r"\D", "", text))
+    if not all_codes:
+        return None
+    return all_codes[-1]
+
+
+def find_application_by_phone_and_verification_code(
+    from_phone_raw: str,
+    verification_code: str,
+) -> tuple[str, dict] | None | str:
+    normalized_phone = normalize_phone(from_phone_raw)
+    if not normalized_phone:
+        return None
+
+    verification_hash = hash_client_secret(verification_code or "")
+    docs = (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .where("verification_code_hash", "==", verification_hash)
+        .limit(20)
+        .stream()
+    )
+
+    matches: list[tuple[str, dict]] = []
+    for doc in docs:
+        if not doc.exists:
+            continue
+        data = doc.to_dict() or {}
+        candidate_phones = [
+            normalize_phone(data.get("client_phone", "")),
+            normalize_phone(data.get("whatsapp_verified_phone", "")),
+        ]
+        if normalized_phone in candidate_phones:
+            data["id"] = doc.id
+            matches.append((doc.id, data))
+
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        return "ambiguous"
+    return None
+
+
 def create_whatsapp_timeline_event(
     application_id: str,
     content: str,
@@ -3609,11 +3654,33 @@ def notify_client_proposal_ready(
 
 def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_message_id: str) -> bool:
     parsed = parse_whatsapp_activation_text(text_body)
-    if not parsed:
-        return False
+    result = None
+    public_code = ""
+    verification_code = ""
 
-    public_code, verification_code = parsed
-    result = find_application_by_public_code(public_code)
+    if parsed:
+        public_code, verification_code = parsed
+        result = find_application_by_public_code(public_code)
+    else:
+        # Fallback: some clients send only the 6-digit code (without EC-XXXXXX).
+        # In that case we match by verification hash + sender phone.
+        verification_code = extract_whatsapp_verification_code(text_body) or ""
+        if not verification_code:
+            return False
+        fallback_match = find_application_by_phone_and_verification_code(from_phone_raw, verification_code)
+        if fallback_match == "ambiguous":
+            send_safe_whatsapp_message(
+                from_phone_raw,
+                "Hemos detectado más de una solicitud con ese código. "
+                "Por favor envía el formato completo: EC-XXXXXX / 123456.",
+            )
+            return True
+        if not fallback_match:
+            return False
+        application_id, app_data = fallback_match
+        public_code = app_data.get("public_code", "")
+        result = (application_id, app_data)
+
     if not result:
         send_safe_whatsapp_message(
             from_phone_raw,

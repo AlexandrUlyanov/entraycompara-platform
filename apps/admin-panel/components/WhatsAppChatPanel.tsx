@@ -27,6 +27,7 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
   const [newMessage, setNewMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [firstMessageError, setFirstMessageError] = useState<string | null>(null);
   const [firstMessageStatus, setFirstMessageStatus] = useState<'idle' | 'loading' | 'sent'>('idle');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -90,11 +91,15 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
   const firstMessageMutation = useMutation({
     mutationFn: () => sendWhatsAppFirstMessage(appId),
     onSuccess: (data) => {
+      setFirstMessageError(null);
       if (data.status === 'success' || data.status === 'already_sent') {
         setFirstMessageStatus('sent');
         queryClient.invalidateQueries({ queryKey: ['application', appId] });
         queryClient.invalidateQueries({ queryKey: ['timeline', appId] });
       }
+    },
+    onError: (error: Error) => {
+      setFirstMessageError(error.message || t('common.error'));
     },
   });
 
@@ -200,6 +205,11 @@ const WhatsAppChatPanel: React.FC<WhatsAppChatPanelProps> = ({
           </button>
         </div>
       </div>
+      {firstMessageError && (
+        <div className="mx-6 mt-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+          {firstMessageError}
+        </div>
+      )}
 
       {/* Messages */}
       <div className="h-[500px] overflow-y-auto p-4 space-y-1 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4IiBoZWlnaHQ9IjgiPgo8cmVjdCB3aWR0aD0iOCIgaGVpZ2h0PSI4IiBmaWxsPSIjZjNmMGU2Ii8+CjxyZWN0IHdpZHRoPSI0IiBoZWlnaHQ9IjQiIGZpbGw9IiNlNWRkZDUiLz4KPC9zdmc+')] bg-repeat">

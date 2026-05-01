@@ -8389,12 +8389,9 @@ async def api_send_whatsapp_first_message(data: WhatsAppFirstMessageRequest):
         if app_data.get("whatsapp_first_message_sent"):
             return {"status": "already_sent", "message": "Первое сообщение уже отправлялось."}
         
-        # Определяем язык шаблона из заявки (fallback: es)
-        client_lang = app_data.get("language", "es")
-        # Поддерживаемые языки шаблона Meta — обычно es, en. Для остальных fallback на es.
-        template_lang = client_lang if client_lang in ("es", "en") else "es"
-        
-        result = send_whatsapp_template(phone, template_name="hola", language_code=template_lang)
+        # Первый контакт всегда отправляем approved-шаблоном hola на испанском.
+        # Это устраняет отказы Meta при несоответствии locale template language.
+        result = send_whatsapp_template(phone, template_name="hola", language_code="es")
         wa_message_id = result.get("messages", [{}])[0].get("id")
         
         # Сохраняем статус в заявке и переводим в Analysis

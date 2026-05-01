@@ -72,6 +72,12 @@ WHATSAPP_API_VERSION = "v25.0"
 WHATSAPP_PUBLIC_NUMBER = re.sub(r"\D", "", os.environ.get("WHATSAPP_PUBLIC_NUMBER", "+34611974984"))
 CLIENT_AREA_BASE_URL = os.environ.get("CLIENT_AREA_BASE_URL", "https://entraycompara.com")
 CLIENT_TOKEN_HASH_SECRET = os.environ.get("CLIENT_TOKEN_HASH_SECRET") or OPERATOR_SECRET_KEY or WHATSAPP_VERIFY_TOKEN or "entraycompara-dev-token-secret"
+VERIFICATION_MAX_ATTEMPTS = int(os.environ.get("VERIFICATION_MAX_ATTEMPTS", "10"))
+VERIFICATION_ATTEMPT_WINDOW_SECONDS = int(os.environ.get("VERIFICATION_ATTEMPT_WINDOW_SECONDS", "60"))
+VERIFICATION_ATTEMPT_WINDOW_LIMIT = int(os.environ.get("VERIFICATION_ATTEMPT_WINDOW_LIMIT", "5"))
+WHATSAPP_CODE_VALIDATION_ERROR = (
+    "No hemos podido validar el código. Por favor, revisa el código que aparece en la página de confirmación o solicita uno nuevo."
+)
 # -------------------------
 
 # --- Настройки Gemini AI ---
@@ -321,6 +327,10 @@ class SalesDepartmentFollowupDecision(BaseModel):
 class SalesDepartmentDraftInsertRequest(BaseModel):
     message: str
     action_id: str | None = None
+    actor: str = "Operator"
+
+class ClientAreaTokenRevokeRequest(BaseModel):
+    reason: str | None = None
     actor: str = "Operator"
 
 # 1.6. Модели для Proposal Builder (Extracted Data)
@@ -3274,6 +3284,78 @@ def find_application_by_secure_token(secure_token: str) -> tuple[str, dict] | No
     return None
 
 
+def create_security_event(
+    application_id: str,
+    event_type: str,
+    *,
+    severity: str = "info",
+    actor: str = "system",
+    metadata: dict | None = None,
+) -> str | None:
+    """Stores security-sensitive audit events without exposing client secrets."""
+    try:
+        event_ref = (
+            firestore_client.collection(FIRESTORE_COLLECTION)
+            .document(application_id)
+            .collection("security_events")
+            .document()
+        )
+        event_ref.set({
+            "event_type": event_type,
+            "severity": severity,
+            "actor": actor,
+            "metadata": metadata or {},
+            "created_at": datetime.datetime.utcnow(),
+        })
+        return event_ref.id
+    except Exception as exc:
+        print(f"Security event write failed: {exc}")
+        return None
+
+
+def create_global_security_event(event_type: str, *, severity: str = "info", metadata: dict | None = None) -> str | None:
+    """Stores security events that are not yet attributable to a specific application."""
+    try:
+        event_ref = firestore_client.collection("security_events").document()
+        event_ref.set({
+            "event_type": event_type,
+            "severity": severity,
+            "metadata": metadata or {},
+            "created_at": datetime.datetime.utcnow(),
+        })
+        return event_ref.id
+    except Exception as exc:
+        print(f"Global security event write failed: {exc}")
+        return None
+
+
+def get_verification_attempt_window(app_data: dict, now: datetime.datetime) -> tuple[datetime.datetime, int]:
+    window_started_at = app_data.get("verification_code_attempt_window_started_at")
+    window_count = int(app_data.get("verification_code_attempt_window_count") or 0)
+
+    if isinstance(window_started_at, datetime.datetime):
+        started_naive = window_started_at.replace(tzinfo=None)
+        if (now - started_naive).total_seconds() <= VERIFICATION_ATTEMPT_WINDOW_SECONDS:
+            return started_naive, window_count
+
+    return now, 0
+
+
+def build_verification_attempt_update(
+    attempts: int,
+    window_started_at: datetime.datetime,
+    window_count: int,
+    now: datetime.datetime,
+) -> dict:
+    return {
+        "verification_code_attempts": attempts + 1,
+        "verification_code_attempt_window_started_at": window_started_at,
+        "verification_code_attempt_window_count": window_count + 1,
+        "verification_code_last_attempt_at": now,
+        "updated_at": now,
+    }
+
+
 def build_whatsapp_activation_url(public_code: str, verification_code: str) -> str:
     message = f"Hola, soy cliente de Entra y Compara. Mi código es {public_code} / {verification_code}."
     return f"https://wa.me/{WHATSAPP_PUBLIC_NUMBER}?text={quote(message, safe='')}"
@@ -3531,7 +3613,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
     if not result:
         send_safe_whatsapp_message(
             from_phone_raw,
-            "No hemos podido validar el código. Por favor, revisa el código que aparece en la página de confirmación o solicita uno nuevo.",
+            WHATSAPP_CODE_VALIDATION_ERROR,
         )
         return True
 
@@ -3549,12 +3631,39 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
     expected_hash = app_data.get("verification_code_hash") or ""
     attempts = int(app_data.get("verification_code_attempts") or 0)
     expires_at = app_data.get("verification_code_expires_at")
+    window_started_at, window_count = get_verification_attempt_window(app_data, now)
 
-    if attempts >= 10:
-        doc_ref.update({
-            "verification_code_attempts": attempts + 1,
-            "updated_at": now,
-        })
+    if window_count >= VERIFICATION_ATTEMPT_WINDOW_LIMIT:
+        doc_ref.update(build_verification_attempt_update(attempts, window_started_at, window_count, now))
+        create_security_event(
+            application_id,
+            "whatsapp_verification_rate_limited",
+            severity="warning",
+            actor="whatsapp_webhook",
+            metadata={
+                "public_code": public_code,
+                "window_seconds": VERIFICATION_ATTEMPT_WINDOW_SECONDS,
+                "window_limit": VERIFICATION_ATTEMPT_WINDOW_LIMIT,
+            },
+        )
+        create_timeline_event_internal(
+            application_id,
+            "WhatsApp-активация временно ограничена: слишком много попыток за короткий период.",
+            EventType.NOTE,
+            "System (WhatsApp Webhook)",
+        )
+        send_safe_whatsapp_message(from_phone_raw, WHATSAPP_CODE_VALIDATION_ERROR)
+        return True
+
+    if attempts >= VERIFICATION_MAX_ATTEMPTS:
+        doc_ref.update(build_verification_attempt_update(attempts, window_started_at, window_count, now))
+        create_security_event(
+            application_id,
+            "whatsapp_verification_attempt_limit_reached",
+            severity="warning",
+            actor="whatsapp_webhook",
+            metadata={"public_code": public_code, "max_attempts": VERIFICATION_MAX_ATTEMPTS},
+        )
         create_timeline_event_internal(
             application_id,
             f"WhatsApp-активация заблокирована по лимиту попыток. Код заявки: {public_code}.",
@@ -3563,15 +3672,19 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         )
         send_safe_whatsapp_message(
             from_phone_raw,
-            "No hemos podido validar el código. Por favor, revisa el código que aparece en la página de confirmación o solicita uno nuevo.",
+            WHATSAPP_CODE_VALIDATION_ERROR,
         )
         return True
 
     if isinstance(expires_at, datetime.datetime) and expires_at < now:
-        doc_ref.update({
-            "verification_code_attempts": attempts + 1,
-            "updated_at": now,
-        })
+        doc_ref.update(build_verification_attempt_update(attempts, window_started_at, window_count, now))
+        create_security_event(
+            application_id,
+            "whatsapp_verification_code_expired",
+            severity="info",
+            actor="whatsapp_webhook",
+            metadata={"public_code": public_code},
+        )
         create_timeline_event_internal(
             application_id,
             f"WhatsApp-активация не выполнена: код истёк. Код заявки: {public_code}.",
@@ -3585,10 +3698,14 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         return True
 
     if not expected_hash or not hmac.compare_digest(expected_hash, hash_client_secret(verification_code)):
-        doc_ref.update({
-            "verification_code_attempts": attempts + 1,
-            "updated_at": now,
-        })
+        doc_ref.update(build_verification_attempt_update(attempts, window_started_at, window_count, now))
+        create_security_event(
+            application_id,
+            "whatsapp_verification_code_invalid",
+            severity="info",
+            actor="whatsapp_webhook",
+            metadata={"public_code": public_code},
+        )
         create_timeline_event_internal(
             application_id,
             f"WhatsApp-активация не выполнена: неверный код. Код заявки: {public_code}.",
@@ -3597,7 +3714,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         )
         send_safe_whatsapp_message(
             from_phone_raw,
-            "No hemos podido validar el código. Por favor, revisa el código que aparece en la página de confirmación o solicita uno nuevo.",
+            WHATSAPP_CODE_VALIDATION_ERROR,
         )
         return True
 
@@ -3614,9 +3731,16 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         "secure_token_hash": hash_client_secret(secure_token),
         "secure_token_created_at": now,
         "secure_token_revoked_at": None,
-        "verification_code_attempts": attempts + 1,
+        **build_verification_attempt_update(attempts, window_started_at, window_count, now),
         "updated_at": now,
     })
+    create_security_event(
+        application_id,
+        "whatsapp_verified_client_area_enabled",
+        severity="info",
+        actor="whatsapp_webhook",
+        metadata={"public_code": public_code},
+    )
     activation_event_id = create_timeline_event_internal(
         application_id,
         f"WhatsApp подтверждён клиентом. Área personal активирована: {client_area_url}",
@@ -4016,6 +4140,12 @@ async def submit_application(
         "verification_code_hash": hash_client_secret(verification_code),
         "verification_code_expires_at": verification_expires_at,
         "verification_code_attempts": 0,
+        "verification_code_attempt_window_started_at": None,
+        "verification_code_attempt_window_count": 0,
+        "verification_code_last_attempt_at": None,
+        "verification_code_max_attempts": VERIFICATION_MAX_ATTEMPTS,
+        "verification_code_window_seconds": VERIFICATION_ATTEMPT_WINDOW_SECONDS,
+        "verification_code_window_limit": VERIFICATION_ATTEMPT_WINDOW_LIMIT,
         "verification_code_last_sent_at": today,
         "verification_code_resend_count": 0,
         "source_page": source_page or "",
@@ -4060,6 +4190,22 @@ async def submit_application(
             ),
             event_type=EventType.NOTE,
             created_by="System (Public API)",
+        )
+
+        create_security_event(
+            application_id,
+            "post_submit_security_context_created",
+            severity="info",
+            actor="public_api",
+            metadata={
+                "public_code": public_code,
+                "consent_version": consent_version or "",
+                "consent_captured": bool(consent_version),
+                "source_page": source_page or "",
+                "utm_source": utm_source or "",
+                "utm_medium": utm_medium or "",
+                "utm_campaign": utm_campaign or "",
+            },
         )
 
         # 3. Отправка уведомления оператору
@@ -4384,6 +4530,57 @@ async def resend_application_verification_code(application_id: str):
     except Exception as e:
         print(f"Verification code resend error: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при перевыпуске кода подтверждения.")
+
+
+@app.post("/api/applications/{application_id}/client-area/revoke-token", tags=["Management"], dependencies=[Depends(authenticate_operator)])
+async def revoke_application_client_area_token(application_id: str, payload: ClientAreaTokenRevokeRequest | None = Body(default=None)):
+    """Отзывает secure token личного кабинета без удаления заявки и документов."""
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail=f"Заявка с ID {application_id} не найдена.")
+
+        app_data = doc.to_dict() or {}
+        now = datetime.datetime.utcnow()
+        reason = (payload.reason if payload else None) or "operator_revoked_client_area_token"
+        actor = (payload.actor if payload else None) or "Operator"
+
+        doc_ref.update({
+            "client_area_enabled": False,
+            "client_area_revoked_at": now,
+            "secure_token_revoked_at": now,
+            "secure_token_revoke_reason": reason,
+            "updated_at": now,
+        })
+
+        create_security_event(
+            application_id,
+            "client_area_token_revoked",
+            severity="warning",
+            actor=actor,
+            metadata={
+                "public_code": app_data.get("public_code", ""),
+                "reason": reason,
+            },
+        )
+        create_timeline_event_internal(
+            application_id,
+            f"Secure token личного кабинета отозван. Причина: {reason}.",
+            EventType.NOTE,
+            actor,
+        )
+
+        return {
+            "success": True,
+            "client_area_enabled": False,
+            "secure_token_revoked_at": now.isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Client area revoke token error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при отзыве secure token личного кабинета.")
 
 
 @app.get("/api/applications/{application_id}/sales-department/state", tags=["Sales Department"], dependencies=[Depends(authenticate_operator)])
@@ -8255,6 +8452,14 @@ async def whatsapp_webhook_receive(request: Request):
         raw_body = await request.body()
         signature_header = request.headers.get("X-Hub-Signature-256")
         if not verify_meta_signature(raw_body, signature_header):
+            create_global_security_event(
+                "whatsapp_webhook_invalid_signature",
+                severity="warning",
+                metadata={
+                    "has_signature_header": bool(signature_header),
+                    "content_length": len(raw_body),
+                },
+            )
             raise HTTPException(status_code=403, detail="Invalid webhook signature")
 
         payload = json.loads(raw_body.decode("utf-8") or "{}")

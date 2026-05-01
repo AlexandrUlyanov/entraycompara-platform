@@ -3930,7 +3930,12 @@ def send_whatsapp_document(to_phone: str, document_url: str, caption: str = "") 
     return resp.json()
 
 
-def send_whatsapp_template(to_phone: str, template_name: str = "hola", language_code: str = "es") -> dict:
+def send_whatsapp_template(
+    to_phone: str,
+    template_name: str = "hola",
+    language_code: str = "es",
+    body_params: list[str] | None = None,
+) -> dict:
     """Отправляет шаблонное сообщение WhatsApp через Meta Business API."""
     if not WHATSAPP_PHONE_NUMBER_ID or not WHATSAPP_ACCESS_TOKEN:
         raise ValueError("WhatsApp credentials not configured")
@@ -3953,6 +3958,16 @@ def send_whatsapp_template(to_phone: str, template_name: str = "hola", language_
             }
         }
     }
+    if body_params:
+        payload["template"]["components"] = [
+            {
+                "type": "body",
+                "parameters": [
+                    {"type": "text", "text": str(param)}
+                    for param in body_params
+                ],
+            }
+        ]
     
     resp = requests.post(url, headers=headers, json=payload)
     if resp.status_code == 400 and normalized.startswith("79"):
@@ -8389,9 +8404,16 @@ async def api_send_whatsapp_first_message(data: WhatsAppFirstMessageRequest):
         if app_data.get("whatsapp_first_message_sent"):
             return {"status": "already_sent", "message": "Первое сообщение уже отправлялось."}
         
-        # Первый контакт всегда отправляем approved-шаблоном hola на испанском.
-        # Это устраняет отказы Meta при несоответствии locale template language.
-        result = send_whatsapp_template(phone, template_name="hola", language_code="es")
+        # Первый контакт отправляем approved-шаблоном hola.
+        # Этот шаблон в Meta ожидает 2 параметра в body.
+        first_name = (app_data.get("client_name") or "Cliente").strip() or "Cliente"
+        public_code = (app_data.get("public_code") or data.application_id).strip()
+        result = send_whatsapp_template(
+            phone,
+            template_name="hola",
+            language_code="es",
+            body_params=[first_name, public_code],
+        )
         wa_message_id = result.get("messages", [{}])[0].get("id")
         
         # Сохраняем статус в заявке и переводим в Analysis

@@ -3402,11 +3402,15 @@ def parse_whatsapp_activation_text(text: str) -> tuple[str, str] | None:
         return None
     public_code = f"EC-{public_code_match.group(1)}"
 
-    compact_text = re.sub(r"\D", "", text)
-    code_match = re.search(r"(\d{6})(?!.*\d{6})", compact_text)
-    if not code_match:
+    verification_tail = text[public_code_match.end():]
+    tail_codes = re.findall(r"\d{6}", re.sub(r"\D", "", verification_tail))
+    if tail_codes:
+        return public_code, tail_codes[-1]
+
+    all_codes = re.findall(r"\d{6}", re.sub(r"\D", "", text))
+    if len(all_codes) < 2:
         return None
-    return public_code, code_match.group(1)
+    return public_code, all_codes[-1]
 
 
 def create_whatsapp_timeline_event(

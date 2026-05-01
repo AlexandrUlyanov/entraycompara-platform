@@ -3444,6 +3444,83 @@ def send_safe_whatsapp_message(to_phone: str, message: str) -> str | None:
         return None
 
 
+def notify_client_proposal_ready(
+    application_id: str,
+    app_data: dict,
+    proposal_url: str,
+    *,
+    trigger: str,
+) -> str | None:
+    """Sends a safe client-area proposal notification only after WhatsApp verification."""
+    doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+    client_area_url = app_data.get("client_area_url")
+    phone = app_data.get("whatsapp_verified_phone") or app_data.get("client_phone")
+    already_notified_url = app_data.get("proposal_client_area_notified_url")
+
+    if already_notified_url == proposal_url:
+        return None
+
+    if not app_data.get("whatsapp_verified") or not app_data.get("client_area_enabled"):
+        create_timeline_event_internal(
+            application_id,
+            (
+                "КП готово, автоуведомление клиенту не отправлено.\n"
+                "Причина: WhatsApp ещё не подтверждён клиентом."
+            ),
+            EventType.NOTE,
+            "System",
+        )
+        return None
+
+    if not client_area_url or not phone:
+        create_timeline_event_internal(
+            application_id,
+            (
+                "КП готово, автоуведомление клиенту не отправлено.\n"
+                "Причина: отсутствует secure link личного кабинета или телефон клиента."
+            ),
+            EventType.NOTE,
+            "System",
+        )
+        return None
+
+    message = (
+        "Tu propuesta ya está lista.\n"
+        "Puedes verla en tu área personal aquí:\n"
+        f"{client_area_url}\n"
+        "Si tiene cualquier duda, se la aclaramos."
+    )
+    wa_message_id = send_safe_whatsapp_message(phone, message)
+    now = datetime.datetime.utcnow()
+    event_id = create_whatsapp_timeline_event(
+        application_id,
+        message,
+        "System",
+        "outgoing",
+        wa_message_id,
+        "submitted" if wa_message_id else "failed",
+    )
+    update_payload = {
+        "proposal_client_area_notification_trigger": trigger,
+        "proposal_client_area_wa_message_id": wa_message_id,
+        "updated_at": now,
+    }
+    if wa_message_id:
+        update_payload.update({
+            "proposal_client_area_notified_at": now,
+            "proposal_client_area_notified_url": proposal_url,
+        })
+    else:
+        update_payload["proposal_client_area_notification_failed_at"] = now
+    doc_ref.update(update_payload)
+    trigger_sales_department_reanalysis(
+        application_id,
+        reason="proposal_ready_client_notification",
+        source_event_id=event_id,
+    )
+    return wa_message_id
+
+
 def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_message_id: str) -> bool:
     parsed = parse_whatsapp_activation_text(text_body)
     if not parsed:
@@ -6803,6 +6880,9 @@ async def generate_proposal(application_id: str, payload: ProposalGenerateReques
         doc_ref.update({
             "proposal_file_url": proposal_url,
             "proposal_uploaded": True,
+            "client_visible_status": "proposal_ready",
+            "client_visible_label": get_client_visible_label("proposal_ready", Status.PROPOSAL.value),
+            "proposal_ready_at": today,
             "updated_at": today,
         })
         
@@ -6821,6 +6901,17 @@ async def generate_proposal(application_id: str, payload: ProposalGenerateReques
             application_id,
             reason="proposal_generated",
             source_event_id=event_id,
+        )
+        notify_client_proposal_ready(
+            application_id,
+            {
+                **app_data,
+                "proposal_file_url": proposal_url,
+                "proposal_uploaded": True,
+                "client_visible_status": "proposal_ready",
+            },
+            proposal_url,
+            trigger="proposal_generated",
         )
         
         return {"success": True, "proposal_file_url": proposal_url, "message": "КП сгенерировано."}
@@ -6888,6 +6979,9 @@ async def upload_proposal(application_id: str, file: UploadFile = File(...)):
         doc_ref.update({
             "proposal_file_url": path,
             "proposal_uploaded": True,
+            "client_visible_status": "proposal_ready",
+            "client_visible_label": get_client_visible_label("proposal_ready", Status.PROPOSAL.value),
+            "proposal_ready_at": today,
             "updated_at": today
         })
 
@@ -6905,6 +6999,17 @@ async def upload_proposal(application_id: str, file: UploadFile = File(...)):
             application_id,
             reason="proposal_uploaded",
             source_event_id=event_id,
+        )
+        notify_client_proposal_ready(
+            application_id,
+            {
+                **(doc.to_dict() or {}),
+                "proposal_file_url": path,
+                "proposal_uploaded": True,
+                "client_visible_status": "proposal_ready",
+            },
+            path,
+            trigger="proposal_uploaded",
         )
         
         return {
@@ -8013,14 +8118,29 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
         })
         
         # Автоматически переводим заявку в статус Proposal
+        now = datetime.datetime.utcnow()
         doc_ref.update({
             "status": Status.PROPOSAL.value,
-            "updated_at": datetime.datetime.utcnow(),
+            "client_visible_status": "proposal_sent",
+            "client_visible_label": get_client_visible_label("proposal_sent", Status.PROPOSAL.value),
+            "proposal_sent_at": now,
+            "updated_at": now,
         })
         trigger_sales_department_reanalysis(
             data.application_id,
             reason="proposal_sent_via_whatsapp",
             source_event_id=event_ref.id,
+        )
+        notify_client_proposal_ready(
+            data.application_id,
+            {
+                **app_data,
+                "status": Status.PROPOSAL.value,
+                "client_visible_status": "proposal_sent",
+                "proposal_sent_at": now,
+            },
+            proposal_url,
+            trigger="proposal_sent_via_whatsapp",
         )
         
         return {

@@ -35,7 +35,6 @@ const EXTRACTION_STEPS = [
   { key: 'primary_extraction', progress: 45 },
   { key: 'validate_primary', progress: 62 },
   { key: 'second_pass', progress: 78 },
-  { key: 'build_snippets', progress: 86 },
   { key: 'save_results', progress: 92 },
   { key: 'completed', progress: 100 },
 ] as const;

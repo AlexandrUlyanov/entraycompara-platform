@@ -2465,7 +2465,6 @@ EXTRACTION_STEP_PROGRESS = {
     "primary_extraction": 45,
     "validate_primary": 62,
     "second_pass": 78,
-    "build_snippets": 86,
     "save_results": 92,
     "completed": 100,
 }
@@ -2605,20 +2604,8 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             "second_pass_response_text": pipeline_result["second_pass_raw"],
             "second_pass_updates": pipeline_result["second_pass_updates"],
         }
-
-        update_proposal_extraction_task(application_id, task_id, {
-            "step_key": "build_snippets",
-            "message": "Готовим визуальные фрагменты по полям для быстрой проверки.",
-            "progress_percent": EXTRACTION_STEP_PROGRESS["build_snippets"],
-        })
-
-        final_source_snippets = build_source_snippet_images(
-            application_id=application_id,
-            task_id=task_id,
-            file_bytes_list=file_contents,
-            file_urls=request.file_urls,
-            source_snippets=primary_sources,
-        )
+        # Snippet generation disabled for performance stability.
+        final_source_snippets = {}
 
         update_proposal_extraction_task(application_id, task_id, {
             "step_key": "save_results",

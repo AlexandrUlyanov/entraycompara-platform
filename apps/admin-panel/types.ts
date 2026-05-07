@@ -118,6 +118,7 @@ export interface ProposalData {
     snippet_url?: string | null;
     snippet_url_tight?: string | null;
     snippet_url_context?: string | null;
+    overlay_page_url?: string | null;
   }>;
   overall_confidence?: number;
   needs_review?: boolean;
@@ -152,6 +153,7 @@ export interface ExtractionTaskStatus {
     snippet_url?: string | null;
     snippet_url_tight?: string | null;
     snippet_url_context?: string | null;
+    overlay_page_url?: string | null;
   }>;
   overall_confidence?: number;
   needs_review?: boolean;

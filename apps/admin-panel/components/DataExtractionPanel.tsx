@@ -263,6 +263,10 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
   const renderFieldEvidence = (field: string) => {
     const source = existingData?.source_snippets?.[field];
     if (!source) return null;
+    const bbox = Array.isArray(source.bbox_norm) && source.bbox_norm.length === 4 ? source.bbox_norm : null;
+    const focusX = bbox ? Math.max(0, Math.min(100, ((Number(bbox[0]) + Number(bbox[2])) / 2) * 100)) : 50;
+    const focusY = bbox ? Math.max(0, Math.min(100, ((Number(bbox[1]) + Number(bbox[3])) / 2) * 100)) : 50;
+    const previewUrl = source.overlay_page_url || source.snippet_url;
 
     return (
       <div className="mt-2 rounded-xl border border-slate-200 bg-white p-2.5">
@@ -274,12 +278,15 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
             {typeof source.page === 'number' ? `${t('proposalBuilder.extractData.pageShort')} ${source.page}` : '—'}
           </span>
         </div>
-        {source.snippet_url ? (
-          <a href={source.snippet_url} target="_blank" rel="noreferrer" className="group block">
+        {previewUrl ? (
+          <a href={previewUrl} target="_blank" rel="noreferrer" className="group block">
             <img
-              src={source.snippet_url}
+              src={previewUrl}
               alt="field-source-snippet"
               className="h-16 w-full rounded-lg border border-slate-200 object-cover transition-all group-hover:opacity-90"
+              style={{
+                objectPosition: `${focusX}% ${focusY}%`,
+              }}
               loading="lazy"
             />
           </a>
@@ -296,6 +303,16 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
               className="inline-flex text-[10px] font-medium text-primary hover:underline"
             >
               {t('proposalBuilder.extractData.openSourceFile')}
+            </a>
+          ) : null}
+          {source.overlay_page_url ? (
+            <a
+              href={source.overlay_page_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex text-[10px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline"
+            >
+              {t('proposalBuilder.extractData.openAnnotatedPage')}
             </a>
           ) : null}
           {source.snippet_url_tight && source.snippet_url_context && source.snippet_url_tight !== source.snippet_url_context ? (

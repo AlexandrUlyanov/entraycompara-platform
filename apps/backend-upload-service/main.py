@@ -26,7 +26,7 @@ from google.cloud import storage, firestore
 from pydantic import BaseModel
 import google.generativeai as genai
 import eni_simulator
-from PIL import Image
+from PIL import Image, ImageDraw
 
 try:
     from stdnum.es import cups as stdnum_cups
@@ -2959,6 +2959,66 @@ def _crop_pdf_page_by_bbox(
         return None
 
 
+def _render_pdf_page_image(file_bytes: bytes, page_index: int) -> Image.Image | None:
+    if fitz is None:
+        return None
+    try:
+        pdf_doc = fitz.open(stream=file_bytes, filetype="pdf")
+        if page_index < 0 or page_index >= pdf_doc.page_count:
+            return None
+        page = pdf_doc.load_page(page_index)
+        pix = page.get_pixmap(matrix=fitz.Matrix(1.7, 1.7), alpha=False)
+        image = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+        return image
+    except Exception:
+        return None
+
+
+def _render_source_page_image(file_bytes: bytes, mime_type: str, page_index: int) -> Image.Image | None:
+    try:
+        if mime_type == "application/pdf":
+            return _render_pdf_page_image(file_bytes, page_index)
+        if mime_type in {"image/png", "image/jpeg"}:
+            image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+            return image
+    except Exception:
+        return None
+    return None
+
+
+def _draw_overlay_for_page(image: Image.Image, entries: list[tuple[str, tuple[float, float, float, float]]]) -> bytes:
+    canvas = image.copy()
+    draw = ImageDraw.Draw(canvas)
+    width, height = canvas.size
+
+    for field, bbox in entries:
+        x1, y1, x2, y2 = bbox
+        left = int(x1 * width)
+        top = int(y1 * height)
+        right = int(x2 * width)
+        bottom = int(y2 * height)
+
+        draw.rectangle((left, top, right, bottom), outline=(239, 68, 68), width=3)
+        label = field.replace("_", " ").upper()[:32]
+        text_x = max(2, left)
+        text_y = max(2, top - 16)
+        draw.rectangle((text_x, text_y, min(width - 2, text_x + 220), text_y + 14), fill=(37, 99, 235))
+        draw.text((text_x + 4, text_y + 2), label, fill=(255, 255, 255))
+        # Pointer triangle.
+        draw.polygon(
+            [
+                (text_x + 12, text_y + 14),
+                (text_x + 18, text_y + 14),
+                (text_x + 15, min(height - 2, top)),
+            ],
+            fill=(37, 99, 235),
+        )
+
+    out = io.BytesIO()
+    canvas.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
 def build_source_snippet_images(
     application_id: str,
     task_id: str,
@@ -2972,6 +3032,7 @@ def build_source_snippet_images(
     today = datetime.datetime.utcnow()
     prefix = f"proposal_snippets/{today.year}/{today.month:02}/{today.day:02}/{application_id}/{task_id}"
     enriched: dict[str, dict] = {}
+    page_entries: dict[tuple[int, int], list[tuple[str, tuple[float, float, float, float]]]] = {}
 
     for field, source in source_snippets.items():
         source_copy = dict(source)
@@ -2995,11 +3056,14 @@ def build_source_snippet_images(
         source_copy["snippet_url"] = None
         source_copy["snippet_url_tight"] = None
         source_copy["snippet_url_context"] = None
+        source_copy["overlay_page_url"] = None
         source_copy["bbox_norm"] = list(bbox_norm) if bbox_norm else None
 
         if not bbox_norm:
             enriched[field] = source_copy
             continue
+
+        page_entries.setdefault((file_index, max(1, page_number)), []).append((field, bbox_norm))
 
         file_bytes, mime_type = file_bytes_list[file_index]
         snippet_tight_png: bytes | None = None
@@ -3039,6 +3103,33 @@ def build_source_snippet_images(
         source_copy["snippet_url"] = source_copy.get("snippet_url_context") or source_copy.get("snippet_url_tight")
 
         enriched[field] = source_copy
+
+    overlay_url_by_page: dict[tuple[int, int], str] = {}
+    for (file_index, page_number), entries in page_entries.items():
+        file_bytes, mime_type = file_bytes_list[file_index]
+        page_image = _render_source_page_image(file_bytes, mime_type, max(0, page_number - 1))
+        if page_image is None:
+            continue
+        # Normalize obviously rotated full-page scans.
+        if page_image.width > page_image.height * 1.25:
+            page_image = page_image.rotate(90, expand=True)
+        overlay_bytes = _draw_overlay_for_page(page_image, entries)
+        overlay_blob = f"{prefix}/overlay-f{file_index + 1}-p{page_number}.png"
+        try:
+            overlay_url_by_page[(file_index, page_number)] = _upload_bytes_to_gcs(
+                overlay_bytes, overlay_blob, "image/png"
+            )
+        except Exception as exc:
+            print(f"Failed to upload page overlay for file {file_index} page {page_number}: {exc}")
+
+    for field, source in enriched.items():
+        fi = source.get("file_index")
+        pg = source.get("page")
+        try:
+            key = (int(fi), int(pg))
+        except (TypeError, ValueError):
+            continue
+        source["overlay_page_url"] = overlay_url_by_page.get(key)
 
     return enriched
 

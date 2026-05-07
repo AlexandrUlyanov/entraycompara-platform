@@ -3266,6 +3266,48 @@ def find_application_by_public_code(public_code: str) -> tuple[str, dict] | None
     return None
 
 
+def find_application_by_public_code_and_phone(
+    public_code: str,
+    from_phone_raw: str,
+) -> tuple[str, dict] | None | str:
+    normalized_code = re.sub(r"\s+", "", (public_code or "").strip().upper())
+    if not re.fullmatch(r"EC-\d{6}", normalized_code):
+        return None
+
+    docs = (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .where("public_code", "==", normalized_code)
+        .limit(20)
+        .stream()
+    )
+    rows: list[tuple[str, dict]] = []
+    for doc in docs:
+        if not doc.exists:
+            continue
+        data = doc.to_dict() or {}
+        data["id"] = doc.id
+        rows.append((doc.id, data))
+
+    if not rows:
+        return None
+    if len(rows) == 1:
+        return rows[0]
+
+    normalized_from_phone = normalize_phone(from_phone_raw)
+    phone_matches: list[tuple[str, dict]] = []
+    for application_id, app_data in rows:
+        app_phone = normalize_phone(app_data.get("client_phone", ""))
+        verified_phone = normalize_phone(app_data.get("whatsapp_verified_phone", ""))
+        if normalized_from_phone and (normalized_from_phone == app_phone or normalized_from_phone == verified_phone):
+            phone_matches.append((application_id, app_data))
+
+    if len(phone_matches) == 1:
+        return phone_matches[0]
+    if len(phone_matches) > 1:
+        return "ambiguous"
+    return "ambiguous"
+
+
 def find_application_by_secure_token(secure_token: str) -> tuple[str, dict] | None:
     token_hash = hash_client_secret(secure_token or "")
     docs = (
@@ -3697,7 +3739,14 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
 
     if parsed:
         public_code, verification_code = parsed
-        result = find_application_by_public_code(public_code)
+        result = find_application_by_public_code_and_phone(public_code, from_phone_raw)
+        if result == "ambiguous":
+            send_safe_whatsapp_message(
+                from_phone_raw,
+                "No hemos podido validar la solicitud porque hay conflicto de datos. "
+                "Por favor escribe por este chat: \"Quiero activar mi área personal\" y lo revisamos ahora mismo.",
+            )
+            return True
     else:
         # Fallback: some clients send only the 6-digit code (without EC-XXXXXX).
         # In that case we match by verification hash + sender phone.

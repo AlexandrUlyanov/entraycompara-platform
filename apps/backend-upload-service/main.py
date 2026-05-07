@@ -2857,20 +2857,47 @@ def _extract_data_and_sources_from_gemini_output(raw_obj: dict) -> tuple[dict, d
     return extracted_data, normalized_sources
 
 
-def _crop_png_by_bbox(image_bytes: bytes, bbox_norm: tuple[float, float, float, float]) -> bytes | None:
+def _ensure_readable_orientation(image: Image.Image) -> Image.Image:
+    w, h = image.size
+    if h > w * 1.25:
+        return image.rotate(90, expand=True)
+    return image
+
+
+def _crop_png_by_bbox(
+    image_bytes: bytes,
+    bbox_norm: tuple[float, float, float, float],
+    *,
+    context_scale_x: float = 0.0,
+    context_scale_y: float = 0.0,
+) -> bytes | None:
     try:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = image.size
         x1, y1, x2, y2 = bbox_norm
-        pad_x = int(width * 0.01)
-        pad_y = int(height * 0.01)
-        left = max(0, int(x1 * width) - pad_x)
-        top = max(0, int(y1 * height) - pad_y)
-        right = min(width, int(x2 * width) + pad_x)
-        bottom = min(height, int(y2 * height) + pad_y)
+        box_w = max(1.0, (x2 - x1) * width)
+        box_h = max(1.0, (y2 - y1) * height)
+        expand_x = box_w * context_scale_x
+        expand_y = box_h * context_scale_y
+        left = max(0, int(x1 * width - expand_x))
+        top = max(0, int(y1 * height - expand_y))
+        right = min(width, int(x2 * width + expand_x))
+        bottom = min(height, int(y2 * height + expand_y))
+        # Ensure minimal readable crop size.
+        min_w = max(180, int(width * 0.16))
+        min_h = max(80, int(height * 0.08))
+        if (right - left) < min_w:
+            add = (min_w - (right - left)) // 2
+            left = max(0, left - add)
+            right = min(width, right + add + 1)
+        if (bottom - top) < min_h:
+            add = (min_h - (bottom - top)) // 2
+            top = max(0, top - add)
+            bottom = min(height, bottom + add + 1)
         if right <= left or bottom <= top:
             return None
         cropped = image.crop((left, top, right, bottom))
+        cropped = _ensure_readable_orientation(cropped)
         out = io.BytesIO()
         cropped.save(out, format="PNG", optimize=True)
         return out.getvalue()
@@ -2878,7 +2905,14 @@ def _crop_png_by_bbox(image_bytes: bytes, bbox_norm: tuple[float, float, float, 
         return None
 
 
-def _crop_pdf_page_by_bbox(file_bytes: bytes, page_index: int, bbox_norm: tuple[float, float, float, float]) -> bytes | None:
+def _crop_pdf_page_by_bbox(
+    file_bytes: bytes,
+    page_index: int,
+    bbox_norm: tuple[float, float, float, float],
+    *,
+    context_scale_x: float = 0.0,
+    context_scale_y: float = 0.0,
+) -> bytes | None:
     if fitz is None:
         return None
     try:
@@ -2888,15 +2922,31 @@ def _crop_pdf_page_by_bbox(file_bytes: bytes, page_index: int, bbox_norm: tuple[
         page = pdf_doc.load_page(page_index)
         rect = page.rect
         x1, y1, x2, y2 = bbox_norm
+        box_w = max(1.0, rect.width * (x2 - x1))
+        box_h = max(1.0, rect.height * (y2 - y1))
+        expand_x = box_w * context_scale_x
+        expand_y = box_h * context_scale_y
         clip = fitz.Rect(
-            rect.x0 + rect.width * x1,
-            rect.y0 + rect.height * y1,
-            rect.x0 + rect.width * x2,
-            rect.y0 + rect.height * y2,
+            rect.x0 + rect.width * x1 - expand_x,
+            rect.y0 + rect.height * y1 - expand_y,
+            rect.x0 + rect.width * x2 + expand_x,
+            rect.y0 + rect.height * y2 + expand_y,
         )
-        clip = clip + (-8, -8, 8, 8)
+        clip = clip.intersect(rect)
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), clip=clip, alpha=False)
-        return pix.tobytes("png")
+        png_bytes = pix.tobytes("png")
+        image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+        # Ensure minimal readable crop size after render.
+        min_w = 360
+        min_h = 120
+        if image.width < min_w or image.height < min_h:
+            target_w = max(min_w, image.width)
+            target_h = max(min_h, image.height)
+            image = image.resize((target_w, target_h), Image.Resampling.LANCZOS)
+        image = _ensure_readable_orientation(image)
+        out = io.BytesIO()
+        image.save(out, format="PNG", optimize=True)
+        return out.getvalue()
     except Exception:
         return None
 
@@ -2935,6 +2985,8 @@ def build_source_snippet_images(
         source_copy["file_url"] = file_urls[file_index] if file_index < len(file_urls) else None
         source_copy["page"] = max(1, page_number)
         source_copy["snippet_url"] = None
+        source_copy["snippet_url_tight"] = None
+        source_copy["snippet_url_context"] = None
         source_copy["bbox_norm"] = list(bbox_norm) if bbox_norm else None
 
         if not bbox_norm:
@@ -2942,19 +2994,41 @@ def build_source_snippet_images(
             continue
 
         file_bytes, mime_type = file_bytes_list[file_index]
-        snippet_png: bytes | None = None
+        snippet_tight_png: bytes | None = None
+        snippet_context_png: bytes | None = None
 
         if mime_type == "application/pdf":
-            snippet_png = _crop_pdf_page_by_bbox(file_bytes, max(0, page_number - 1), bbox_norm)
+            snippet_tight_png = _crop_pdf_page_by_bbox(file_bytes, max(0, page_number - 1), bbox_norm)
+            snippet_context_png = _crop_pdf_page_by_bbox(
+                file_bytes,
+                max(0, page_number - 1),
+                bbox_norm,
+                context_scale_x=0.18,
+                context_scale_y=0.30,
+            )
         elif mime_type in {"image/png", "image/jpeg"}:
-            snippet_png = _crop_png_by_bbox(file_bytes, bbox_norm)
+            snippet_tight_png = _crop_png_by_bbox(file_bytes, bbox_norm)
+            snippet_context_png = _crop_png_by_bbox(
+                file_bytes,
+                bbox_norm,
+                context_scale_x=0.18,
+                context_scale_y=0.30,
+            )
 
-        if snippet_png:
-            blob_name = f"{prefix}/{field}.png"
+        if snippet_tight_png:
+            tight_blob = f"{prefix}/{field}-tight.png"
             try:
-                source_copy["snippet_url"] = _upload_bytes_to_gcs(snippet_png, blob_name, "image/png")
+                source_copy["snippet_url_tight"] = _upload_bytes_to_gcs(snippet_tight_png, tight_blob, "image/png")
             except Exception as exc:
-                print(f"Failed to upload snippet for {field}: {exc}")
+                print(f"Failed to upload tight snippet for {field}: {exc}")
+        if snippet_context_png:
+            context_blob = f"{prefix}/{field}-context.png"
+            try:
+                source_copy["snippet_url_context"] = _upload_bytes_to_gcs(snippet_context_png, context_blob, "image/png")
+            except Exception as exc:
+                print(f"Failed to upload context snippet for {field}: {exc}")
+
+        source_copy["snippet_url"] = source_copy.get("snippet_url_context") or source_copy.get("snippet_url_tight")
 
         enriched[field] = source_copy
 

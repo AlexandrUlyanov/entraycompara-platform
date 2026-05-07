@@ -286,16 +286,28 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
         {source.snippet_text ? (
           <p className="mt-1.5 text-[11px] text-slate-600">{source.snippet_text}</p>
         ) : null}
-        {source.file_url ? (
-          <a
-            href={source.file_url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1 inline-flex text-[10px] font-medium text-primary hover:underline"
-          >
-            {t('proposalBuilder.extractData.openSourceFile')}
-          </a>
-        ) : null}
+        <div className="mt-1 flex flex-wrap items-center gap-3">
+          {source.file_url ? (
+            <a
+              href={source.file_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex text-[10px] font-medium text-primary hover:underline"
+            >
+              {t('proposalBuilder.extractData.openSourceFile')}
+            </a>
+          ) : null}
+          {source.snippet_url_tight && source.snippet_url_context && source.snippet_url_tight !== source.snippet_url_context ? (
+            <a
+              href={source.snippet_url_tight}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex text-[10px] font-medium text-slate-500 hover:text-slate-700 hover:underline"
+            >
+              {t('proposalBuilder.extractData.openTightSnippet')}
+            </a>
+          ) : null}
+        </div>
       </div>
     );
   };

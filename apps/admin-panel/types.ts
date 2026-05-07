@@ -116,6 +116,8 @@ export interface ProposalData {
     bbox_norm?: [number, number, number, number] | null;
     snippet_text?: string;
     snippet_url?: string | null;
+    snippet_url_tight?: string | null;
+    snippet_url_context?: string | null;
   }>;
   overall_confidence?: number;
   needs_review?: boolean;
@@ -148,6 +150,8 @@ export interface ExtractionTaskStatus {
     bbox_norm?: [number, number, number, number] | null;
     snippet_text?: string;
     snippet_url?: string | null;
+    snippet_url_tight?: string | null;
+    snippet_url_context?: string | null;
   }>;
   overall_confidence?: number;
   needs_review?: boolean;

@@ -194,32 +194,52 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
     if (!selectedSimulation) return null;
     const direct = firstFinite(
       selectedSimulation.savings_monthly_eur,
+      selectedSimulation.savings_monthly,
       selectedSimulation.monthly_saving,
       selectedSimulation.monthly_savings,
       selectedSimulation.monthly_saving_eur,
+      selectedSimulation.estimated_monthly_saving,
+      selectedSimulation.estimated_savings_monthly,
       selectedSimulation.ahorro_mensual,
+      selectedSimulation.ahorro_mensual_eur,
     );
-    if (direct !== null) return direct;
     const currentMonthly = firstFinite(
       payload?.extracted_data?.avg_monthly_cost_eur,
       payload?.extracted_data?.monthly_cost_eur,
+      selectedSimulation.current_monthly_cost,
+      selectedSimulation.current_monthly_cost_eur,
     );
     const newMonthly = firstFinite(
       selectedSimulation.new_monthly_cost_eur,
+      selectedSimulation.new_monthly_cost,
       selectedSimulation.estimated_monthly_cost,
+      selectedSimulation.estimated_monthly_cost_eur,
     );
-    if (currentMonthly !== null && newMonthly !== null) return Math.max(0, currentMonthly - newMonthly);
+    const computed = currentMonthly !== null && newMonthly !== null
+      ? Math.max(0, currentMonthly - newMonthly)
+      : null;
+    if (direct !== null && direct > 0) return direct;
+    if (computed !== null && computed > 0) return computed;
+    if (direct !== null) return direct;
+    if (computed !== null) return computed;
     return null;
   }, [selectedSimulation, payload?.extracted_data]);
   const annualSavings = useMemo(() => {
     if (!selectedSimulation) return null;
     const direct = firstFinite(
       selectedSimulation.annual_saving,
+      selectedSimulation.annual_savings,
       selectedSimulation.savings_annual_eur,
+      selectedSimulation.estimated_annual_saving,
+      selectedSimulation.estimated_savings_annual,
       selectedSimulation.ahorro_anual,
+      selectedSimulation.ahorro_anual_eur,
     );
+    const computed = monthlySavings !== null ? monthlySavings * 12 : null;
+    if (direct !== null && direct > 0) return direct;
+    if (computed !== null && computed > 0) return computed;
     if (direct !== null) return direct;
-    return monthlySavings !== null ? monthlySavings * 12 : null;
+    return computed;
   }, [selectedSimulation, monthlySavings]);
 
   const activeStatusIndex = statusIndex(application?.client_visible_status);

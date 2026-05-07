@@ -301,6 +301,7 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
               {statusSteps.map((step, index) => {
                 const isDone = index < activeStatusIndex || (hasProposal && index <= activeStatusIndex);
                 const isActive = index === activeStatusIndex && !hasProposal;
+                const isProposalStep = step.label === 'Propuesta lista';
                 return (
                   <div key={step.label} className={`rounded-3xl border p-5 ${isDone ? 'border-emerald-100 bg-emerald-50' : isActive ? 'border-blue-100 bg-blue-50' : 'border-slate-100 bg-slate-50'}`}>
                     <div className={`flex h-10 w-10 items-center justify-center rounded-full ${isDone ? 'bg-emerald-500 text-white' : isActive ? 'bg-blue-600 text-white' : 'bg-white text-slate-400'}`}>
@@ -308,6 +309,16 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
                     </div>
                     <p className="mt-4 font-black">{step.label}</p>
                     <p className="mt-1 text-sm text-slate-500">{isDone ? 'Completado' : isActive ? 'En curso' : 'Pendiente'}</p>
+                    {isProposalStep && hasProposal && payload?.proposal?.pdf_url && (
+                      <a
+                        href={payload.proposal.pdf_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-flex min-h-[38px] items-center justify-center rounded-xl bg-blue-600 px-3 text-xs font-black text-white transition hover:bg-blue-700"
+                      >
+                        Ver propuesta
+                      </a>
+                    )}
                   </div>
                 );
               })}

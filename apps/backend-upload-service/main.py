@@ -5843,6 +5843,8 @@ async def create_simulation(application_id: str, input_data: SimulationInput):
         
         sim_ref = doc_ref.collection("proposal_simulations").document()
         sim_ref.set(sim_data)
+        # At least one simulation exists: comparison phase is completed from client perspective.
+        maybe_advance_client_visible_status(doc_ref, "comparison_in_progress")
         
         event_id = create_timeline_event_internal(
             application_id=application_id,
@@ -6013,6 +6015,8 @@ async def select_simulation(application_id: str, simulation_id: str):
         
         # Ставим выбор на текущую
         sim_ref.update({"is_selected": True, "updated_at": datetime.datetime.utcnow()})
+        # Final simulation selected for proposal preparation.
+        maybe_advance_client_visible_status(doc_ref, "simulation_ready")
         
         event_id = create_timeline_event_internal(
             application_id=application_id,
@@ -6298,6 +6302,9 @@ async def select_tariff_for_auto_simulation(application_id: str, task_id: str, b
             "tariffs": firestore.DELETE_FIELD,
             "updated_at": datetime.datetime.utcnow(),
         })
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        # Tariff choice means comparison phase is completed.
+        maybe_advance_client_visible_status(doc_ref, "comparison_in_progress")
 
         return {"success": True, "message": "Тариф выбран, симуляция продолжается."}
 

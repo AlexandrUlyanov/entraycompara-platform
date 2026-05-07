@@ -2872,15 +2872,14 @@ def _ensure_readable_orientation(image: Image.Image) -> Image.Image:
     return image
 
 
-def _crop_png_by_bbox(
-    image_bytes: bytes,
+def _crop_image_by_bbox(
+    image: Image.Image,
     bbox_norm: tuple[float, float, float, float],
     *,
     context_scale_x: float = 0.0,
     context_scale_y: float = 0.0,
 ) -> bytes | None:
     try:
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = image.size
         x1, y1, x2, y2 = bbox_norm
         box_w = max(1.0, (x2 - x1) * width)
@@ -2913,52 +2912,6 @@ def _crop_png_by_bbox(
         return None
 
 
-def _crop_pdf_page_by_bbox(
-    file_bytes: bytes,
-    page_index: int,
-    bbox_norm: tuple[float, float, float, float],
-    *,
-    context_scale_x: float = 0.0,
-    context_scale_y: float = 0.0,
-) -> bytes | None:
-    if fitz is None:
-        return None
-    try:
-        pdf_doc = fitz.open(stream=file_bytes, filetype="pdf")
-        if page_index < 0 or page_index >= pdf_doc.page_count:
-            return None
-        page = pdf_doc.load_page(page_index)
-        rect = page.rect
-        x1, y1, x2, y2 = bbox_norm
-        box_w = max(1.0, rect.width * (x2 - x1))
-        box_h = max(1.0, rect.height * (y2 - y1))
-        expand_x = box_w * context_scale_x
-        expand_y = box_h * context_scale_y
-        clip = fitz.Rect(
-            rect.x0 + rect.width * x1 - expand_x,
-            rect.y0 + rect.height * y1 - expand_y,
-            rect.x0 + rect.width * x2 + expand_x,
-            rect.y0 + rect.height * y2 + expand_y,
-        )
-        clip = clip.intersect(rect)
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), clip=clip, alpha=False)
-        png_bytes = pix.tobytes("png")
-        image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
-        # Ensure minimal readable crop size after render.
-        min_w = 360
-        min_h = 120
-        if image.width < min_w or image.height < min_h:
-            target_w = max(min_w, image.width)
-            target_h = max(min_h, image.height)
-            image = image.resize((target_w, target_h), Image.Resampling.LANCZOS)
-        image = _ensure_readable_orientation(image)
-        out = io.BytesIO()
-        image.save(out, format="PNG", optimize=True)
-        return out.getvalue()
-    except Exception:
-        return None
-
-
 def _render_pdf_page_image(file_bytes: bytes, page_index: int) -> Image.Image | None:
     if fitz is None:
         return None
@@ -2984,6 +2937,24 @@ def _render_source_page_image(file_bytes: bytes, mime_type: str, page_index: int
     except Exception:
         return None
     return None
+
+
+def _build_page_image_cache(
+    file_bytes_list: list[tuple[bytes, str]],
+    page_entries: dict[tuple[int, int], list[tuple[str, tuple[float, float, float, float]]]],
+) -> dict[tuple[int, int], Image.Image]:
+    cache: dict[tuple[int, int], Image.Image] = {}
+    for (file_index, page_number) in page_entries.keys():
+        if file_index < 0 or file_index >= len(file_bytes_list):
+            continue
+        file_bytes, mime_type = file_bytes_list[file_index]
+        image = _render_source_page_image(file_bytes, mime_type, max(0, page_number - 1))
+        if image is None:
+            continue
+        if image.width > image.height * 1.25:
+            image = image.rotate(90, expand=True)
+        cache[(file_index, page_number)] = image
+    return cache
 
 
 def _draw_overlay_for_page(image: Image.Image, entries: list[tuple[str, tuple[float, float, float, float]]]) -> bytes:
@@ -3064,28 +3035,30 @@ def build_source_snippet_images(
             continue
 
         page_entries.setdefault((file_index, max(1, page_number)), []).append((field, bbox_norm))
+        enriched[field] = source_copy
 
-        file_bytes, mime_type = file_bytes_list[file_index]
+    page_image_cache = _build_page_image_cache(file_bytes_list, page_entries)
+
+    for field, source_copy in enriched.items():
+        bbox_norm = _normalize_bbox(source_copy.get("bbox_norm"))
+        if not bbox_norm:
+            continue
+        file_index = int(source_copy.get("file_index", 0))
+        page_number = int(source_copy.get("page", 1))
+        page_image = page_image_cache.get((file_index, page_number))
+        if page_image is None:
+            continue
+
         snippet_tight_png: bytes | None = None
         snippet_context_png: bytes | None = None
 
-        if mime_type == "application/pdf":
-            snippet_tight_png = _crop_pdf_page_by_bbox(file_bytes, max(0, page_number - 1), bbox_norm)
-            snippet_context_png = _crop_pdf_page_by_bbox(
-                file_bytes,
-                max(0, page_number - 1),
-                bbox_norm,
-                context_scale_x=0.18,
-                context_scale_y=0.30,
-            )
-        elif mime_type in {"image/png", "image/jpeg"}:
-            snippet_tight_png = _crop_png_by_bbox(file_bytes, bbox_norm)
-            snippet_context_png = _crop_png_by_bbox(
-                file_bytes,
-                bbox_norm,
-                context_scale_x=0.18,
-                context_scale_y=0.30,
-            )
+        snippet_tight_png = _crop_image_by_bbox(page_image, bbox_norm)
+        snippet_context_png = _crop_image_by_bbox(
+            page_image,
+            bbox_norm,
+            context_scale_x=0.18,
+            context_scale_y=0.30,
+        )
 
         if snippet_tight_png:
             tight_blob = f"{prefix}/{field}-tight.png"
@@ -3102,17 +3075,11 @@ def build_source_snippet_images(
 
         source_copy["snippet_url"] = source_copy.get("snippet_url_context") or source_copy.get("snippet_url_tight")
 
-        enriched[field] = source_copy
-
     overlay_url_by_page: dict[tuple[int, int], str] = {}
     for (file_index, page_number), entries in page_entries.items():
-        file_bytes, mime_type = file_bytes_list[file_index]
-        page_image = _render_source_page_image(file_bytes, mime_type, max(0, page_number - 1))
+        page_image = page_image_cache.get((file_index, page_number))
         if page_image is None:
             continue
-        # Normalize obviously rotated full-page scans.
-        if page_image.width > page_image.height * 1.25:
-            page_image = page_image.rotate(90, expand=True)
         overlay_bytes = _draw_overlay_for_page(page_image, entries)
         overlay_blob = f"{prefix}/overlay-f{file_index + 1}-p{page_number}.png"
         try:

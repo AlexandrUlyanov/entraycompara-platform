@@ -4510,6 +4510,7 @@ async def get_public_application_status(public_code: str):
             "client_visible_label": get_client_visible_label(client_visible_status, status_value),
             "whatsapp_verified": bool(app_data.get("whatsapp_verified")),
             "client_area_enabled": bool(app_data.get("client_area_enabled")),
+            "client_area_url": app_data.get("client_area_url") if app_data.get("client_area_enabled") else None,
         }
     except HTTPException:
         raise

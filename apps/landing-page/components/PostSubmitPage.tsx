@@ -18,6 +18,15 @@ type PostSubmitPayload = {
   application?: PostSubmitApplication;
 };
 
+type PublicStatusResponse = {
+  public_code?: string;
+  client_visible_status?: string;
+  client_visible_label?: string;
+  whatsapp_verified?: boolean;
+  client_area_enabled?: boolean;
+  client_area_url?: string | null;
+};
+
 const STORAGE_KEY = 'entraycompara_post_submit';
 
 const timelineSteps = [
@@ -88,6 +97,26 @@ const PostSubmitPage: React.FC = () => {
   useEffect(() => {
     setPayload(getStoredPayload());
   }, []);
+
+  useEffect(() => {
+    const publicCode = payload?.application?.public_code;
+    if (!publicCode) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api/application/status/${encodeURIComponent(publicCode)}`);
+        if (!response.ok) return;
+        const status: PublicStatusResponse = await response.json();
+        if (status?.client_area_enabled && status?.client_area_url) {
+          window.location.href = status.client_area_url;
+        }
+      } catch {
+        // Silent polling fail; user can still continue manually.
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [payload?.application?.public_code]);
 
   const application = payload?.application;
   const verificationDisplay = application?.verification_code_display || application?.verification_code || '--- ---';

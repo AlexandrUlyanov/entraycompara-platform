@@ -92,6 +92,20 @@ const formatMoney = (value: any) => {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(numeric);
 };
 
+const asNumber = (value: any): number | null => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = typeof value === 'number' ? value : Number(String(value).replace(',', '.'));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const firstFinite = (...values: any[]): number | null => {
+  for (const value of values) {
+    const parsed = asNumber(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+};
+
 const valueFrom = (source: Record<string, any> | undefined, keys: string[]) => {
   if (!source) return '';
   const values = keys
@@ -176,6 +190,37 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
     const simulations = payload?.simulations || [];
     return simulations.find((simulation) => simulation.is_selected) || simulations[0];
   }, [payload?.simulations]);
+  const monthlySavings = useMemo(() => {
+    if (!selectedSimulation) return null;
+    const direct = firstFinite(
+      selectedSimulation.savings_monthly_eur,
+      selectedSimulation.monthly_saving,
+      selectedSimulation.monthly_savings,
+      selectedSimulation.monthly_saving_eur,
+      selectedSimulation.ahorro_mensual,
+    );
+    if (direct !== null) return direct;
+    const currentMonthly = firstFinite(
+      payload?.extracted_data?.avg_monthly_cost_eur,
+      payload?.extracted_data?.monthly_cost_eur,
+    );
+    const newMonthly = firstFinite(
+      selectedSimulation.new_monthly_cost_eur,
+      selectedSimulation.estimated_monthly_cost,
+    );
+    if (currentMonthly !== null && newMonthly !== null) return Math.max(0, currentMonthly - newMonthly);
+    return null;
+  }, [selectedSimulation, payload?.extracted_data]);
+  const annualSavings = useMemo(() => {
+    if (!selectedSimulation) return null;
+    const direct = firstFinite(
+      selectedSimulation.annual_saving,
+      selectedSimulation.savings_annual_eur,
+      selectedSimulation.ahorro_anual,
+    );
+    if (direct !== null) return direct;
+    return monthlySavings !== null ? monthlySavings * 12 : null;
+  }, [selectedSimulation, monthlySavings]);
 
   const activeStatusIndex = statusIndex(application?.client_visible_status);
   const hasProposal = Boolean(payload?.proposal?.pdf_url);
@@ -409,11 +454,11 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
                 </div>
                 <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-5">
                   <p className="text-xs font-bold uppercase tracking-[0.15em] text-emerald-600">Ahorro mensual</p>
-                  <p className="mt-2 text-2xl font-black">{formatMoney(selectedSimulation.savings_monthly_eur || selectedSimulation.monthly_saving)}</p>
+                  <p className="mt-2 text-2xl font-black">{formatMoney(monthlySavings)}</p>
                 </div>
                 <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-5">
                   <p className="text-xs font-bold uppercase tracking-[0.15em] text-emerald-600">Ahorro anual</p>
-                  <p className="mt-2 text-2xl font-black">{formatMoney((selectedSimulation.savings_monthly_eur || selectedSimulation.monthly_saving || 0) * 12)}</p>
+                  <p className="mt-2 text-2xl font-black">{formatMoney(annualSavings)}</p>
                 </div>
               </div>
             ) : (
@@ -432,7 +477,8 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
                   {acceptState === 'loading' ? 'Confirmando...' : acceptState === 'done' ? 'Propuesta aceptada' : 'Aceptar propuesta'}
                 </button>
               )}
-              <a href={whatsappUrl} target="_blank" rel="noreferrer" className="min-h-[58px] flex-1 rounded-2xl border border-emerald-200 bg-white px-6 text-center text-lg font-black text-emerald-700 transition hover:bg-emerald-50">
+              <a href={whatsappUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-[58px] flex-1 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-6 text-center text-lg font-black text-emerald-700 transition hover:bg-emerald-50">
+                <WhatsAppIcon className="h-5 w-5" />
                 Hablar por WhatsApp
               </a>
             </div>

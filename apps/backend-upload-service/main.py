@@ -3775,7 +3775,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         return True
 
     application_id, app_data = result
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
     create_whatsapp_timeline_event(
         application_id,
@@ -3847,7 +3847,16 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         )
         return True
 
-    if isinstance(expires_at, datetime.datetime) and expires_at < now:
+    if isinstance(expires_at, datetime.datetime):
+        expires_at_utc = (
+            expires_at.replace(tzinfo=datetime.timezone.utc)
+            if expires_at.tzinfo is None
+            else expires_at.astimezone(datetime.timezone.utc)
+        )
+    else:
+        expires_at_utc = None
+
+    if isinstance(expires_at_utc, datetime.datetime) and expires_at_utc < now:
         update_whatsapp_activation_debug(
             doc_ref,
             status="failed",

@@ -3494,6 +3494,29 @@ def create_whatsapp_timeline_event(
     return event_ref.id
 
 
+def update_whatsapp_activation_debug(
+    doc_ref,
+    *,
+    status: str,
+    reason: str,
+    from_phone_raw: str,
+    public_code: str = "",
+) -> None:
+    now = datetime.datetime.utcnow()
+    from_phone = normalize_phone(from_phone_raw)
+    try:
+        doc_ref.update({
+            "whatsapp_activation_last_attempt_at": now,
+            "whatsapp_activation_last_status": status,
+            "whatsapp_activation_last_reason": reason,
+            "whatsapp_activation_last_phone": from_phone,
+            "whatsapp_activation_last_public_code": public_code or "",
+            "updated_at": now,
+        })
+    except Exception as exc:
+        print(f"Activation debug update failed: {exc}")
+
+
 def build_uploaded_files_payload(uploaded_files: list[str] | None) -> list[dict]:
     files = []
     for index, file_url in enumerate(uploaded_files or [], start=1):
@@ -3719,6 +3742,13 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
     window_started_at, window_count = get_verification_attempt_window(app_data, now)
 
     if window_count >= VERIFICATION_ATTEMPT_WINDOW_LIMIT:
+        update_whatsapp_activation_debug(
+            doc_ref,
+            status="failed",
+            reason="rate_limited",
+            from_phone_raw=from_phone_raw,
+            public_code=public_code,
+        )
         doc_ref.update(build_verification_attempt_update(attempts, window_started_at, window_count, now))
         create_security_event(
             application_id,
@@ -3741,6 +3771,13 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         return True
 
     if attempts >= VERIFICATION_MAX_ATTEMPTS:
+        update_whatsapp_activation_debug(
+            doc_ref,
+            status="failed",
+            reason="attempt_limit_reached",
+            from_phone_raw=from_phone_raw,
+            public_code=public_code,
+        )
         doc_ref.update(build_verification_attempt_update(attempts, window_started_at, window_count, now))
         create_security_event(
             application_id,
@@ -3762,6 +3799,13 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         return True
 
     if isinstance(expires_at, datetime.datetime) and expires_at < now:
+        update_whatsapp_activation_debug(
+            doc_ref,
+            status="failed",
+            reason="code_expired",
+            from_phone_raw=from_phone_raw,
+            public_code=public_code,
+        )
         doc_ref.update(build_verification_attempt_update(attempts, window_started_at, window_count, now))
         create_security_event(
             application_id,
@@ -3783,6 +3827,13 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         return True
 
     if not expected_hash or not hmac.compare_digest(expected_hash, hash_client_secret(verification_code)):
+        update_whatsapp_activation_debug(
+            doc_ref,
+            status="failed",
+            reason="code_invalid",
+            from_phone_raw=from_phone_raw,
+            public_code=public_code,
+        )
         doc_ref.update(build_verification_attempt_update(attempts, window_started_at, window_count, now))
         create_security_event(
             application_id,
@@ -3819,6 +3870,13 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         **build_verification_attempt_update(attempts, window_started_at, window_count, now),
         "updated_at": now,
     })
+    update_whatsapp_activation_debug(
+        doc_ref,
+        status="success",
+        reason="activated",
+        from_phone_raw=from_phone_raw,
+        public_code=public_code,
+    )
     create_security_event(
         application_id,
         "whatsapp_verified_client_area_enabled",

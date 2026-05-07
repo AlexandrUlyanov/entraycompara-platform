@@ -52,6 +52,18 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
   });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [salesDraft, setSalesDraft] = useState<{ message: string; source: string } | null>(null);
+  const getActivationStatusLabel = (status?: string) => {
+    if (!status) return '—';
+    const key = `clientFlow.activationDebug.status.${status}`;
+    const translated = t(key);
+    return translated === key ? status : translated;
+  };
+  const getActivationReasonLabel = (reason?: string) => {
+    if (!reason) return '—';
+    const key = `clientFlow.activationDebug.reason.${reason}`;
+    const translated = t(key);
+    return translated === key ? reason : translated;
+  };
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -508,6 +520,20 @@ const DetailView: React.FC<DetailViewProps> = ({ appId, appDataFromList, onBack 
                                     ? t(`clientFlow.status.${application.client_visible_status}`)
                                     : (application.client_visible_label || t('clientFlow.status.unknown'))}
                             </p>
+                        </div>
+                        <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200">
+                            <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2">{t('clientFlow.activationDebug.title')}</p>
+                            {application.whatsapp_activation_last_attempt_at ? (
+                                <div className="space-y-1.5 text-[12px]">
+                                    <p><span className="text-slate-500">{t('clientFlow.activationDebug.lastAttempt')}:</span> <span className="font-medium text-secondary">{formatOptionalDate(application.whatsapp_activation_last_attempt_at)}</span></p>
+                                    <p><span className="text-slate-500">{t('clientFlow.activationDebug.status')}:</span> <span className="font-medium text-secondary">{getActivationStatusLabel(application.whatsapp_activation_last_status)}</span></p>
+                                    <p><span className="text-slate-500">{t('clientFlow.activationDebug.reason')}:</span> <span className="font-medium text-secondary">{getActivationReasonLabel(application.whatsapp_activation_last_reason)}</span></p>
+                                    <p><span className="text-slate-500">{t('clientFlow.activationDebug.phone')}:</span> <span className="font-mono text-secondary">{application.whatsapp_activation_last_phone || '—'}</span></p>
+                                    <p><span className="text-slate-500">{t('clientFlow.activationDebug.publicCode')}:</span> <span className="font-mono text-secondary">{application.whatsapp_activation_last_public_code || '—'}</span></p>
+                                </div>
+                            ) : (
+                                <p className="text-[12px] text-slate-500">{t('clientFlow.activationDebug.none')}</p>
+                            )}
                         </div>
                     </div>
                     <div className="flex flex-col gap-2">

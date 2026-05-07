@@ -49,6 +49,11 @@ export interface Application {
   client_area_enabled?: boolean;
   client_area_enabled_at?: string;
   client_area_url?: string;
+  whatsapp_activation_last_attempt_at?: string;
+  whatsapp_activation_last_status?: 'success' | 'failed' | string;
+  whatsapp_activation_last_reason?: string;
+  whatsapp_activation_last_phone?: string;
+  whatsapp_activation_last_public_code?: string;
   verification_code_expires_at?: string;
   verification_code_last_sent_at?: string;
   verification_code_attempts?: number;

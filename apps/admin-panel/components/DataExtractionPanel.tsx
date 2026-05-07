@@ -259,6 +259,47 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
     return <p className="mt-1 text-[11px] text-slate-500">{reasons.map((reason) => translateReason(reason, t)).join(', ')}</p>;
   };
 
+  const renderFieldEvidence = (field: string) => {
+    const source = existingData?.source_snippets?.[field];
+    if (!source) return null;
+
+    return (
+      <div className="mt-2 rounded-xl border border-slate-200 bg-white p-2.5">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            {t('proposalBuilder.extractData.sourceEvidence')}
+          </span>
+          <span className="text-[10px] text-slate-400">
+            {typeof source.page === 'number' ? `${t('proposalBuilder.extractData.pageShort')} ${source.page}` : '—'}
+          </span>
+        </div>
+        {source.snippet_url ? (
+          <a href={source.snippet_url} target="_blank" rel="noreferrer" className="group block">
+            <img
+              src={source.snippet_url}
+              alt="field-source-snippet"
+              className="h-16 w-full rounded-lg border border-slate-200 object-cover transition-all group-hover:opacity-90"
+              loading="lazy"
+            />
+          </a>
+        ) : null}
+        {source.snippet_text ? (
+          <p className="mt-1.5 text-[11px] text-slate-600">{source.snippet_text}</p>
+        ) : null}
+        {source.file_url ? (
+          <a
+            href={source.file_url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 inline-flex text-[10px] font-medium text-primary hover:underline"
+          >
+            {t('proposalBuilder.extractData.openSourceFile')}
+          </a>
+        ) : null}
+      </div>
+    );
+  };
+
   const handleExtract = () => {
     const urls = selectedFiles.length > 0 ? selectedFiles : uploadedFiles;
     if (urls.length === 0) return;
@@ -507,6 +548,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                   {cupsAssessment.reasons.map((reason) => translateReason(reason, t)).join(', ')}
                 </p>
               )}
+              {renderFieldEvidence('cups')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.clientType')}</label>
@@ -532,6 +574,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
               {renderFieldReasons('access_tariff')}
+              {renderFieldEvidence('access_tariff')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.startDate')}</label>
@@ -541,6 +584,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 onChange={e => updateField('start_date', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldEvidence('start_date')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.endDate')}</label>
@@ -550,6 +594,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 onChange={e => updateField('end_date', e.target.value)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldEvidence('end_date')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.equipmentRental')}</label>
@@ -560,6 +605,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 onChange={e => updateField('equipment_rental', e.target.value ? parseFloat(e.target.value) : undefined)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldEvidence('equipment_rental')}
             </div>
             <div>
               <div className="flex items-center justify-between gap-2 mb-1">
@@ -574,6 +620,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
               {renderFieldReasons('invoice_amount_with_vat')}
+              {renderFieldEvidence('invoice_amount_with_vat')}
             </div>
             <div>
               <div className="flex items-center justify-between gap-2 mb-1">
@@ -596,6 +643,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 ))}
               </select>
               {renderFieldReasons('retailer')}
+              {renderFieldEvidence('retailer')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.billedPowerP1')}</label>
@@ -606,6 +654,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 onChange={e => updateField('billed_power_p1', e.target.value ? parseFloat(e.target.value) : undefined)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldEvidence('billed_power_p1')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.billedPowerP2')}</label>
@@ -616,6 +665,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 onChange={e => updateField('billed_power_p2', e.target.value ? parseFloat(e.target.value) : undefined)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldEvidence('billed_power_p2')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.consumptionP1')}</label>
@@ -626,6 +676,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 onChange={e => updateField('consumption_p1', e.target.value ? parseFloat(e.target.value) : undefined)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldEvidence('consumption_p1')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.consumptionP2')}</label>
@@ -636,6 +687,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 onChange={e => updateField('consumption_p2', e.target.value ? parseFloat(e.target.value) : undefined)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldEvidence('consumption_p2')}
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary-light uppercase tracking-wide mb-1">{t('proposalBuilder.extractData.consumptionP3')}</label>
@@ -646,6 +698,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
                 onChange={e => updateField('consumption_p3', e.target.value ? parseFloat(e.target.value) : undefined)}
                 className="w-full bg-slate-50 border-none rounded-xl text-secondary py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:bg-white transition-all shadow-sm text-sm font-medium"
               />
+              {renderFieldEvidence('consumption_p3')}
             </div>
           </div>
 

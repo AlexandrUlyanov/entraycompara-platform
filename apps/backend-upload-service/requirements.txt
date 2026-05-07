@@ -9,3 +9,5 @@ google-generativeai
 fpdf2
 playwright
 python-stdnum==2.2
+PyMuPDF==1.24.13
+Pillow==10.4.0

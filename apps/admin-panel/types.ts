@@ -109,6 +109,14 @@ export interface ProposalData {
     needs_review?: boolean;
     reasons?: string[];
   }>;
+  source_snippets?: Record<string, {
+    file_index?: number;
+    file_url?: string;
+    page?: number;
+    bbox_norm?: [number, number, number, number] | null;
+    snippet_text?: string;
+    snippet_url?: string | null;
+  }>;
   overall_confidence?: number;
   needs_review?: boolean;
   needs_review_fields?: string[];
@@ -132,6 +140,14 @@ export interface ExtractionTaskStatus {
     confidence?: number;
     needs_review?: boolean;
     reasons?: string[];
+  }>;
+  source_snippets?: Record<string, {
+    file_index?: number;
+    file_url?: string;
+    page?: number;
+    bbox_norm?: [number, number, number, number] | null;
+    snippet_text?: string;
+    snippet_url?: string | null;
   }>;
   overall_confidence?: number;
   needs_review?: boolean;

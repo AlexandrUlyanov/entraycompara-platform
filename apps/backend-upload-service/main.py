@@ -14,6 +14,7 @@ import unicodedata
 import hashlib
 import hmac
 import secrets
+import io
 from urllib.parse import quote
 from typing import List, Optional, Dict, Any 
 from enum import Enum 
@@ -25,11 +26,17 @@ from google.cloud import storage, firestore
 from pydantic import BaseModel
 import google.generativeai as genai
 import eni_simulator
+from PIL import Image
 
 try:
     from stdnum.es import cups as stdnum_cups
 except ImportError:
     stdnum_cups = None
+
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
 
 
 app = FastAPI()
@@ -780,6 +787,7 @@ def _get_proposal_data_snapshot(doc_ref) -> dict:
         data = proposal_doc.to_dict() or {}
         return normalize_firestore_value({
             "extracted_data": data.get("extracted_data") or {},
+            "source_snippets": data.get("source_snippets") or {},
             "overall_confidence": data.get("overall_confidence"),
             "needs_review": data.get("needs_review", False),
             "needs_review_fields": data.get("needs_review_fields", []),
@@ -2527,6 +2535,7 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
                     "progress_percent": EXTRACTION_STEP_PROGRESS["completed"],
                     "extracted_data": existing_data.get("extracted_data"),
                     "field_assessments": existing_data.get("field_assessments"),
+                    "source_snippets": existing_data.get("source_snippets"),
                     "overall_confidence": existing_data.get("overall_confidence"),
                     "needs_review": existing_data.get("needs_review", False),
                     "needs_review_fields": existing_data.get("needs_review_fields", []),
@@ -2559,7 +2568,7 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             "message": "Извлекаем поля из фактуры через Gemini.",
             "progress_percent": EXTRACTION_STEP_PROGRESS["primary_extraction"],
         })
-        primary_extracted, primary_raw = extract_data_with_gemini(file_contents)
+        primary_extracted, primary_sources, primary_raw = extract_data_with_gemini(file_contents)
 
         update_proposal_extraction_task(application_id, task_id, {
             "step_key": "validate_primary",
@@ -2590,10 +2599,18 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
         raw_extraction = {
             "primary_response_text": primary_raw,
             "primary_extracted_data": primary_extracted,
+            "primary_source_snippets": primary_sources,
             "second_pass_attempted": pipeline_result["second_pass_attempted"],
             "second_pass_response_text": pipeline_result["second_pass_raw"],
             "second_pass_updates": pipeline_result["second_pass_updates"],
         }
+        final_source_snippets = build_source_snippet_images(
+            application_id=application_id,
+            task_id=task_id,
+            file_bytes_list=file_contents,
+            file_urls=request.file_urls,
+            source_snippets=primary_sources,
+        )
 
         update_proposal_extraction_task(application_id, task_id, {
             "step_key": "save_results",
@@ -2607,6 +2624,7 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             "ai_extracted_data": extracted,
             "raw_extraction": raw_extraction,
             "field_assessments": field_assessments,
+            "source_snippets": final_source_snippets,
             "overall_confidence": overall_confidence,
             "needs_review": needs_review,
             "needs_review_fields": needs_review_fields,
@@ -2621,6 +2639,7 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             "raw_extraction": raw_extraction,
             "extracted_data": extracted,
             "field_assessments": field_assessments,
+            "source_snippets": final_source_snippets,
             "overall_confidence": overall_confidence,
             "needs_review": needs_review,
             "needs_review_fields": needs_review_fields,
@@ -2650,6 +2669,7 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             "progress_percent": EXTRACTION_STEP_PROGRESS["completed"],
             "extracted_data": extracted,
             "field_assessments": field_assessments,
+            "source_snippets": final_source_snippets,
             "overall_confidence": overall_confidence,
             "needs_review": needs_review,
             "needs_review_fields": needs_review_fields,
@@ -2683,7 +2703,7 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             source_event_id=task_id,
         )
 
-def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
+def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> tuple[dict, dict, str]:
     """Отправляет файлы в Gemini с промптом для извлечения данных счета."""
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=503, detail="Gemini API Key не настроен на бэкенде.")
@@ -2718,14 +2738,31 @@ def extract_data_with_gemini(file_bytes_list: list[tuple[bytes, str]]) -> dict:
   "consumption_p3": "number|null — consumo / energía P3 в kWh."
 }
 
+ДОПОЛНИТЕЛЬНО: для каждого поля собери источник в source_snippets:
+- file_index: номер файла в массиве (0 для первого файла)
+- page: номер страницы (начиная с 1)
+- bbox_norm: [x1,y1,x2,y2] в долях 0..1 относительно страницы
+- snippet_text: короткий текст фрагмента, где ты увидел значение (до 180 символов)
+
+ФОРМАТ ОТВЕТА:
+{
+  "extracted_data": { ...все поля... },
+  "source_snippets": {
+    "cups": {"file_index":0,"page":1,"bbox_norm":[0.1,0.2,0.4,0.24],"snippet_text":"CUPS ES..."},
+    ...
+  }
+}
+
 ПЕРЕД ОТВЕТОМ ПРОВЕРЬ:
 - JSON должен быть валидным.
-- Все ключи должны присутствовать.
-- Значения должны соответствовать именно полям из документа.
+- Все ключи extracted_data должны присутствовать.
+- Для неизвестного источника разрешено ставить source_snippets.<field> = null.
 
 Отвечай ТОЛЬКО JSON, без пояснений и без markdown."""
-    
-    return _call_gemini_json(prompt, file_bytes_list, GEMINI_INVOICE_EXTRACTION_MODEL)
+
+    raw_obj, raw_text = _call_gemini_json(prompt, file_bytes_list, GEMINI_INVOICE_EXTRACTION_MODEL)
+    extracted_data, source_snippets = _extract_data_and_sources_from_gemini_output(raw_obj)
+    return extracted_data, source_snippets, raw_text
 
 
 def _call_gemini_json(prompt: str, file_bytes_list: list[tuple[bytes, str]], model_name: str) -> tuple[dict, str]:
@@ -2768,6 +2805,160 @@ def _call_gemini_json(prompt: str, file_bytes_list: list[tuple[bytes, str]], mod
         raise HTTPException(status_code=500, detail=f"Gemini вернул неожиданный тип данных: {type(extracted).__name__}")
 
     return extracted, raw_text
+
+
+def _upload_bytes_to_gcs(file_bytes: bytes, destination_blob_name: str, content_type: str) -> str:
+    bucket = storage_client.bucket(BUCKET_NAME)
+    blob = bucket.blob(destination_blob_name)
+    blob.upload_from_string(file_bytes, content_type=content_type)
+    blob.acl.all().grant_read()
+    blob.acl.save()
+    return f"https://storage.googleapis.com/{BUCKET_NAME}/{destination_blob_name}"
+
+
+def _normalize_bbox(raw_bbox: Any) -> tuple[float, float, float, float] | None:
+    if not isinstance(raw_bbox, (list, tuple)) or len(raw_bbox) != 4:
+        return None
+    try:
+        x1, y1, x2, y2 = [float(v) for v in raw_bbox]
+    except (TypeError, ValueError):
+        return None
+    x1 = min(max(x1, 0.0), 1.0)
+    y1 = min(max(y1, 0.0), 1.0)
+    x2 = min(max(x2, 0.0), 1.0)
+    y2 = min(max(y2, 0.0), 1.0)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2, y2)
+
+
+def _extract_data_and_sources_from_gemini_output(raw_obj: dict) -> tuple[dict, dict]:
+    if not isinstance(raw_obj, dict):
+        return {}, {}
+
+    if "extracted_data" in raw_obj and isinstance(raw_obj.get("extracted_data"), dict):
+        extracted_data = raw_obj.get("extracted_data") or {}
+        source_snippets = raw_obj.get("source_snippets") if isinstance(raw_obj.get("source_snippets"), dict) else {}
+    else:
+        extracted_data = raw_obj
+        source_snippets = {}
+
+    normalized_sources: dict[str, dict[str, Any]] = {}
+    for field, payload in source_snippets.items():
+        if field not in INVOICE_EXTRACTION_FIELDS or not isinstance(payload, dict):
+            continue
+        bbox = _normalize_bbox(payload.get("bbox_norm"))
+        normalized_sources[field] = {
+            "file_index": payload.get("file_index"),
+            "page": payload.get("page"),
+            "bbox_norm": list(bbox) if bbox else None,
+            "snippet_text": (payload.get("snippet_text") or "")[:280],
+        }
+    return extracted_data, normalized_sources
+
+
+def _crop_png_by_bbox(image_bytes: bytes, bbox_norm: tuple[float, float, float, float]) -> bytes | None:
+    try:
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        width, height = image.size
+        x1, y1, x2, y2 = bbox_norm
+        pad_x = int(width * 0.01)
+        pad_y = int(height * 0.01)
+        left = max(0, int(x1 * width) - pad_x)
+        top = max(0, int(y1 * height) - pad_y)
+        right = min(width, int(x2 * width) + pad_x)
+        bottom = min(height, int(y2 * height) + pad_y)
+        if right <= left or bottom <= top:
+            return None
+        cropped = image.crop((left, top, right, bottom))
+        out = io.BytesIO()
+        cropped.save(out, format="PNG", optimize=True)
+        return out.getvalue()
+    except Exception:
+        return None
+
+
+def _crop_pdf_page_by_bbox(file_bytes: bytes, page_index: int, bbox_norm: tuple[float, float, float, float]) -> bytes | None:
+    if fitz is None:
+        return None
+    try:
+        pdf_doc = fitz.open(stream=file_bytes, filetype="pdf")
+        if page_index < 0 or page_index >= pdf_doc.page_count:
+            return None
+        page = pdf_doc.load_page(page_index)
+        rect = page.rect
+        x1, y1, x2, y2 = bbox_norm
+        clip = fitz.Rect(
+            rect.x0 + rect.width * x1,
+            rect.y0 + rect.height * y1,
+            rect.x0 + rect.width * x2,
+            rect.y0 + rect.height * y2,
+        )
+        clip = clip + (-8, -8, 8, 8)
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), clip=clip, alpha=False)
+        return pix.tobytes("png")
+    except Exception:
+        return None
+
+
+def build_source_snippet_images(
+    application_id: str,
+    task_id: str,
+    file_bytes_list: list[tuple[bytes, str]],
+    file_urls: list[str],
+    source_snippets: dict[str, dict],
+) -> dict[str, dict]:
+    if not source_snippets:
+        return {}
+
+    today = datetime.datetime.utcnow()
+    prefix = f"proposal_snippets/{today.year}/{today.month:02}/{today.day:02}/{application_id}/{task_id}"
+    enriched: dict[str, dict] = {}
+
+    for field, source in source_snippets.items():
+        source_copy = dict(source)
+        bbox_norm = _normalize_bbox(source.get("bbox_norm"))
+        file_index_raw = source.get("file_index", 0)
+        page_raw = source.get("page", 1)
+        try:
+            file_index = int(file_index_raw)
+        except (TypeError, ValueError):
+            file_index = 0
+        try:
+            page_number = int(page_raw)
+        except (TypeError, ValueError):
+            page_number = 1
+        if file_index < 0 or file_index >= len(file_bytes_list):
+            file_index = 0
+
+        source_copy["file_index"] = file_index
+        source_copy["file_url"] = file_urls[file_index] if file_index < len(file_urls) else None
+        source_copy["page"] = max(1, page_number)
+        source_copy["snippet_url"] = None
+        source_copy["bbox_norm"] = list(bbox_norm) if bbox_norm else None
+
+        if not bbox_norm:
+            enriched[field] = source_copy
+            continue
+
+        file_bytes, mime_type = file_bytes_list[file_index]
+        snippet_png: bytes | None = None
+
+        if mime_type == "application/pdf":
+            snippet_png = _crop_pdf_page_by_bbox(file_bytes, max(0, page_number - 1), bbox_norm)
+        elif mime_type in {"image/png", "image/jpeg"}:
+            snippet_png = _crop_png_by_bbox(file_bytes, bbox_norm)
+
+        if snippet_png:
+            blob_name = f"{prefix}/{field}.png"
+            try:
+                source_copy["snippet_url"] = _upload_bytes_to_gcs(snippet_png, blob_name, "image/png")
+            except Exception as exc:
+                print(f"Failed to upload snippet for {field}: {exc}")
+
+        enriched[field] = source_copy
+
+    return enriched
 
 
 def _normalize_retailer_name(value: str | None) -> tuple[str | None, list[str]]:
@@ -5743,6 +5934,7 @@ async def proposal_extract_data_status(application_id: str, task_id: str):
             "progress_percent": task.get("progress_percent", 0),
             "extracted_data": task.get("extracted_data"),
             "field_assessments": task.get("field_assessments"),
+            "source_snippets": task.get("source_snippets"),
             "overall_confidence": task.get("overall_confidence"),
             "needs_review": task.get("needs_review", False),
             "needs_review_fields": task.get("needs_review_fields", []),
@@ -5777,6 +5969,7 @@ async def proposal_extract_latest_task(application_id: str):
                 "progress_percent": task.get("progress_percent", 0),
                 "extracted_data": task.get("extracted_data"),
                 "field_assessments": task.get("field_assessments"),
+                "source_snippets": task.get("source_snippets"),
                 "overall_confidence": task.get("overall_confidence"),
                 "needs_review": task.get("needs_review", False),
                 "needs_review_fields": task.get("needs_review_fields", []),
@@ -5830,6 +6023,7 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
             "extracted_data": corrected,
             "manual_corrected_data": corrected,
             "field_assessments": manual_assessments,
+            "source_snippets": previous_data.get("source_snippets", {}),
             "overall_confidence": manual_overall_confidence,
             "needs_review": bool(manual_needs_review_fields),
             "needs_review_fields": manual_needs_review_fields,
@@ -5847,6 +6041,7 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
             "corrected_extracted_data": corrected,
             "changed_fields": changed_fields,
             "raw_extraction": previous_data.get("raw_extraction"),
+            "source_snippets": previous_data.get("source_snippets", {}),
             "provider_rule_hits": previous_data.get("provider_rule_hits", []),
         })
         
@@ -5897,6 +6092,7 @@ async def proposal_get_extracted_data(application_id: str):
             "manually_corrected": data.get("manually_corrected", False),
             "raw_extraction": data.get("raw_extraction"),
             "field_assessments": data.get("field_assessments"),
+            "source_snippets": data.get("source_snippets", {}),
             "overall_confidence": data.get("overall_confidence"),
             "needs_review": data.get("needs_review", False),
             "needs_review_fields": data.get("needs_review_fields", []),

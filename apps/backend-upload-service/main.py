@@ -3397,17 +3397,31 @@ def verify_meta_signature(raw_body: bytes, signature_header: str | None) -> bool
 def parse_whatsapp_activation_text(text: str) -> tuple[str, str] | None:
     if not text:
         return None
-    public_code_match = re.search(r"\bEC[-\s]?(\d{6})\b", text, flags=re.IGNORECASE)
+    normalized_text = (text or "").upper()
+    # Handle common keyboard/OCR variants:
+    # - Cyrillic lookalikes: Е/е -> E, С/с -> C
+    # - Different dash symbols to regular hyphen
+    normalized_text = (
+        normalized_text
+        .replace("Е", "E")
+        .replace("С", "C")
+        .replace("–", "-")
+        .replace("—", "-")
+        .replace("‑", "-")
+        .replace("−", "-")
+    )
+
+    public_code_match = re.search(r"\bE\s*C\s*[-\s]?(\d{6})\b", normalized_text, flags=re.IGNORECASE)
     if not public_code_match:
         return None
     public_code = f"EC-{public_code_match.group(1)}"
 
-    verification_tail = text[public_code_match.end():]
+    verification_tail = normalized_text[public_code_match.end():]
     tail_codes = re.findall(r"\d{6}", re.sub(r"\D", "", verification_tail))
     if tail_codes:
         return public_code, tail_codes[-1]
 
-    all_codes = re.findall(r"\d{6}", re.sub(r"\D", "", text))
+    all_codes = re.findall(r"\d{6}", re.sub(r"\D", "", normalized_text))
     if len(all_codes) < 2:
         return None
     return public_code, all_codes[-1]

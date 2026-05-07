@@ -3989,6 +3989,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         EventType.NOTE,
         "System (WhatsApp Webhook)",
     )
+    maybe_start_auto_extraction_after_whatsapp_activation(application_id, app_data)
 
     reply = (
         "Perfecto, hemos activado tu área personal.\n"
@@ -4011,6 +4012,106 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         source_event_id=activation_event_id,
     )
     return True
+
+
+def _collect_application_file_urls_for_extraction(app_data: dict) -> list[str]:
+    candidate_keys = ["uploaded_files", "files", "invoice_files"]
+    urls: list[str] = []
+    for key in candidate_keys:
+        value = app_data.get(key)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.strip():
+                    urls.append(item.strip())
+
+    # Keep order but remove duplicates.
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for url in urls:
+        if url in seen:
+            continue
+        seen.add(url)
+        deduped.append(url)
+    return deduped
+
+
+def maybe_start_auto_extraction_after_whatsapp_activation(application_id: str, app_data: dict) -> str | None:
+    """Автозапуск extraction после подтверждения WhatsApp и активации client area."""
+    try:
+        latest_task = get_latest_proposal_extraction_task(application_id)
+        if latest_task and latest_task.get("status") in {"pending", "running"}:
+            return None
+
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        proposal_data_snapshot = doc_ref.collection("proposal_data").document("data").get()
+        if proposal_data_snapshot.exists and proposal_data_snapshot.to_dict().get("extracted_data"):
+            return None
+
+        file_urls = _collect_application_file_urls_for_extraction(app_data)
+        if not file_urls:
+            latest_doc = doc_ref.get()
+            if latest_doc.exists:
+                file_urls = _collect_application_file_urls_for_extraction(latest_doc.to_dict())
+        if not file_urls:
+            create_timeline_event_internal(
+                application_id=application_id,
+                content=(
+                    "WhatsApp подтверждён, но авто-извлечение данных не запущено: "
+                    "в заявке нет документов для анализа."
+                ),
+                event_type=EventType.NOTE,
+                created_by="System",
+            )
+            return None
+
+        task_id = f"extract-{uuid.uuid4().hex[:12]}"
+        task_ref = get_proposal_extraction_task_ref(application_id, task_id)
+        task_ref.set({
+            "task_id": task_id,
+            "application_id": application_id,
+            "status": "pending",
+            "message": "Автоматически запускаем извлечение данных после WhatsApp-подтверждения.",
+            "step_key": "prepare_task",
+            "progress_percent": 0,
+            "file_urls": file_urls,
+            "force_reextract": False,
+            "trigger": "whatsapp_verified_auto",
+            "created_at": datetime.datetime.utcnow(),
+            "updated_at": datetime.datetime.utcnow(),
+        })
+
+        event_id = create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "WhatsApp подтверждён. Автоматически запущено извлечение данных по документам.\n"
+                f"Документы для анализа:\n{_format_file_links(file_urls)}"
+            ),
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+        trigger_sales_department_reanalysis(
+            application_id,
+            reason="extraction_started",
+            source_event_id=event_id,
+        )
+
+        request_payload = ExtractDataRequest(file_urls=file_urls, force_reextract=False).model_dump()
+        worker = threading.Thread(
+            target=run_proposal_extraction_task,
+            args=(application_id, task_id, request_payload),
+            daemon=True,
+        )
+        worker.start()
+        return task_id
+    except Exception as exc:
+        print(f"Auto extraction after WhatsApp activation error for {application_id}: {exc}")
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=f"Не удалось автоматически запустить извлечение данных после WhatsApp-подтверждения: {exc}",
+            event_type=EventType.NOTE,
+            created_by="System",
+        )
+        return None
 
 
 def get_extracted_billing_days(extracted_data: dict) -> int | None:

@@ -2615,6 +2615,7 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             "extracted_by": "Operator",
             "manually_corrected": False,
         })
+        maybe_advance_client_visible_status(doc_ref, "data_extracted")
 
         append_proposal_data_revision(application_id, "ai_extraction", {
             "raw_extraction": raw_extraction,
@@ -3212,6 +3213,46 @@ CLIENT_VISIBLE_STATUS_LABELS = {
     "lost": "Proceso cerrado",
     "error": "Necesitamos revisar tu caso",
 }
+
+CLIENT_VISIBLE_STATUS_ORDER = [
+    "invoice_uploaded",
+    "invoice_processing",
+    "data_extracted",
+    "needs_review",
+    "comparison_in_progress",
+    "simulation_ready",
+    "proposal_ready",
+    "proposal_sent",
+    "proposal_accepted",
+    "switching_in_progress",
+    "completed",
+]
+
+
+def maybe_advance_client_visible_status(doc_ref, target_status: str) -> None:
+    """Updates client_visible_status only if it does not regress current progress."""
+    if not target_status:
+        return
+    try:
+        snapshot = doc_ref.get()
+        if not snapshot.exists:
+            return
+        app_data = snapshot.to_dict() or {}
+        current = app_data.get("client_visible_status")
+        if current == target_status:
+            return
+
+        current_idx = CLIENT_VISIBLE_STATUS_ORDER.index(current) if current in CLIENT_VISIBLE_STATUS_ORDER else -1
+        target_idx = CLIENT_VISIBLE_STATUS_ORDER.index(target_status) if target_status in CLIENT_VISIBLE_STATUS_ORDER else -1
+
+        if target_idx >= current_idx:
+            doc_ref.update({
+                "client_visible_status": target_status,
+                "client_visible_label": get_client_visible_label(target_status, app_data.get("status")),
+                "updated_at": datetime.datetime.utcnow(),
+            })
+    except Exception as exc:
+        print(f"Failed to advance client visible status: {exc}")
 
 
 def hash_client_secret(value: str) -> str:
@@ -5697,6 +5738,7 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
                 "corrected_at": datetime.datetime.utcnow(),
             },
         }, merge=True)
+        maybe_advance_client_visible_status(doc_ref, "data_extracted")
 
         append_proposal_data_revision(application_id, "manual_correction", {
             "previous_extracted_data": previous_data.get("extracted_data"),

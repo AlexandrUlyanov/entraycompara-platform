@@ -4817,6 +4817,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         EventType.NOTE,
         "System (WhatsApp Webhook)",
     )
+    enable_proposal_automation_after_whatsapp_activation(application_id)
     maybe_start_auto_extraction_after_whatsapp_activation(application_id, app_data)
 
     reply = (
@@ -4940,6 +4941,24 @@ def maybe_start_auto_extraction_after_whatsapp_activation(application_id: str, a
             created_by="System",
         )
         return None
+
+
+def enable_proposal_automation_after_whatsapp_activation(application_id: str) -> None:
+    """Автоматически включает режим авто-КП после успешного WhatsApp-подтверждения."""
+    now = datetime.datetime.utcnow()
+    get_proposal_automation_ref(application_id).set({
+        "enabled": True,
+        "status": "ready",
+        "last_reason": "whatsapp_verified_auto_enable",
+        "last_action": "enable_automation",
+        "updated_at": now,
+    }, merge=True)
+    create_timeline_event_internal(
+        application_id=application_id,
+        content="Автоматический режим КП включён после подтверждения WhatsApp.",
+        event_type=EventType.NOTE,
+        created_by="System",
+    )
 
 
 def get_extracted_billing_days(extracted_data: dict) -> int | None:

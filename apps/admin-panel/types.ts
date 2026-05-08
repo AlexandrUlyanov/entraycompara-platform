@@ -207,6 +207,22 @@ export interface LatestAutoSimulationTaskResponse {
   task: AutoSimulationTaskStatus | null;
 }
 
+export interface ProposalAutomationState {
+  enabled: boolean;
+  status?: string;
+  last_reason?: string;
+  last_action?: string;
+  last_error?: string;
+  last_task_id?: string;
+  proposal_file_url?: string;
+  updated_at?: string;
+}
+
+export interface ProposalAutomationResponse {
+  success: boolean;
+  automation: ProposalAutomationState;
+}
+
 export interface WhatsAppConnectionHealth {
   configured: boolean;
   ready_to_send: boolean;

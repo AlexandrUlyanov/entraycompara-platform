@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { getExtractedData, listSimulations } from '../services/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { getExtractedData, getProposalAutomation, listSimulations, runProposalAutomation, updateProposalAutomation } from '../services/api';
 import DataExtractionPanel from './DataExtractionPanel';
 import SimulationPanel from './SimulationPanel';
 import ProposalPreviewPanel from './ProposalPreviewPanel';
@@ -16,6 +16,7 @@ type Step = 'data' | 'simulation' | 'proposal';
 
 const ProposalBuilder: React.FC<ProposalBuilderProps> = ({ appId, uploadedFiles, proposalFileUrl }) => {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [activeStep, setActiveStep] = useState<Step>('data');
 
   const { data: proposalData } = useQuery({
@@ -28,9 +29,30 @@ const ProposalBuilder: React.FC<ProposalBuilderProps> = ({ appId, uploadedFiles,
     queryKey: ['simulations', appId],
     queryFn: () => listSimulations(appId),
   });
+  const { data: automationData } = useQuery({
+    queryKey: ['proposal-automation', appId],
+    queryFn: () => getProposalAutomation(appId),
+  });
+
+  const automationMutation = useMutation({
+    mutationFn: (enabled: boolean) => updateProposalAutomation(appId, enabled, enabled ? 'enabled_from_proposal_builder' : 'disabled_from_proposal_builder'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['proposal-automation', appId] });
+    },
+  });
+
+  const runAutomationMutation = useMutation({
+    mutationFn: () => runProposalAutomation(appId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['proposal-automation', appId] });
+      queryClient.invalidateQueries({ queryKey: ['proposal-data', appId] });
+      queryClient.invalidateQueries({ queryKey: ['simulations', appId] });
+    },
+  });
 
   const hasExtractedData = !!proposalData?.extracted_data;
   const hasSelectedSimulation = (simData?.simulations || []).some((s: any) => s.is_selected);
+  const automationEnabled = !!automationData?.automation?.enabled;
 
   const steps: { id: Step; label: string }[] = [
     { id: 'data', label: t('proposalBuilder.step.data') },
@@ -50,6 +72,29 @@ const ProposalBuilder: React.FC<ProposalBuilderProps> = ({ appId, uploadedFiles,
       {/* Header */}
       <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/30">
         <h3 className="text-xs font-bold text-secondary-light uppercase tracking-widest">{t('proposalBuilder.title')}</h3>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => automationMutation.mutate(!automationEnabled)}
+            disabled={automationMutation.isPending}
+            className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+              automationEnabled
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                : 'border-slate-200 bg-white text-slate-600'
+            }`}
+          >
+            {automationEnabled ? 'Авторежим КП: включён' : 'Авто режим КП: выключен'}
+          </button>
+          <button
+            onClick={() => runAutomationMutation.mutate()}
+            disabled={runAutomationMutation.isPending}
+            className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 disabled:opacity-60"
+          >
+            {runAutomationMutation.isPending ? 'Запускаем…' : 'Запустить автошаг сейчас'}
+          </button>
+          <span className="text-[11px] text-slate-500">
+            {automationData?.automation?.status ? `Статус: ${automationData.automation.status}` : ''}
+          </span>
+        </div>
       </div>
 
       {/* Stepper */}

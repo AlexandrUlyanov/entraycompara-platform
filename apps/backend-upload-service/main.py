@@ -420,6 +420,10 @@ class AutoCreateSimulationRequest(BaseModel):
     consumption_p2: float | None = None
     consumption_p3: float | None = None
 
+class ProposalAutomationUpdate(BaseModel):
+    enabled: bool = False
+    reason: str | None = None
+
 # --- База знаний компании ---
 KNOWLEDGE_BASE = """
 EntrayCompara — сервис помощи клиентам в Испании по снижению расходов на коммунальные услуги.
@@ -2646,6 +2650,34 @@ def get_proposal_extraction_task_ref(application_id: str, task_id: str):
     )
 
 
+def get_proposal_automation_ref(application_id: str):
+    return (
+        firestore_client.collection(FIRESTORE_COLLECTION)
+        .document(application_id)
+        .collection("proposal_automation")
+        .document("state")
+    )
+
+
+def get_proposal_automation_state(application_id: str) -> dict:
+    ref = get_proposal_automation_ref(application_id)
+    doc = ref.get()
+    if doc.exists:
+        data = normalize_firestore_value(doc.to_dict() or {})
+        data.setdefault("enabled", False)
+        return data
+    now = datetime.datetime.utcnow()
+    state = {
+        "enabled": False,
+        "status": "disabled",
+        "updated_at": now,
+        "created_at": now,
+        "last_reason": "default_disabled",
+    }
+    ref.set(state, merge=True)
+    return normalize_firestore_value(state)
+
+
 def get_latest_proposal_extraction_task(application_id: str) -> dict | None:
     tasks = (
         firestore_client.collection(FIRESTORE_COLLECTION)
@@ -2684,6 +2716,233 @@ def update_proposal_extraction_task(application_id: str, task_id: str, payload: 
         **payload,
         "updated_at": datetime.datetime.utcnow(),
     }, merge=True)
+
+
+def _is_active_extraction_task(application_id: str) -> bool:
+    latest = get_latest_proposal_extraction_task(application_id)
+    return bool(latest and latest.get("status") in {"pending", "running"})
+
+
+def _build_auto_simulation_request_from_extracted(extracted: dict) -> AutoCreateSimulationRequest | None:
+    cups = (extracted.get("cups") or "").strip()
+    if not cups:
+        return None
+    return AutoCreateSimulationRequest(
+        cups=cups,
+        client_type=extracted.get("client_type"),
+        access_tariff=extracted.get("access_tariff"),
+        start_date=extracted.get("start_date"),
+        end_date=extracted.get("end_date"),
+        equipment_rental=extracted.get("equipment_rental"),
+        invoice_amount_with_vat=extracted.get("invoice_amount_with_vat"),
+        retailer=extracted.get("retailer"),
+        billed_power_p1=extracted.get("billed_power_p1"),
+        billed_power_p2=extracted.get("billed_power_p2"),
+        consumption_p1=extracted.get("consumption_p1"),
+        consumption_p2=extracted.get("consumption_p2"),
+        consumption_p3=extracted.get("consumption_p3"),
+    )
+
+
+def _generate_proposal_internal(application_id: str, *, comment: str = "", actor: str = "System") -> dict:
+    doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+    doc = doc_ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Заявка не найдена.")
+
+    app_data = doc.to_dict() or {}
+    app_data["id"] = application_id
+    app_data["proposal_comment"] = (comment or "").strip()
+
+    proposal_data_ref = doc_ref.collection("proposal_data").document("data")
+    proposal_data = proposal_data_ref.get()
+    if not proposal_data.exists or not (proposal_data.to_dict() or {}).get("extracted_data"):
+        raise HTTPException(status_code=400, detail="Сначала извлеките данные счетов.")
+    extracted = (proposal_data.to_dict() or {}).get("extracted_data") or {}
+
+    sims_query = doc_ref.collection("proposal_simulations").where("is_selected", "==", True).limit(1).stream()
+    selected_sim = None
+    for sim in sims_query:
+        selected_sim = sim.to_dict()
+        selected_sim["id"] = sim.id
+    if not selected_sim:
+        raise HTTPException(status_code=400, detail="Сначала выберите симуляцию для КП.")
+
+    language = app_data.get("language", "es")
+    pdf_bytes = generate_proposal_pdf(app_data, extracted, selected_sim, language)
+
+    today = datetime.datetime.utcnow()
+    prefix = f"proposals/{today.year}/{today.month:02}/{today.day:02}"
+    unique_name = f"{uuid.uuid4()}.pdf"
+    blob_name = f"{prefix}/{unique_name}"
+    bucket = storage_client.bucket(BUCKET_NAME)
+    blob = bucket.blob(blob_name)
+    blob.upload_from_string(pdf_bytes, content_type="application/pdf")
+    blob.acl.all().grant_read()
+    blob.acl.save()
+    proposal_url = f"https://storage.googleapis.com/{BUCKET_NAME}/{blob_name}"
+
+    doc_ref.update({
+        "proposal_file_url": proposal_url,
+        "proposal_uploaded": True,
+        "client_visible_status": "proposal_ready",
+        "client_visible_label": get_client_visible_label("proposal_ready", Status.PROPOSAL.value),
+        "proposal_ready_at": today,
+        "updated_at": today,
+    })
+    create_timeline_event_internal(
+        application_id=application_id,
+        content=(
+            "Коммерческое предложение сгенерировано.\n"
+            f"Ссылка на КП: {proposal_url}\n"
+            f"Выбранная симуляция:\n{_format_simulation_summary(selected_sim)}"
+        ),
+        event_type=EventType.NOTE,
+        created_by=actor,
+    )
+    return {"success": True, "proposal_file_url": proposal_url}
+
+
+def run_proposal_automation_step(application_id: str, reason: str, actor: str = "System") -> dict:
+    state = get_proposal_automation_state(application_id)
+    if not state.get("enabled"):
+        return {"success": True, "executed": False, "status": "disabled", "reason": "automation_disabled"}
+
+    doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+    doc = doc_ref.get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Заявка не найдена.")
+    app_data = doc.to_dict() or {}
+
+    uploaded_files = app_data.get("uploaded_files", []) or []
+    proposal_url = app_data.get("proposal_file_url")
+    if proposal_url:
+        payload = {
+            "status": "completed",
+            "last_reason": reason,
+            "last_action": "already_has_proposal",
+            "updated_at": datetime.datetime.utcnow(),
+        }
+        get_proposal_automation_ref(application_id).set(payload, merge=True)
+        return {"success": True, "executed": False, "status": "completed", "reason": "already_has_proposal"}
+
+    proposal_data_doc = doc_ref.collection("proposal_data").document("data").get()
+    proposal_data = proposal_data_doc.to_dict() if proposal_data_doc.exists else {}
+    extracted = (proposal_data or {}).get("extracted_data") or {}
+
+    selected_sim = None
+    selected_query = doc_ref.collection("proposal_simulations").where("is_selected", "==", True).limit(1).stream()
+    for sim_doc in selected_query:
+        selected_sim = sim_doc.to_dict() or {}
+        selected_sim["id"] = sim_doc.id
+
+    now = datetime.datetime.utcnow()
+    if not extracted:
+        if not uploaded_files:
+            payload = {
+                "status": "blocked",
+                "last_reason": reason,
+                "last_action": "missing_files",
+                "last_error": "no_uploaded_files",
+                "updated_at": now,
+            }
+            get_proposal_automation_ref(application_id).set(payload, merge=True)
+            return {"success": True, "executed": False, "status": "blocked", "reason": "no_uploaded_files"}
+        if _is_active_extraction_task(application_id):
+            payload = {
+                "status": "waiting_extraction",
+                "last_reason": reason,
+                "last_action": "extraction_already_running",
+                "updated_at": now,
+            }
+            get_proposal_automation_ref(application_id).set(payload, merge=True)
+            return {"success": True, "executed": False, "status": "waiting_extraction", "reason": "extraction_already_running"}
+        task_id = f"extract-{uuid.uuid4().hex[:12]}"
+        get_proposal_extraction_task_ref(application_id, task_id).set({
+            "task_id": task_id,
+            "status": "pending",
+            "message": "Автоматический режим запустил извлечение.",
+            "step_key": "prepare_task",
+            "progress_percent": EXTRACTION_STEP_PROGRESS["prepare_task"],
+            "created_at": now,
+            "updated_at": now,
+            "source": "proposal_automation",
+        })
+        threading.Thread(
+            target=run_proposal_extraction_task,
+            args=(application_id, task_id, {"file_urls": uploaded_files, "force_reextract": False}),
+            daemon=True,
+        ).start()
+        get_proposal_automation_ref(application_id).set({
+            "status": "extraction_started",
+            "last_reason": reason,
+            "last_action": "start_extraction",
+            "last_task_id": task_id,
+            "updated_at": now,
+        }, merge=True)
+        return {"success": True, "executed": True, "status": "extraction_started", "task_id": task_id}
+
+    if not selected_sim:
+        latest_auto_task = _get_latest_task_status(application_id) or {}
+        if latest_auto_task.get("status") in {"pending", "running", "awaiting_tariff_selection"}:
+            get_proposal_automation_ref(application_id).set({
+                "status": "waiting_simulation",
+                "last_reason": reason,
+                "last_action": "simulation_already_running",
+                "last_task_id": latest_auto_task.get("task_id"),
+                "updated_at": now,
+            }, merge=True)
+            return {"success": True, "executed": False, "status": "waiting_simulation", "reason": "simulation_already_running"}
+        request = _build_auto_simulation_request_from_extracted(extracted)
+        if not request:
+            get_proposal_automation_ref(application_id).set({
+                "status": "blocked",
+                "last_reason": reason,
+                "last_action": "missing_cups_for_simulation",
+                "last_error": "missing_cups_for_simulation",
+                "updated_at": now,
+            }, merge=True)
+            return {"success": True, "executed": False, "status": "blocked", "reason": "missing_cups_for_simulation"}
+        task_id = f"auto-sim-{uuid.uuid4().hex[:12]}"
+        _set_task_status(application_id, task_id, {
+            "status": "pending",
+            "message": "Автоматический режим запустил симуляцию Eni.",
+            "simulation_id": None,
+            "simulation_file_url": None,
+            "error": None,
+            "created_at": now,
+            "updated_at": now,
+            "source": "proposal_automation",
+        })
+        _start_eni_simulation_job(application_id, task_id, request)
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Автоматический режим запустил симуляцию Eni.\n"
+                f"CUPS: {request.cups}\n"
+                f"Тариф доступа: {request.access_tariff or 'Не указан'}"
+            ),
+            event_type=EventType.NOTE,
+            created_by=actor,
+        )
+        get_proposal_automation_ref(application_id).set({
+            "status": "simulation_started",
+            "last_reason": reason,
+            "last_action": "start_simulation",
+            "last_task_id": task_id,
+            "updated_at": now,
+        }, merge=True)
+        return {"success": True, "executed": True, "status": "simulation_started", "task_id": task_id}
+
+    result = _generate_proposal_internal(application_id, actor=actor)
+    get_proposal_automation_ref(application_id).set({
+        "status": "proposal_generated",
+        "last_reason": reason,
+        "last_action": "generate_proposal",
+        "proposal_file_url": result.get("proposal_file_url"),
+        "updated_at": datetime.datetime.utcnow(),
+    }, merge=True)
+    return {"success": True, "executed": True, "status": "proposal_generated", "proposal_file_url": result.get("proposal_file_url")}
 
 
 def run_proposal_extraction_task(application_id: str, task_id: str, request_payload: dict):
@@ -2857,6 +3116,14 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             reason="extraction_completed",
             source_event_id=task_id,
         )
+        try:
+            run_proposal_automation_step(
+                application_id,
+                reason="extraction_completed",
+                actor="System",
+            )
+        except Exception as auto_exc:
+            print(f"[Proposal Automation] Post-extraction step failed: {auto_exc}")
     except HTTPException as exc:
         update_proposal_extraction_task(application_id, task_id, {
             "status": "failed",
@@ -6152,6 +6419,65 @@ async def upload_application_files(application_id: str, files: list[UploadFile] 
 
 # --- 4.85. Proposal Builder: Extracted Data Endpoints ---
 
+@app.get("/api/applications/{application_id}/proposal/automation", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def get_proposal_automation(application_id: str):
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        if not doc_ref.get().exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        state = get_proposal_automation_state(application_id)
+        return {"success": True, "automation": state}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Get proposal automation error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка получения состояния автоматического режима.")
+
+
+@app.put("/api/applications/{application_id}/proposal/automation", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def update_proposal_automation(application_id: str, payload: ProposalAutomationUpdate):
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        if not doc_ref.get().exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        now = datetime.datetime.utcnow()
+        state_payload = {
+            "enabled": bool(payload.enabled),
+            "status": "ready" if payload.enabled else "disabled",
+            "last_reason": payload.reason or ("enabled_by_operator" if payload.enabled else "disabled_by_operator"),
+            "updated_at": now,
+        }
+        get_proposal_automation_ref(application_id).set(state_payload, merge=True)
+        if payload.enabled:
+            run_result = run_proposal_automation_step(
+                application_id,
+                reason=payload.reason or "enabled_by_operator",
+                actor="Operator",
+            )
+            state_payload["last_run"] = run_result
+        return {"success": True, "automation": normalize_firestore_value(get_proposal_automation_state(application_id))}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Update proposal automation error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка обновления автоматического режима.")
+
+
+@app.post("/api/applications/{application_id}/proposal/automation/run", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
+async def run_proposal_automation(application_id: str):
+    try:
+        doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+        if not doc_ref.get().exists:
+            raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        result = run_proposal_automation_step(application_id, reason="manual_run_from_crm", actor="Operator")
+        return {"success": True, "result": normalize_firestore_value(result), "automation": normalize_firestore_value(get_proposal_automation_state(application_id))}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Run proposal automation error: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка запуска автоматического режима.")
+
+
 @app.get("/api/reference/retailers", tags=["Proposal Builder"], dependencies=[Depends(authenticate_operator)])
 async def list_reference_retailers():
     return {
@@ -6392,6 +6718,14 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
             reason="manual_correction_saved",
             source_event_id=event_id,
         )
+        try:
+            run_proposal_automation_step(
+                application_id,
+                reason="manual_correction_saved",
+                actor="System",
+            )
+        except Exception as auto_exc:
+            print(f"[Proposal Automation] Post-manual-correction step failed: {auto_exc}")
         
         return {"success": True, "message": "Данные обновлены."}
         
@@ -6659,6 +6993,14 @@ async def select_simulation(application_id: str, simulation_id: str):
             reason="simulation_selected",
             source_event_id=event_id,
         )
+        try:
+            run_proposal_automation_step(
+                application_id,
+                reason="simulation_selected",
+                actor="System",
+            )
+        except Exception as auto_exc:
+            print(f"[Proposal Automation] Post-simulation-selected step failed: {auto_exc}")
         
         return {"success": True, "message": "Симуляция выбрана."}
         
@@ -6717,6 +7059,15 @@ def _trigger_sales_reanalysis_for_auto_task_if_needed(application_id: str, task_
         "sales_reanalysis_run_id": (result or {}).get("run_id"),
         "updated_at": datetime.datetime.utcnow(),
     })
+    if status_value == "completed":
+        try:
+            run_proposal_automation_step(
+                application_id,
+                reason="auto_simulation_completed",
+                actor="System",
+            )
+        except Exception as auto_exc:
+            print(f"[Proposal Automation] Post-auto-simulation step failed: {auto_exc}")
 
 def _start_eni_simulation_job(application_id: str, task_id: str, data: AutoCreateSimulationRequest) -> str:
     """Запускает Cloud Run Job для автоматической симуляции Eni."""

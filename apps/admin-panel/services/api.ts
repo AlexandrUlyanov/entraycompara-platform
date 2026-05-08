@@ -1,5 +1,5 @@
 
-import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, WhatsAppConnectionHealth, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotResponse, SalesDepartmentActionsResponse, SalesDepartmentActionDecisionResponse, SalesDepartmentAuditResponse, SalesDepartmentFollowupsResponse, SalesDepartmentFollowupDecisionResponse } from '../types';
+import { Application, CursorPaginatedApplications, Status, ServiceType, ApplicationNote, NoteType, ExtractedData, ProposalData, Simulation, ExtractionTaskStatus, RetailerOption, LatestExtractionTaskResponse, AutoSimulationTaskStatus, LatestAutoSimulationTaskResponse, WhatsAppConnectionHealth, SalesDepartmentStateResponse, SalesDepartmentAnalyzeResponse, SalesDepartmentRun, SalesDepartmentAutopilotMode, SalesDepartmentAutopilotResponse, SalesDepartmentActionsResponse, SalesDepartmentActionDecisionResponse, SalesDepartmentAuditResponse, SalesDepartmentFollowupsResponse, SalesDepartmentFollowupDecisionResponse, ProposalAutomationResponse } from '../types';
 
 const API_BASE_URL = 'https://backend-upload-service-staging-bfuq4rsamq-ew.a.run.app/api';
 
@@ -652,6 +652,35 @@ export const selectAutoSimulationTariff = async (applicationId: string, taskId: 
     method: 'POST',
     headers: getHeaders(),
     body: JSON.stringify({ selected_tariff_index: selectedTariffIndex }),
+  });
+  return handleApiError(response);
+};
+
+export const getProposalAutomation = async (applicationId: string): Promise<ProposalAutomationResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/automation`, {
+    method: 'GET',
+    headers: getHeaders(),
+  });
+  return handleApiError(response);
+};
+
+export const updateProposalAutomation = async (
+  applicationId: string,
+  enabled: boolean,
+  reason?: string
+): Promise<ProposalAutomationResponse> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/automation`, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify({ enabled, reason }),
+  });
+  return handleApiError(response);
+};
+
+export const runProposalAutomation = async (applicationId: string): Promise<{ success: boolean; result: any; automation: any }> => {
+  const response = await fetch(`${API_BASE_URL}/applications/${applicationId}/proposal/automation/run`, {
+    method: 'POST',
+    headers: getHeaders(),
   });
   return handleApiError(response);
 };

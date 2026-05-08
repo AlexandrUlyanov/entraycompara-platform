@@ -1634,14 +1634,170 @@ def trigger_sales_department_reanalysis(
             "updated_at": now,
         }
 
+    def _mark_action_executed(action_id: str | None, execution_meta: dict | None = None):
+        if not action_id:
+            return
+        now = datetime.datetime.utcnow()
+        update_payload = {
+            "status": SalesActionStatus.EXECUTED.value,
+            "executed_at": now,
+            "execution_actor": "sales_department_autopilot",
+            "updated_at": now,
+        }
+        if execution_meta:
+            update_payload["execution_meta"] = execution_meta
+        try:
+            get_sales_department_actions_ref(application_id).document(action_id).set(update_payload, merge=True)
+        except Exception as exc:
+            print(f"[Sales Department] Failed to mark action executed: {exc}")
+
+    def _mark_action_failed(action_id: str | None, error_message: str):
+        if not action_id:
+            return
+        try:
+            get_sales_department_actions_ref(application_id).document(action_id).set({
+                "status": SalesActionStatus.FAILED.value,
+                "execution_actor": "sales_department_autopilot",
+                "execution_error": error_message,
+                "updated_at": datetime.datetime.utcnow(),
+            }, merge=True)
+        except Exception as exc:
+            print(f"[Sales Department] Failed to mark action failed: {exc}")
+
+    def _build_auto_simulation_request_from_proposal_data() -> AutoCreateSimulationRequest | None:
+        proposal_doc = (
+            firestore_client.collection(FIRESTORE_COLLECTION)
+            .document(application_id)
+            .collection("proposal_data")
+            .document("data")
+            .get()
+        )
+        if not proposal_doc.exists:
+            return None
+        proposal_data = normalize_firestore_value(proposal_doc.to_dict() or {})
+        extracted = proposal_data.get("extracted_data") or {}
+        cups = (extracted.get("cups") or "").strip()
+        if not cups:
+            return None
+        return AutoCreateSimulationRequest(
+            cups=cups,
+            client_type=extracted.get("client_type"),
+            access_tariff=extracted.get("access_tariff"),
+            start_date=extracted.get("start_date"),
+            end_date=extracted.get("end_date"),
+            equipment_rental=extracted.get("equipment_rental"),
+            invoice_amount_with_vat=extracted.get("invoice_amount_with_vat"),
+            retailer=extracted.get("retailer"),
+            billed_power_p1=extracted.get("billed_power_p1"),
+            billed_power_p2=extracted.get("billed_power_p2"),
+            consumption_p1=extracted.get("consumption_p1"),
+            consumption_p2=extracted.get("consumption_p2"),
+            consumption_p3=extracted.get("consumption_p3"),
+        )
+
+    def _execute_assisted_autopilot_action(analysis_result: dict) -> dict | None:
+        state = analysis_result.get("state") or {}
+        next_action = state.get("next_action") or {}
+        action_type = next_action.get("type")
+        action_id = next_action.get("action_id")
+        guardrail_result = next_action.get("guardrail_result") or state.get("guardrail_result") or {}
+        safe_to_execute = bool(next_action.get("safe_to_execute") or guardrail_result.get("safe_to_execute"))
+
+        autopilot = get_sales_department_autopilot_state(application_id)
+        mode = str(autopilot.get("mode") or AutopilotMode.MANUAL.value)
+        enabled = bool(autopilot.get("enabled", True))
+        control = evaluate_autopilot_control(
+            application_id=application_id,
+            mode=mode,
+            enabled=enabled,
+            sales_state=state,
+        )
+        get_sales_department_autopilot_ref(application_id).set({
+            **control,
+            "last_reason": f"reanalysis:{reason}",
+        }, merge=True)
+
+        if not enabled or mode != AutopilotMode.ASSISTED_AUTO.value:
+            return None
+        if action_type != SalesActionType.START_SIMULATION.value or not safe_to_execute:
+            return None
+
+        latest_task = _get_latest_task_status(application_id) or {}
+        latest_status = latest_task.get("status")
+        if latest_status in {"pending", "running", "awaiting_tariff_selection"}:
+            create_sales_audit_event(application_id, "autopilot_execution_skipped", {
+                "reason": "auto_simulation_already_active",
+                "action_id": action_id,
+                "existing_task_id": latest_task.get("task_id"),
+                "existing_task_status": latest_status,
+            })
+            return {"executed": False, "reason": "auto_simulation_already_active", "task_id": latest_task.get("task_id")}
+
+        request = _build_auto_simulation_request_from_proposal_data()
+        if not request:
+            create_sales_audit_event(application_id, "autopilot_execution_skipped", {
+                "reason": "missing_extracted_data_for_auto_simulation",
+                "action_id": action_id,
+            })
+            return {"executed": False, "reason": "missing_extracted_data_for_auto_simulation"}
+
+        task_id = f"auto-sim-{uuid.uuid4().hex[:12]}"
+        try:
+            _set_task_status(application_id, task_id, {
+                "status": "pending",
+                "message": "Ожидание запуска...",
+                "simulation_id": None,
+                "simulation_file_url": None,
+                "error": None,
+                "created_at": datetime.datetime.utcnow(),
+                "updated_at": datetime.datetime.utcnow(),
+                "source": "sales_department_autopilot",
+            })
+            _start_eni_simulation_job(application_id, task_id, request)
+            event_id = create_timeline_event_internal(
+                application_id=application_id,
+                content=(
+                    "Отдел продаж (autopilot) запустил автоматическую симуляцию Eni.\n"
+                    f"CUPS: {request.cups}\n"
+                    f"Коммерциализатор: {request.retailer or 'Не указан'}\n"
+                    f"Тариф доступа: {request.access_tariff or 'Не указан'}"
+                ),
+                event_type=EventType.NOTE,
+                created_by="System",
+            )
+            _mark_action_executed(action_id, {"task_id": task_id, "event_id": event_id})
+            create_sales_audit_event(application_id, "autopilot_action_executed", {
+                "action_id": action_id,
+                "action_type": action_type,
+                "task_id": task_id,
+                "mode": mode,
+                "reason": reason,
+            })
+            return {"executed": True, "action_id": action_id, "task_id": task_id}
+        except Exception as execution_exc:
+            error_message = str(execution_exc)
+            _mark_action_failed(action_id, error_message)
+            create_sales_audit_event(application_id, "autopilot_action_failed", {
+                "action_id": action_id,
+                "action_type": action_type,
+                "mode": mode,
+                "reason": reason,
+                "error": error_message,
+            })
+            return {"executed": False, "action_id": action_id, "reason": "execution_failed", "error": error_message}
+
     try:
-        return run_sales_department_analysis(
+        result = run_sales_department_analysis(
             application_id,
             trigger="event",
             reason=reason,
             source_event_id=source_event_id,
             add_timeline=False,
         )
+        autopilot_execution = _execute_assisted_autopilot_action(result)
+        if autopilot_execution:
+            result["autopilot_execution"] = autopilot_execution
+        return result
     except Exception as exc:
         print(f"[Sales Department] Event reanalysis failed for {application_id}: {exc}")
         try:
@@ -2397,13 +2553,24 @@ def evaluate_autopilot_control(application_id: str, mode: str, enabled: bool, sa
         status_value = "full_auto_pilot_locked"
         decision = "autopilot_full_auto_locked"
 
+    allowed_actions = ["analyze"]
+    if enabled:
+        allowed_actions.extend(["draft_message", "prepare_actions"])
+    if (
+        enabled
+        and mode == AutopilotMode.ASSISTED_AUTO.value
+        and safe_to_prepare
+        and not blocked_reasons
+    ):
+        allowed_actions.append("start_simulation")
+
     return {
         "application_id": application_id,
         "mode": mode,
         "enabled": enabled,
         "status": status_value,
         "safe_to_send": safe_to_send,
-        "allowed_actions": ["analyze", "draft_message"] if enabled else ["analyze"],
+        "allowed_actions": allowed_actions,
         "blocked_reasons": blocked_reasons,
         "warnings": warnings,
         "guardrail_result": guardrail_result,

@@ -92,7 +92,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
-GEMINI_INVOICE_EXTRACTION_MODEL = os.environ.get("GEMINI_INVOICE_EXTRACTION_MODEL", "gemini-2.5-pro")
+GEMINI_INVOICE_EXTRACTION_MODEL = os.environ.get("GEMINI_INVOICE_EXTRACTION_MODEL", "gemini-3-flash-preview")
 # -------------------------
 
 SALES_DEPARTMENT_AUTOMATION_ENABLED = (
@@ -2633,9 +2633,8 @@ EXTRACTION_STEP_PROGRESS = {
     "prepare_task": 3,
     "check_existing": 8,
     "download_files": 20,
-    "primary_extraction": 45,
-    "validate_primary": 62,
-    "second_pass": 78,
+    "primary_extraction": 55,
+    "validate_primary": 76,
     "save_results": 92,
     "completed": 100,
 }
@@ -2803,6 +2802,63 @@ def _generate_proposal_internal(application_id: str, *, comment: str = "", actor
     return {"success": True, "proposal_file_url": proposal_url}
 
 
+def _pick_best_simulation_doc(doc_ref) -> tuple[str, dict] | None:
+    try:
+        sims = list(doc_ref.collection("proposal_simulations").stream())
+    except Exception as exc:
+        print(f"[Proposal Automation] Failed to read simulations: {exc}")
+        return None
+
+    if not sims:
+        return None
+
+    def _score(snapshot) -> tuple[float, str]:
+        data = snapshot.to_dict() or {}
+        saving = to_float(data.get("savings_monthly_eur"))
+        if saving is None:
+            saving = to_float(data.get("savings_monthly"))
+        if saving is None:
+            saving = -1e9
+        created = data.get("created_at")
+        created_key = created.isoformat() if hasattr(created, "isoformat") else str(created or "")
+        return (saving, created_key)
+
+    best = max(sims, key=_score)
+    best_data = best.to_dict() or {}
+    best_data["id"] = best.id
+    return best.id, best_data
+
+
+def _auto_select_best_simulation(application_id: str, doc_ref, actor: str) -> dict | None:
+    picked = _pick_best_simulation_doc(doc_ref)
+    if not picked:
+        return None
+
+    selected_id, selected_data = picked
+    batch = firestore_client.batch()
+    for sim_doc in doc_ref.collection("proposal_simulations").stream():
+        batch.update(
+            sim_doc.reference,
+            {
+                "is_selected": sim_doc.id == selected_id,
+                "updated_at": datetime.datetime.utcnow(),
+            },
+        )
+    batch.commit()
+
+    maybe_advance_client_visible_status(doc_ref, "simulation_ready")
+    create_timeline_event_internal(
+        application_id=application_id,
+        content=(
+            "Автоматический режим выбрал симуляцию для КП.\n"
+            f"{_format_simulation_summary(selected_data)}"
+        ),
+        event_type=EventType.NOTE,
+        created_by=actor,
+    )
+    return selected_data
+
+
 def run_proposal_automation_step(application_id: str, reason: str, actor: str = "System") -> dict:
     state = get_proposal_automation_state(application_id)
     if not state.get("enabled"):
@@ -2883,6 +2939,11 @@ def run_proposal_automation_step(application_id: str, reason: str, actor: str = 
         return {"success": True, "executed": True, "status": "extraction_started", "task_id": task_id}
 
     if not selected_sim:
+        auto_selected = _auto_select_best_simulation(application_id, doc_ref, actor)
+        if auto_selected:
+            selected_sim = auto_selected
+
+    if not selected_sim:
         latest_auto_task = _get_latest_task_status(application_id) or {}
         if latest_auto_task.get("status") in {"pending", "running", "awaiting_tariff_selection"}:
             get_proposal_automation_ref(application_id).set({
@@ -2933,6 +2994,15 @@ def run_proposal_automation_step(application_id: str, reason: str, actor: str = 
             "updated_at": now,
         }, merge=True)
         return {"success": True, "executed": True, "status": "simulation_started", "task_id": task_id}
+
+    if selected_sim and reason in {"auto_simulation_completed", "simulation_started", "extraction_completed"}:
+        get_proposal_automation_ref(application_id).set({
+            "status": "simulation_selected",
+            "last_reason": reason,
+            "last_action": "auto_select_simulation",
+            "last_selected_simulation_id": selected_sim.get("id"),
+            "updated_at": now,
+        }, merge=True)
 
     result = _generate_proposal_internal(application_id, actor=actor)
     get_proposal_automation_ref(application_id).set({
@@ -3019,32 +3089,22 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
         })
         primary_validation = validate_invoice_extraction(primary_extracted)
 
-        suspicious_fields = primary_validation["needs_review_fields"]
-        if suspicious_fields:
-            update_proposal_extraction_task(application_id, task_id, {
-                "step_key": "second_pass",
-                "message": f"Повторно перепроверяем сомнительные поля: {', '.join(suspicious_fields)}.",
-                "progress_percent": EXTRACTION_STEP_PROGRESS["second_pass"],
-            })
-
-        pipeline_result = apply_second_pass_if_needed(file_contents, primary_extracted, primary_validation)
-
-        extracted = dict(pipeline_result["final_data"])
+        extracted = dict(primary_validation["normalized_data"])
         extracted["source_files"] = request.file_urls
 
-        field_assessments = pipeline_result["final_validation"]["field_assessments"]
-        overall_confidence = pipeline_result["final_validation"]["overall_confidence"]
-        needs_review = pipeline_result["final_validation"]["needs_review"]
-        needs_review_fields = pipeline_result["final_validation"]["needs_review_fields"]
-        provider_rule_hits = pipeline_result["final_validation"]["provider_rule_hits"]
+        field_assessments = primary_validation["field_assessments"]
+        overall_confidence = primary_validation["overall_confidence"]
+        needs_review = primary_validation["needs_review"]
+        needs_review_fields = primary_validation["needs_review_fields"]
+        provider_rule_hits = primary_validation["provider_rule_hits"]
 
         raw_extraction = {
             "primary_response_text": primary_raw,
             "primary_extracted_data": primary_extracted,
             "primary_source_snippets": primary_sources,
-            "second_pass_attempted": pipeline_result["second_pass_attempted"],
-            "second_pass_response_text": pipeline_result["second_pass_raw"],
-            "second_pass_updates": pipeline_result["second_pass_updates"],
+            "second_pass_attempted": False,
+            "second_pass_response_text": None,
+            "second_pass_updates": {},
         }
         # Snippet generation disabled for performance stability.
         final_source_snippets = {}

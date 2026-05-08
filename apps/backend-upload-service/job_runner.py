@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from google.cloud import firestore, storage
 import eni_simulator
+import main as backend_main
 
 FIRESTORE_COLLECTION = os.environ.get("FIRESTORE_COLLECTION", "applications")
 BUCKET_NAME = os.environ.get("GCP_BUCKET_NAME", "entraycompara-invoices")
@@ -261,6 +262,24 @@ async def main():
             "error": None,
             "updated_at": datetime.utcnow(),
         })
+
+        # Fire-and-forget signal: after successful auto-simulation creation,
+        # immediately trigger proposal automation in backend context.
+        # This removes dependency on CRM polling endpoints.
+        try:
+            auto_result = await asyncio.to_thread(
+                backend_main.run_proposal_automation_step,
+                application_id,
+                "auto_simulation_completed",
+                "System",
+            )
+            print(f"[Job {task_id}] Proposal automation trigger result: {auto_result}")
+        except Exception as auto_exc:
+            print(f"[Job {task_id}] Proposal automation trigger failed: {auto_exc}")
+            await _set_task({
+                "automation_error": str(auto_exc),
+                "updated_at": datetime.utcnow(),
+            })
 
         print(f"[Job {task_id}] Completed successfully")
 

@@ -150,7 +150,8 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
         setExtractStepKey(result.task.step_key || null);
         setExtractProgressPercent(result.task.progress_percent || 0);
 
-        if (result.task.extracted_data) {
+        const hasPersistedData = !!existingData?.extracted_data;
+        if (result.task.extracted_data && !hasPersistedData) {
           setFormData(result.task.extracted_data);
           setIsEditing(true);
         }
@@ -163,7 +164,7 @@ const DataExtractionPanel: React.FC<DataExtractionPanelProps> = ({ appId, upload
     return () => {
       isCancelled = true;
     };
-  }, [appId, extractTaskId]);
+  }, [appId, extractTaskId, existingData?.extracted_data]);
 
   useEffect(() => {
     if (!extractTaskId || extractStatus === 'completed' || extractStatus === 'failed') return;

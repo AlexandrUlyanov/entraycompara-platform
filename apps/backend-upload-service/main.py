@@ -2662,6 +2662,22 @@ def get_latest_proposal_extraction_task(application_id: str) -> dict | None:
     return None
 
 
+def sync_latest_extraction_task_with_proposal_data(application_id: str, payload: dict) -> str | None:
+    """Синхронизирует latest extraction task с актуальными proposal_data после ручной правки."""
+    try:
+        latest = get_latest_proposal_extraction_task(application_id)
+        if not latest:
+            return None
+        task_id = latest.get("task_id")
+        if not task_id:
+            return None
+        update_proposal_extraction_task(application_id, task_id, payload)
+        return task_id
+    except Exception as exc:
+        print(f"[Proposal Extraction] Failed to sync latest task for {application_id}: {exc}")
+        return None
+
+
 def update_proposal_extraction_task(application_id: str, task_id: str, payload: dict):
     task_ref = get_proposal_extraction_task_ref(application_id, task_id)
     task_ref.set({
@@ -6253,6 +6269,16 @@ async def proposal_extract_latest_task(application_id: str):
         if not task:
             return {"success": True, "task": None}
 
+        proposal_data_doc = doc_ref.collection("proposal_data").document("data").get()
+        proposal_data = proposal_data_doc.to_dict() if proposal_data_doc.exists else {}
+        is_completed = task.get("status") == "completed"
+        extracted_data = proposal_data.get("extracted_data") if is_completed else task.get("extracted_data")
+        field_assessments = proposal_data.get("field_assessments") if is_completed else task.get("field_assessments")
+        source_snippets = proposal_data.get("source_snippets") if is_completed else task.get("source_snippets")
+        overall_confidence = proposal_data.get("overall_confidence") if is_completed else task.get("overall_confidence")
+        needs_review = proposal_data.get("needs_review", False) if is_completed else task.get("needs_review", False)
+        needs_review_fields = proposal_data.get("needs_review_fields", []) if is_completed else task.get("needs_review_fields", [])
+
         return {
             "success": True,
             "task": {
@@ -6261,12 +6287,12 @@ async def proposal_extract_latest_task(application_id: str):
                 "message": task.get("message", ""),
                 "step_key": task.get("step_key"),
                 "progress_percent": task.get("progress_percent", 0),
-                "extracted_data": task.get("extracted_data"),
-                "field_assessments": task.get("field_assessments"),
-                "source_snippets": task.get("source_snippets"),
-                "overall_confidence": task.get("overall_confidence"),
-                "needs_review": task.get("needs_review", False),
-                "needs_review_fields": task.get("needs_review_fields", []),
+                "extracted_data": extracted_data,
+                "field_assessments": field_assessments,
+                "source_snippets": source_snippets,
+                "overall_confidence": overall_confidence,
+                "needs_review": needs_review,
+                "needs_review_fields": needs_review_fields,
                 "error": task.get("error"),
             },
         }
@@ -6328,6 +6354,18 @@ async def proposal_update_extracted_data(application_id: str, update_data: Extra
                 "corrected_at": datetime.datetime.utcnow(),
             },
         }, merge=True)
+        sync_latest_extraction_task_with_proposal_data(application_id, {
+            "status": "completed",
+            "message": "Данные скорректированы оператором.",
+            "step_key": "completed",
+            "progress_percent": EXTRACTION_STEP_PROGRESS["completed"],
+            "extracted_data": corrected,
+            "field_assessments": manual_assessments,
+            "source_snippets": previous_data.get("source_snippets", {}),
+            "overall_confidence": manual_overall_confidence,
+            "needs_review": bool(manual_needs_review_fields),
+            "needs_review_fields": manual_needs_review_fields,
+        })
         maybe_advance_client_visible_status(doc_ref, "data_extracted")
 
         append_proposal_data_revision(application_id, "manual_correction", {

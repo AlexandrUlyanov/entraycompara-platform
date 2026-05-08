@@ -4595,7 +4595,19 @@ def notify_client_proposal_ready(
             caption="Propuesta EntrayCompara.pdf",
         )
         wa_message_id = doc_resp.get("messages", [{}])[0].get("id")
-        wa_status = "submitted" if wa_message_id else "failed"
+        if wa_message_id:
+            wa_status = "submitted"
+        else:
+            # Meta can respond 200 without message id in edge cases.
+            # Treat as failed document send and force text fallback.
+            wa_status = "failed"
+            try:
+                text_resp = send_whatsapp_message(phone, message)
+                wa_message_id = text_resp.get("messages", [{}])[0].get("id")
+                wa_status = "submitted" if wa_message_id else "failed"
+            except Exception as text_exc:
+                text_send_error = str(text_exc)
+                print(f"WhatsApp proposal text fallback failed (after empty document id): {text_send_error}")
     except Exception as doc_exc:
         document_send_error = str(doc_exc)
         print(f"WhatsApp proposal document send failed: {document_send_error}")

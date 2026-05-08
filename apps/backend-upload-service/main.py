@@ -2799,6 +2799,15 @@ def _generate_proposal_internal(application_id: str, *, comment: str = "", actor
         event_type=EventType.NOTE,
         created_by=actor,
     )
+    try:
+        notify_client_proposal_ready(
+            application_id,
+            normalize_firestore_value(doc_ref.get().to_dict() or {}),
+            proposal_url,
+            trigger="proposal_automation_auto_send",
+        )
+    except Exception as notify_exc:
+        print(f"[Proposal Automation] Auto WhatsApp proposal notification failed: {notify_exc}")
     return {"success": True, "proposal_file_url": proposal_url}
 
 
@@ -6900,6 +6909,14 @@ async def create_simulation(application_id: str, input_data: SimulationInput):
             reason="simulation_created",
             source_event_id=event_id,
         )
+        try:
+            run_proposal_automation_step(
+                application_id,
+                reason="simulation_created",
+                actor="System",
+            )
+        except Exception as auto_exc:
+            print(f"[Proposal Automation] Post-simulation-created step failed: {auto_exc}")
         
         return {"success": True, "simulation_id": sim_ref.id, "savings_monthly_eur": savings_monthly, "savings_percent": savings_percent}
         

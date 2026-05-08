@@ -4586,6 +4586,8 @@ def notify_client_proposal_ready(
     )
     wa_message_id = None
     wa_status = "failed"
+    document_send_error = None
+    text_send_error = None
     try:
         doc_resp = send_whatsapp_document(
             phone,
@@ -4595,22 +4597,49 @@ def notify_client_proposal_ready(
         wa_message_id = doc_resp.get("messages", [{}])[0].get("id")
         wa_status = "submitted" if wa_message_id else "failed"
     except Exception as doc_exc:
-        print(f"WhatsApp proposal document send failed: {doc_exc}")
-        wa_message_id = send_safe_whatsapp_message(phone, message)
-        wa_status = "submitted" if wa_message_id else "failed"
+        document_send_error = str(doc_exc)
+        print(f"WhatsApp proposal document send failed: {document_send_error}")
+        try:
+            text_resp = send_whatsapp_message(phone, message)
+            wa_message_id = text_resp.get("messages", [{}])[0].get("id")
+            wa_status = "submitted" if wa_message_id else "failed"
+        except Exception as text_exc:
+            text_send_error = str(text_exc)
+            print(f"WhatsApp proposal text fallback failed: {text_send_error}")
+            wa_message_id = None
+            wa_status = "failed"
 
     now = datetime.datetime.utcnow()
-    event_id = create_whatsapp_timeline_event(
-        application_id,
-        message,
-        "System",
-        "outgoing",
-        wa_message_id,
-        wa_status,
-    )
+    if wa_message_id:
+        event_id = create_whatsapp_timeline_event(
+            application_id,
+            message,
+            "System",
+            "outgoing",
+            wa_message_id,
+            wa_status,
+        )
+    else:
+        failure_parts = [
+            "Автоотправка КП в WhatsApp не доставлена.",
+            f"Trigger: {trigger}",
+        ]
+        if document_send_error:
+            failure_parts.append(f"Ошибка отправки документа: {document_send_error}")
+        if text_send_error:
+            failure_parts.append(f"Ошибка fallback-текста: {text_send_error}")
+        event_id = create_timeline_event_internal(
+            application_id,
+            "\n".join(failure_parts),
+            EventType.NOTE,
+            "System",
+        )
+
     update_payload = {
         "proposal_client_area_notification_trigger": trigger,
         "proposal_client_area_wa_message_id": wa_message_id,
+        "proposal_client_area_wa_status": wa_status,
+        "proposal_client_area_last_error": text_send_error or document_send_error,
         "updated_at": now,
     }
     if wa_message_id:
@@ -9681,7 +9710,16 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
         if not proposal_url:
             raise HTTPException(status_code=400, detail="КП не загружено. Сначала загрузите файл КП.")
         
-        result = send_whatsapp_document(phone, proposal_url, "Коммерческое предложение")
+        lead_language = (app_data.get("language") or "es").lower()
+        proposal_caption_by_language = {
+            "es": "Propuesta comercial",
+            "ru": "Коммерческое предложение",
+            "uk": "Комерційна пропозиція",
+            "eu": "Proposamen komertziala",
+        }
+        proposal_caption = proposal_caption_by_language.get(lead_language, proposal_caption_by_language["es"])
+
+        result = send_whatsapp_document(phone, proposal_url, proposal_caption)
         wa_message_id = result.get("messages", [{}])[0].get("id")
         if not wa_message_id:
             raise HTTPException(status_code=502, detail="Meta API не вернул идентификатор сообщения для КП.")
@@ -9689,7 +9727,7 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
         event_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(data.application_id).collection("timeline").document()
         event_ref.set({
             "application_id": data.application_id,
-            "content": f"📎 Коммерческое предложение\nСсылка: {proposal_url}",
+            "content": f"📎 {proposal_caption}\nСсылка: {proposal_url}",
             "type": EventType.WHATSAPP.value,
             "created_by": "Operator",
             "created_at": datetime.datetime.utcnow(),

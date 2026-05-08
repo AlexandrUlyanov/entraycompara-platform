@@ -226,6 +226,28 @@ async def main():
         sim_id = await asyncio.to_thread(_create_sim)
         print(f"[Job {task_id}] Simulation doc created: {sim_id}")
 
+        # Force-select the freshly created simulation for proposal flow.
+        # This removes dependency on CRM Stage-2 UI interactions/polling.
+        def _select_created_simulation():
+            app_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+            batch = firestore_client.batch()
+            for sim_doc in app_ref.collection("proposal_simulations").stream():
+                batch.update(
+                    sim_doc.reference,
+                    {
+                        "is_selected": sim_doc.id == sim_id,
+                        "updated_at": datetime.utcnow(),
+                    },
+                )
+            batch.commit()
+            try:
+                backend_main.maybe_advance_client_visible_status(app_ref, "simulation_ready")
+            except Exception as status_exc:
+                print(f"[Job {task_id}] Warning: failed to advance client-visible status: {status_exc}")
+
+        await asyncio.to_thread(_select_created_simulation)
+        print(f"[Job {task_id}] Simulation selected automatically: {sim_id}")
+
         # Timeline event
         timeline_content = (
             "Автоматическая симуляция Eni завершена.\n"
@@ -258,6 +280,8 @@ async def main():
             "step_details": "Симуляция добавлена в CRM." if pdf_url else "Данные расчёта сохранены без скачивания PDF.",
             "progress_percent": 100,
             "simulation_id": sim_id,
+            "selected_simulation_id": sim_id,
+            "simulation_selected": True,
             "simulation_file_url": pdf_url,
             "error": None,
             "updated_at": datetime.utcnow(),
@@ -270,7 +294,7 @@ async def main():
             auto_result = await asyncio.to_thread(
                 backend_main.run_proposal_automation_step,
                 application_id,
-                "auto_simulation_completed",
+                "simulation_selected",
                 "System",
             )
             print(f"[Job {task_id}] Proposal automation trigger result: {auto_result}")

@@ -4574,11 +4574,25 @@ def notify_client_proposal_ready(
 
     message = (
         "Tu propuesta ya está lista.\n"
-        "Puedes verla en tu área personal aquí:\n"
+        "Te enviamos el documento por este chat y también está disponible en tu área personal:\n"
         f"{client_area_url}\n"
         "Si tiene cualquier duda, se la aclaramos."
     )
-    wa_message_id = send_safe_whatsapp_message(phone, message)
+    wa_message_id = None
+    wa_status = "failed"
+    try:
+        doc_resp = send_whatsapp_document(
+            phone,
+            proposal_url,
+            caption="Propuesta EntrayCompara.pdf",
+        )
+        wa_message_id = doc_resp.get("messages", [{}])[0].get("id")
+        wa_status = "submitted" if wa_message_id else "failed"
+    except Exception as doc_exc:
+        print(f"WhatsApp proposal document send failed: {doc_exc}")
+        wa_message_id = send_safe_whatsapp_message(phone, message)
+        wa_status = "submitted" if wa_message_id else "failed"
+
     now = datetime.datetime.utcnow()
     event_id = create_whatsapp_timeline_event(
         application_id,
@@ -4586,7 +4600,7 @@ def notify_client_proposal_ready(
         "System",
         "outgoing",
         wa_message_id,
-        "submitted" if wa_message_id else "failed",
+        wa_status,
     )
     update_payload = {
         "proposal_client_area_notification_trigger": trigger,
@@ -6909,6 +6923,28 @@ async def create_simulation(application_id: str, input_data: SimulationInput):
             reason="simulation_created",
             source_event_id=event_id,
         )
+        try:
+            automation_state = get_proposal_automation_state(application_id)
+            if automation_state.get("enabled"):
+                batch = firestore_client.batch()
+                for s in doc_ref.collection("proposal_simulations").stream():
+                    batch.update(
+                        s.reference,
+                        {
+                            "is_selected": s.id == sim_ref.id,
+                            "updated_at": datetime.datetime.utcnow(),
+                        },
+                    )
+                batch.commit()
+                maybe_advance_client_visible_status(doc_ref, "simulation_ready")
+                create_timeline_event_internal(
+                    application_id=application_id,
+                    content=f"Авторежим КП: автоматически выбрана симуляция.\n{_format_simulation_summary(sim_data)}",
+                    event_type=EventType.NOTE,
+                    created_by="System",
+                )
+        except Exception as auto_select_exc:
+            print(f"[Proposal Automation] Auto-select on simulation create failed: {auto_select_exc}")
         try:
             run_proposal_automation_step(
                 application_id,

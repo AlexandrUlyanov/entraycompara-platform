@@ -2765,6 +2765,12 @@ def _generate_proposal_internal(application_id: str, *, comment: str = "", actor
         selected_sim = sim.to_dict()
         selected_sim["id"] = sim.id
     if not selected_sim:
+        # Fallback for auto-mode/manual mode: if no simulation is explicitly selected,
+        # pick the best available one automatically and continue.
+        auto_selected = _auto_select_best_simulation(application_id, doc_ref, actor)
+        if auto_selected:
+            selected_sim = auto_selected
+    if not selected_sim:
         raise HTTPException(status_code=400, detail="Сначала выберите симуляцию для КП.")
 
     language = app_data.get("language", "es")

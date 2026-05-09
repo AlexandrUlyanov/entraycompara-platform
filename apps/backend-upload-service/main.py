@@ -5522,7 +5522,7 @@ async def submit_application(
     verification_code = generate_verification_code()
     secure_token = generate_secure_client_token()
     verification_expires_at = today + datetime.timedelta(hours=24)
-    whatsapp_url = build_whatsapp_activation_url(public_code, verification_code, app_data.get("language"))
+    whatsapp_url = build_whatsapp_activation_url(public_code, verification_code, language)
 
     application_data = {
         "public_code": public_code,

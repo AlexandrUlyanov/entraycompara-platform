@@ -68,6 +68,7 @@ const CLIENT_AREA_COPY = {
     history: 'Historial visible',
     updateFallback: 'Actualización de la solicitud.',
     noUpdates: 'Todavía no hay actualizaciones visibles para el cliente.',
+    whatsappPrefill: 'Hola, quiero consultar mi solicitud {public_code}.',
   },
   ru: {
     openArea: 'Открываем личный кабинет',
@@ -122,6 +123,7 @@ const CLIENT_AREA_COPY = {
     history: 'История',
     updateFallback: 'Обновление по заявке.',
     noUpdates: 'Пока нет обновлений для клиента.',
+    whatsappPrefill: 'Здравствуйте, хочу уточнить статус заявки {public_code}.',
   },
   uk: {
     openArea: 'Відкриваємо особистий кабінет',
@@ -176,6 +178,7 @@ const CLIENT_AREA_COPY = {
     history: 'Історія',
     updateFallback: 'Оновлення заявки.',
     noUpdates: 'Поки немає оновлень для клієнта.',
+    whatsappPrefill: 'Вітаю, хочу уточнити статус заявки {public_code}.',
   },
   eu: {
     openArea: 'Zure eremu pertsonala irekitzen',
@@ -230,6 +233,7 @@ const CLIENT_AREA_COPY = {
     history: 'Historia ikusgarria',
     updateFallback: 'Eskariaren eguneraketa.',
     noUpdates: 'Oraindik ez dago bezeroari erakusteko eguneraketarik.',
+    whatsappPrefill: 'Kaixo, nire {public_code} eskaeraren egoera kontsultatu nahi dut.',
   },
 } as const;
 
@@ -303,11 +307,17 @@ type ClientAreaPayload = {
   }>;
   extracted_data?: Record<string, any>;
   simulations?: Array<Record<string, any>>;
+  selected_simulation?: Record<string, any> | null;
   proposal?: {
     status?: string;
     pdf_url?: string;
     sent_at?: string;
     accepted_at?: string;
+    monthly_saving?: number | string | null;
+    annual_saving?: number | string | null;
+    savings_percent?: number | string | null;
+    provider_name?: string | null;
+    tariff_name?: string | null;
   } | null;
   events?: Array<Record<string, any>>;
   cta?: {
@@ -362,7 +372,9 @@ const formatMoney = (value: any, language: string = 'es') => {
 
 const asNumber = (value: any): number | null => {
   if (value === undefined || value === null || value === '') return null;
-  const parsed = typeof value === 'number' ? value : Number(String(value).replace(',', '.'));
+  const parsed = typeof value === 'number'
+    ? value
+    : Number(String(value).replace(/[^\d,.-]/g, '').replace(',', '.'));
   return Number.isFinite(parsed) ? parsed : null;
 };
 
@@ -422,9 +434,11 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
   useEffect(() => {
     let isMounted = true;
 
-    const loadClientArea = async () => {
-      setLoadState('loading');
-      setErrorMessage('');
+    const loadClientArea = async (initialLoad: boolean = false) => {
+      if (initialLoad) {
+        setLoadState('loading');
+        setErrorMessage('');
+      }
       try {
         const response = await fetch(`${API_BASE_URL}/client-area/${encodeURIComponent(token)}`);
         if (!response.ok) {
@@ -436,7 +450,7 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
           setLoadState('ready');
         }
       } catch (error: any) {
-        if (isMounted) {
+        if (isMounted && initialLoad) {
           setErrorMessage(error?.message || copy.invalidLink);
           setLoadState('error');
         }
@@ -444,46 +458,61 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
     };
 
     if (token) {
-      loadClientArea();
+      loadClientArea(true);
     } else {
       setLoadState('error');
       setErrorMessage(copy.missingToken);
     }
 
+    const pollId = token
+      ? window.setInterval(() => {
+          if (isMounted) {
+            loadClientArea(false);
+          }
+        }, 10000)
+      : null;
+
     return () => {
       isMounted = false;
+      if (pollId) {
+        window.clearInterval(pollId);
+      }
     };
-  }, [token]);
+  }, [token, copy.cannotOpen, copy.invalidLink, copy.missingToken]);
 
   const application = payload?.application;
   const selectedSimulation = useMemo(() => {
+    if (payload?.selected_simulation) {
+      return payload.selected_simulation;
+    }
     const simulations = payload?.simulations || [];
     return simulations.find((simulation) => simulation.is_selected) || simulations[0];
-  }, [payload?.simulations]);
+  }, [payload?.selected_simulation, payload?.simulations]);
   const monthlySavings = useMemo(() => {
-    if (!selectedSimulation) return null;
+    const proposalMonthly = asNumber(payload?.proposal?.monthly_saving);
     const direct = firstFinite(
-      selectedSimulation.savings_monthly_eur,
-      selectedSimulation.savings_monthly,
-      selectedSimulation.monthly_saving,
-      selectedSimulation.monthly_savings,
-      selectedSimulation.monthly_saving_eur,
-      selectedSimulation.estimated_monthly_saving,
-      selectedSimulation.estimated_savings_monthly,
-      selectedSimulation.ahorro_mensual,
-      selectedSimulation.ahorro_mensual_eur,
+      proposalMonthly,
+      selectedSimulation?.savings_monthly_eur,
+      selectedSimulation?.savings_monthly,
+      selectedSimulation?.monthly_saving,
+      selectedSimulation?.monthly_savings,
+      selectedSimulation?.monthly_saving_eur,
+      selectedSimulation?.estimated_monthly_saving,
+      selectedSimulation?.estimated_savings_monthly,
+      selectedSimulation?.ahorro_mensual,
+      selectedSimulation?.ahorro_mensual_eur,
     );
     const currentMonthly = firstFinite(
       payload?.extracted_data?.avg_monthly_cost_eur,
       payload?.extracted_data?.monthly_cost_eur,
-      selectedSimulation.current_monthly_cost,
-      selectedSimulation.current_monthly_cost_eur,
+      selectedSimulation?.current_monthly_cost,
+      selectedSimulation?.current_monthly_cost_eur,
     );
     const newMonthly = firstFinite(
-      selectedSimulation.new_monthly_cost_eur,
-      selectedSimulation.new_monthly_cost,
-      selectedSimulation.estimated_monthly_cost,
-      selectedSimulation.estimated_monthly_cost_eur,
+      selectedSimulation?.new_monthly_cost_eur,
+      selectedSimulation?.new_monthly_cost,
+      selectedSimulation?.estimated_monthly_cost,
+      selectedSimulation?.estimated_monthly_cost_eur,
     );
     const computed = currentMonthly !== null && newMonthly !== null
       ? Math.max(0, currentMonthly - newMonthly)
@@ -493,30 +522,38 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
     if (direct !== null) return direct;
     if (computed !== null) return computed;
     return null;
-  }, [selectedSimulation, payload?.extracted_data]);
+  }, [payload?.proposal?.monthly_saving, selectedSimulation, payload?.extracted_data]);
   const annualSavings = useMemo(() => {
-    if (!selectedSimulation) return null;
+    const proposalAnnual = asNumber(payload?.proposal?.annual_saving);
     const direct = firstFinite(
-      selectedSimulation.annual_saving,
-      selectedSimulation.annual_savings,
-      selectedSimulation.savings_annual_eur,
-      selectedSimulation.estimated_annual_saving,
-      selectedSimulation.estimated_savings_annual,
-      selectedSimulation.ahorro_anual,
-      selectedSimulation.ahorro_anual_eur,
+      proposalAnnual,
+      selectedSimulation?.annual_saving,
+      selectedSimulation?.annual_savings,
+      selectedSimulation?.savings_annual_eur,
+      selectedSimulation?.estimated_annual_saving,
+      selectedSimulation?.estimated_savings_annual,
+      selectedSimulation?.ahorro_anual,
+      selectedSimulation?.ahorro_anual_eur,
     );
     const computed = monthlySavings !== null ? monthlySavings * 12 : null;
     if (direct !== null && direct > 0) return direct;
     if (computed !== null && computed > 0) return computed;
     if (direct !== null) return direct;
     return computed;
-  }, [selectedSimulation, monthlySavings]);
+  }, [payload?.proposal?.annual_saving, selectedSimulation, monthlySavings]);
 
   const activeStatusIndex = statusIndex(application?.client_visible_status);
   const hasProposal = Boolean(payload?.proposal?.pdf_url);
+  const hasExtractedData = useMemo(() => {
+    const data = payload?.extracted_data;
+    if (!data) return false;
+    return Object.values(data).some((value) => value !== undefined && value !== null && String(value).trim() !== '');
+  }, [payload?.extracted_data]);
   const needsReview = application?.client_visible_status === 'needs_review';
+  const whatsappPrefill = (copy.whatsappPrefill || 'Hola, quiero consultar mi solicitud {public_code}.')
+    .replace('{public_code}', application?.public_code || '');
   const whatsappUrl = payload?.cta?.whatsapp_url
-    ? `${payload.cta.whatsapp_url}?text=${encodeURIComponent(`Hola, quiero consultar mi solicitud ${application?.public_code || ''}.`)}`
+    ? `${payload.cta.whatsapp_url}?text=${encodeURIComponent(whatsappPrefill)}`
     : 'https://wa.me/34611974984';
 
   const handleAcceptProposal = async () => {
@@ -627,6 +664,66 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
             </div>
           </div>
 
+          {hasProposal && (
+            <section className="mt-8 rounded-[2rem] border border-white bg-white/90 p-7 shadow-xl shadow-blue-100/50">
+              <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-3xl font-black">{copy.recommendedTitle}</h2>
+                  <p className="mt-3 max-w-3xl leading-7 text-slate-600">{copy.recommendedDesc}</p>
+                </div>
+                <a href={payload?.proposal?.pdf_url} target="_blank" rel="noreferrer" className="inline-flex min-h-[54px] items-center justify-center rounded-2xl bg-blue-600 px-6 font-black text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700">
+                  {copy.viewProposalPdf}
+                </a>
+              </div>
+
+              {selectedSimulation ? (
+                <div className="mt-7 grid gap-4 md:grid-cols-4">
+                  <div className="rounded-3xl border border-blue-100 bg-blue-50 p-5">
+                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-blue-500">{copy.provider}</p>
+                    <p className="mt-2 text-xl font-black">
+                      {selectedSimulation.new_provider || selectedSimulation.provider_name || payload?.proposal?.provider_name || copy.pending}
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
+                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400">{copy.tariff}</p>
+                    <p className="mt-2 text-xl font-black">
+                      {selectedSimulation.new_tariff || selectedSimulation.tariff_name || payload?.proposal?.tariff_name || copy.pending}
+                    </p>
+                  </div>
+                  <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-5">
+                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-emerald-600">{copy.monthlySaving}</p>
+                    <p className="mt-2 text-2xl font-black">{formatMoney(monthlySavings, language)}</p>
+                  </div>
+                  <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-5">
+                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-emerald-600">{copy.annualSaving}</p>
+                    <p className="mt-2 text-2xl font-black">{formatMoney(annualSavings, language)}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-7 rounded-3xl border border-blue-100 bg-blue-50 p-6">
+                  {copy.noSimulations}
+                </div>
+              )}
+
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                <button
+                  onClick={handleAcceptProposal}
+                  disabled={acceptState === 'loading' || acceptState === 'done'}
+                  className="min-h-[58px] flex-1 rounded-2xl bg-emerald-500 px-6 text-lg font-black text-white shadow-xl shadow-emerald-200 transition hover:bg-emerald-600 disabled:opacity-70"
+                >
+                  {acceptState === 'loading' ? copy.confirming : acceptState === 'done' ? copy.accepted : copy.acceptProposal}
+                </button>
+                <a href={whatsappUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-[58px] flex-1 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-6 text-center text-lg font-black text-emerald-700 transition hover:bg-emerald-50">
+                  <WhatsAppIcon className="h-5 w-5" />
+                  {copy.talkWhatsApp}
+                </a>
+              </div>
+              {acceptState === 'error' && (
+                <p className="mt-3 text-sm font-bold text-red-600">{copy.acceptError}</p>
+              )}
+            </section>
+          )}
+
           <section className="mt-8 rounded-[2rem] border border-white bg-white/90 p-7 shadow-xl shadow-blue-100/50">
             <h2 className="flex items-center gap-3 text-2xl font-black">
               <SparklesIcon className="h-7 w-7 text-blue-600" />
@@ -698,89 +795,29 @@ const ClientAreaPage: React.FC<{ token: string }> = ({ token }) => {
               </div>
             </section>
 
-            <section className="rounded-[2rem] border border-white bg-white/90 p-7 shadow-xl shadow-blue-100/50">
-              <h2 className="text-2xl font-black">{copy.detectedData}</h2>
-              <div className="mt-6 grid gap-4 sm:grid-cols-2">
-                {fieldLabels.map((field) => {
-                  const labelsByLang = FIELD_LABELS[(language as keyof typeof FIELD_LABELS)] || FIELD_LABELS.es;
-                  const label = labelsByLang[field.id as keyof typeof labelsByLang] || field.id;
-                  return (
-                  <div key={field.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400">{label}</p>
-                    <p className="mt-1 break-words font-bold text-slate-900">
-                      {field.id === 'billing_period'
-                        ? billingPeriodFrom(payload?.extracted_data)
-                        : field.id === 'consumption'
-                        ? consumptionFrom(payload?.extracted_data)
-                        : valueFrom(payload?.extracted_data, field.keys)}
-                    </p>
-                  </div>
-                )})}
-              </div>
-            </section>
+            {hasExtractedData && (
+              <section className="rounded-[2rem] border border-white bg-white/90 p-7 shadow-xl shadow-blue-100/50">
+                <h2 className="text-2xl font-black">{copy.detectedData}</h2>
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                  {fieldLabels.map((field) => {
+                    const labelsByLang = FIELD_LABELS[(language as keyof typeof FIELD_LABELS)] || FIELD_LABELS.es;
+                    const label = labelsByLang[field.id as keyof typeof labelsByLang] || field.id;
+                    return (
+                    <div key={field.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                      <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400">{label}</p>
+                      <p className="mt-1 break-words font-bold text-slate-900">
+                        {field.id === 'billing_period'
+                          ? billingPeriodFrom(payload?.extracted_data)
+                          : field.id === 'consumption'
+                          ? consumptionFrom(payload?.extracted_data)
+                          : valueFrom(payload?.extracted_data, field.keys)}
+                      </p>
+                    </div>
+                  )})}
+                </div>
+              </section>
+            )}
           </div>
-
-          <section className="mt-8 rounded-[2rem] border border-white bg-white/90 p-7 shadow-xl shadow-blue-100/50">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <h2 className="text-3xl font-black">{hasProposal ? copy.recommendedTitle : copy.preparingProposal}</h2>
-                <p className="mt-3 max-w-3xl leading-7 text-slate-600">
-                  {hasProposal
-                    ? copy.recommendedDesc
-                    : copy.preparingDesc}
-                </p>
-              </div>
-              {hasProposal && (
-                <a href={payload?.proposal?.pdf_url} target="_blank" rel="noreferrer" className="inline-flex min-h-[54px] items-center justify-center rounded-2xl bg-blue-600 px-6 font-black text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700">
-                  {copy.viewProposalPdf}
-                </a>
-              )}
-            </div>
-
-            {selectedSimulation ? (
-              <div className="mt-7 grid gap-4 md:grid-cols-4">
-                <div className="rounded-3xl border border-blue-100 bg-blue-50 p-5">
-                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-blue-500">{copy.provider}</p>
-                  <p className="mt-2 text-xl font-black">{selectedSimulation.new_provider || selectedSimulation.provider_name || copy.pending}</p>
-                </div>
-                <div className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
-                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-slate-400">{copy.tariff}</p>
-                  <p className="mt-2 text-xl font-black">{selectedSimulation.new_tariff || selectedSimulation.tariff_name || copy.pending}</p>
-                </div>
-                <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-5">
-                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-emerald-600">{copy.monthlySaving}</p>
-                  <p className="mt-2 text-2xl font-black">{formatMoney(monthlySavings, language)}</p>
-                </div>
-                <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-5">
-                  <p className="text-xs font-bold uppercase tracking-[0.15em] text-emerald-600">{copy.annualSaving}</p>
-                  <p className="mt-2 text-2xl font-black">{formatMoney(annualSavings, language)}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-7 rounded-3xl border border-blue-100 bg-blue-50 p-6">
-                {copy.noSimulations}
-              </div>
-            )}
-
-            <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-              {hasProposal && (
-                <button
-                  onClick={handleAcceptProposal}
-                  disabled={acceptState === 'loading' || acceptState === 'done'}
-                  className="min-h-[58px] flex-1 rounded-2xl bg-emerald-500 px-6 text-lg font-black text-white shadow-xl shadow-emerald-200 transition hover:bg-emerald-600 disabled:opacity-70"
-                >
-                  {acceptState === 'loading' ? copy.confirming : acceptState === 'done' ? copy.accepted : copy.acceptProposal}
-                </button>
-              )}
-              <a href={whatsappUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-[58px] flex-1 items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-6 text-center text-lg font-black text-emerald-700 transition hover:bg-emerald-50">
-                <WhatsAppIcon className="h-5 w-5" />
-                {copy.talkWhatsApp}
-              </a>
-            </div>
-            {acceptState === 'error' && (
-              <p className="mt-3 text-sm font-bold text-red-600">{copy.acceptError}</p>
-            )}
-          </section>
 
           <section className="mt-8 rounded-[2rem] border border-white bg-white/90 p-7 shadow-xl shadow-blue-100/50">
             <h2 className="flex items-center gap-3 text-2xl font-black">

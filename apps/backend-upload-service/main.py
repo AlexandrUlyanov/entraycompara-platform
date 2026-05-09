@@ -82,10 +82,71 @@ CLIENT_TOKEN_HASH_SECRET = os.environ.get("CLIENT_TOKEN_HASH_SECRET") or OPERATO
 VERIFICATION_MAX_ATTEMPTS = int(os.environ.get("VERIFICATION_MAX_ATTEMPTS", "10"))
 VERIFICATION_ATTEMPT_WINDOW_SECONDS = int(os.environ.get("VERIFICATION_ATTEMPT_WINDOW_SECONDS", "60"))
 VERIFICATION_ATTEMPT_WINDOW_LIMIT = int(os.environ.get("VERIFICATION_ATTEMPT_WINDOW_LIMIT", "5"))
-WHATSAPP_CODE_VALIDATION_ERROR = (
-    "No hemos podido validar el código. Por favor, revisa el código que aparece en la página de confirmación o solicita uno nuevo."
-)
+WHATSAPP_CLIENT_TEXTS = {
+    "code_validation_error": {
+        "es": "No hemos podido validar el código. Por favor, revisa el código que aparece en la página de confirmación o solicita uno nuevo.",
+        "ru": "Не удалось подтвердить код. Проверьте код на странице подтверждения или запросите новый.",
+        "uk": "Не вдалося підтвердити код. Перевірте код на сторінці підтвердження або запросіть новий.",
+        "eu": "Ezin izan dugu kodea balioztatu. Mesedez, egiaztatu baieztapen-orrian agertzen den kodea edo eskatu berri bat.",
+    },
+    "code_expired": {
+        "es": "Este código ha caducado. Puedes solicitar un nuevo código desde la página de tu solicitud.",
+        "ru": "Срок действия этого кода истёк. Запросите новый код на странице вашей заявки.",
+        "uk": "Термін дії цього коду закінчився. Запросіть новий код на сторінці вашої заявки.",
+        "eu": "Kode hau iraungi da. Eskaera-orritik kode berri bat eska dezakezu.",
+    },
+    "activation_ambiguous_conflict": {
+        "es": "No hemos podido validar la solicitud porque hay conflicto de datos. Por favor escribe por este chat: \"Quiero activar mi área personal\" y lo revisamos ahora mismo.",
+        "ru": "Не удалось подтвердить заявку из-за конфликта данных. Напишите в этот чат: «Хочу активировать личный кабинет», и мы сразу проверим.",
+        "uk": "Не вдалося підтвердити заявку через конфлікт даних. Напишіть у цей чат: «Хочу активувати особистий кабінет», і ми одразу перевіримо.",
+        "eu": "Ezin izan dugu eskaria balioztatu datuen gatazka dagoelako. Idatzi txat honetan: \"Nire eremu pertsonala aktibatu nahi dut\", eta berehala berrikusiko dugu.",
+    },
+    "activation_ambiguous_code": {
+        "es": "Hemos detectado más de una solicitud con ese código. Por favor envía el formato completo: EC-XXXXXX / 123456.",
+        "ru": "Мы нашли несколько заявок с таким кодом. Отправьте полный формат: EC-XXXXXX / 123456.",
+        "uk": "Ми знайшли кілька заявок із таким кодом. Надішліть повний формат: EC-XXXXXX / 123456.",
+        "eu": "Kode horrekin eskaera bat baino gehiago aurkitu ditugu. Bidali formatu osoa: EC-XXXXXX / 123456.",
+    },
+    "activation_success": {
+        "es": "Perfecto, hemos activado tu área personal.\nPuedes consultar el estado de tu análisis aquí:\n{client_area_url}\nTe avisaremos por WhatsApp cuando tu propuesta esté lista.",
+        "ru": "Готово, мы активировали ваш личный кабинет.\nСтатус анализа можно посмотреть здесь:\n{client_area_url}\nМы напишем в WhatsApp, когда предложение будет готово.",
+        "uk": "Готово, ми активували ваш особистий кабінет.\nСтатус аналізу можна переглянути тут:\n{client_area_url}\nМи повідомимо у WhatsApp, коли пропозиція буде готова.",
+        "eu": "Primeran, zure eremu pertsonala aktibatu dugu.\nAnalisiaren egoera hemen ikus dezakezu:\n{client_area_url}\nWhatsApp bidez abisatuk dizugu zure proposamena prest dagoenean.",
+    },
+    "proposal_ready_notification": {
+        "es": "Tu propuesta ya está lista.\nTe enviamos el documento por este chat y también está disponible en tu área personal:\n{client_area_url}\nSi tiene cualquier duda, se la aclaramos.",
+        "ru": "Ваше предложение уже готово.\nМы отправили документ в этот чат, и он также доступен в личном кабинете:\n{client_area_url}\nЕсли будут вопросы, всё подробно объясним.",
+        "uk": "Ваша пропозиція вже готова.\nМи надіслали документ у цей чат, і він також доступний в особистому кабінеті:\n{client_area_url}\nЯкщо будуть запитання, усе пояснимо.",
+        "eu": "Zure proposamena prest dago.\nDokumentua txat honetara bidali dugu, eta zure eremu pertsonalean ere eskuragarri dago:\n{client_area_url}\nZalantzarik baduzu, pozik argituko dizugu.",
+    },
+    "proposal_caption": {
+        "es": "Propuesta comercial",
+        "ru": "Коммерческое предложение",
+        "uk": "Комерційна пропозиція",
+        "eu": "Proposamen komertziala",
+    },
+    "first_message_already_sent": {
+        "es": "El primer mensaje ya se ha enviado.",
+        "ru": "Первое сообщение уже отправлялось.",
+        "uk": "Перше повідомлення вже надсилалося.",
+        "eu": "Lehen mezua dagoeneko bidali da.",
+    },
+}
 # -------------------------
+
+
+def get_supported_language(value: str | None) -> str:
+    lang = (value or "es").lower().strip()
+    return lang if lang in {"es", "ru", "uk", "eu"} else "es"
+
+
+def get_whatsapp_client_text(key: str, language: str | None = None, **fmt_values) -> str:
+    lang = get_supported_language(language)
+    item = WHATSAPP_CLIENT_TEXTS.get(key, {})
+    text = item.get(lang) or item.get("es") or ""
+    if fmt_values:
+        return text.format(**fmt_values)
+    return text
 
 # --- Настройки Gemini AI ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -2991,6 +3052,7 @@ def run_proposal_automation_step(application_id: str, reason: str, actor: str = 
             "source": "proposal_automation",
         })
         _start_eni_simulation_job(application_id, task_id, request)
+        maybe_advance_pipeline_status(doc_ref, Status.PROPOSAL.value)
         create_timeline_event_internal(
             application_id=application_id,
             content=(
@@ -3039,11 +3101,11 @@ def run_proposal_extraction_task(application_id: str, task_id: str, request_payl
             "step_key": "prepare_task",
             "progress_percent": EXTRACTION_STEP_PROGRESS["prepare_task"],
         })
-
         doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
         doc = doc_ref.get()
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Заявка не найдена.")
+        maybe_advance_pipeline_status(doc_ref, Status.ANALYSIS.value)
 
         update_proposal_extraction_task(application_id, task_id, {
             "step_key": "check_existing",
@@ -4098,6 +4160,40 @@ def maybe_advance_client_visible_status(doc_ref, target_status: str) -> None:
         print(f"Failed to advance client visible status: {exc}")
 
 
+STATUS_PROGRESS_ORDER = [
+    Status.NEW_LEAD.value,
+    Status.ANALYSIS.value,
+    Status.PROPOSAL.value,
+    Status.NEGOTIATION.value,
+    Status.CONTRACT_WON.value,
+]
+
+
+def maybe_advance_pipeline_status(doc_ref, target_status: str) -> None:
+    if not target_status:
+        return
+    try:
+        snapshot = doc_ref.get()
+        if not snapshot.exists:
+            return
+        app_data = snapshot.to_dict() or {}
+        current = app_data.get("status") or Status.NEW_LEAD.value
+        if current == target_status:
+            return
+        current_idx = STATUS_PROGRESS_ORDER.index(current) if current in STATUS_PROGRESS_ORDER else -1
+        target_idx = STATUS_PROGRESS_ORDER.index(target_status) if target_status in STATUS_PROGRESS_ORDER else -1
+        if target_idx >= current_idx:
+            update_payload = {
+                "status": target_status,
+                "updated_at": datetime.datetime.utcnow(),
+            }
+            if target_status == Status.ANALYSIS.value and not app_data.get("analysis_started_at"):
+                update_payload["analysis_started_at"] = datetime.datetime.utcnow()
+            doc_ref.update(update_payload)
+    except Exception as exc:
+        print(f"Failed to advance pipeline status: {exc}")
+
+
 def hash_client_secret(value: str) -> str:
     return hashlib.sha256(f"{CLIENT_TOKEN_HASH_SECRET}:{value}".encode("utf-8")).hexdigest()
 
@@ -4282,8 +4378,18 @@ def build_verification_attempt_update(
     }
 
 
-def build_whatsapp_activation_url(public_code: str, verification_code: str) -> str:
-    message = f"Hola, soy cliente de Entra y Compara. Mi código es {public_code} / {verification_code}."
+def build_whatsapp_activation_url(public_code: str, verification_code: str, language: str | None = None) -> str:
+    lang = get_supported_language(language)
+    message_templates = {
+        "es": "Hola, soy cliente de Entra y Compara. Mi código es {public_code} / {verification_code}.",
+        "ru": "Здравствуйте, я клиент Entra y Compara. Мой код: {public_code} / {verification_code}.",
+        "uk": "Вітаю, я клієнт Entra y Compara. Мій код: {public_code} / {verification_code}.",
+        "eu": "Kaixo, Entra y Comparako bezeroa naiz. Nire kodea: {public_code} / {verification_code}.",
+    }
+    message = message_templates.get(lang, message_templates["es"]).format(
+        public_code=public_code,
+        verification_code=verification_code,
+    )
     return f"https://wa.me/{WHATSAPP_PUBLIC_NUMBER}?text={quote(message, safe='')}"
 
 
@@ -4482,10 +4588,28 @@ def get_client_visible_simulations(doc_ref) -> list[dict]:
     return simulations
 
 
+def get_selected_simulation(doc_ref) -> dict | None:
+    try:
+        selected = (
+            doc_ref.collection("proposal_simulations")
+            .where("is_selected", "==", True)
+            .limit(1)
+            .stream()
+        )
+        for item in selected:
+            data = item.to_dict() or {}
+            data["id"] = item.id
+            return data
+    except Exception as exc:
+        print(f"Failed to read selected simulation for client area: {exc}")
+    return None
+
+
 def build_client_area_payload(application_id: str, app_data: dict) -> dict:
     doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
     proposal_data = _get_proposal_data_snapshot(doc_ref)
     simulations = get_client_visible_simulations(doc_ref)
+    selected_simulation = get_selected_simulation(doc_ref)
     proposal_url = app_data.get("proposal_file_url")
     proposal = None
     if proposal_url:
@@ -4494,6 +4618,16 @@ def build_client_area_payload(application_id: str, app_data: dict) -> dict:
             "pdf_url": proposal_url,
             "sent_at": app_data.get("proposal_sent_at"),
             "accepted_at": app_data.get("proposal_accepted_at"),
+            "monthly_saving": (selected_simulation or {}).get("savings_monthly_eur"),
+            "annual_saving": (selected_simulation or {}).get("savings_annual_eur")
+                or (selected_simulation or {}).get("annual_saving")
+                or (
+                    round((selected_simulation or {}).get("savings_monthly_eur", 0) * 12, 2)
+                    if (selected_simulation or {}).get("savings_monthly_eur") is not None else None
+                ),
+            "savings_percent": (selected_simulation or {}).get("savings_percent"),
+            "provider_name": (selected_simulation or {}).get("provider_name") or (selected_simulation or {}).get("new_provider"),
+            "tariff_name": (selected_simulation or {}).get("tariff_name") or (selected_simulation or {}).get("new_tariff"),
         }
 
     client_visible_status = app_data.get("client_visible_status")
@@ -4547,6 +4681,7 @@ def notify_client_proposal_ready(
 ) -> str | None:
     """Sends a safe client-area proposal notification only after WhatsApp verification."""
     doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
+    lead_language = get_supported_language(app_data.get("language"))
     client_area_url = app_data.get("client_area_url")
     phone = app_data.get("whatsapp_verified_phone") or app_data.get("client_phone")
     already_notified_url = app_data.get("proposal_client_area_notified_url")
@@ -4578,11 +4713,10 @@ def notify_client_proposal_ready(
         )
         return None
 
-    message = (
-        "Tu propuesta ya está lista.\n"
-        "Te enviamos el documento por este chat y también está disponible en tu área personal:\n"
-        f"{client_area_url}\n"
-        "Si tiene cualquier duda, se la aclaramos."
+    message = get_whatsapp_client_text(
+        "proposal_ready_notification",
+        lead_language,
+        client_area_url=client_area_url,
     )
     wa_message_id = None
     wa_status = "failed"
@@ -4592,7 +4726,7 @@ def notify_client_proposal_ready(
         doc_resp = send_whatsapp_document(
             phone,
             proposal_url,
-            caption="Propuesta EntrayCompara.pdf",
+            caption=get_whatsapp_client_text("proposal_caption", lead_language),
         )
         wa_message_id = doc_resp.get("messages", [{}])[0].get("id")
         if wa_message_id:
@@ -4675,6 +4809,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
     result = None
     public_code = ""
     verification_code = ""
+    language = "es"
 
     if parsed:
         public_code, verification_code = parsed
@@ -4682,10 +4817,11 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         if result == "ambiguous":
             send_safe_whatsapp_message(
                 from_phone_raw,
-                "No hemos podido validar la solicitud porque hay conflicto de datos. "
-                "Por favor escribe por este chat: \"Quiero activar mi área personal\" y lo revisamos ahora mismo.",
+                get_whatsapp_client_text("activation_ambiguous_conflict", language),
             )
             return True
+        if result:
+            language = get_supported_language(result[1].get("language"))
     else:
         # Fallback: some clients send only the 6-digit code (without EC-XXXXXX).
         # In that case we match by verification hash + sender phone.
@@ -4696,24 +4832,25 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         if fallback_match == "ambiguous":
             send_safe_whatsapp_message(
                 from_phone_raw,
-                "Hemos detectado más de una solicitud con ese código. "
-                "Por favor envía el formato completo: EC-XXXXXX / 123456.",
+                get_whatsapp_client_text("activation_ambiguous_code", language),
             )
             return True
         if not fallback_match:
             return False
         application_id, app_data = fallback_match
         public_code = app_data.get("public_code", "")
+        language = get_supported_language(app_data.get("language"))
         result = (application_id, app_data)
 
     if not result:
         send_safe_whatsapp_message(
             from_phone_raw,
-            WHATSAPP_CODE_VALIDATION_ERROR,
+            get_whatsapp_client_text("code_validation_error", language),
         )
         return True
 
     application_id, app_data = result
+    language = get_supported_language(app_data.get("language"))
     now = datetime.datetime.now(datetime.timezone.utc)
     doc_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(application_id)
     create_whatsapp_timeline_event(
@@ -4755,7 +4892,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
             EventType.NOTE,
             "System (WhatsApp Webhook)",
         )
-        send_safe_whatsapp_message(from_phone_raw, WHATSAPP_CODE_VALIDATION_ERROR)
+        send_safe_whatsapp_message(from_phone_raw, get_whatsapp_client_text("code_validation_error", language))
         return True
 
     if attempts >= VERIFICATION_MAX_ATTEMPTS:
@@ -4782,7 +4919,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         )
         send_safe_whatsapp_message(
             from_phone_raw,
-            WHATSAPP_CODE_VALIDATION_ERROR,
+            get_whatsapp_client_text("code_validation_error", language),
         )
         return True
 
@@ -4819,7 +4956,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         )
         send_safe_whatsapp_message(
             from_phone_raw,
-            "Este código ha caducado. Puedes solicitar un nuevo código desde la página de tu solicitud.",
+            get_whatsapp_client_text("code_expired", language),
         )
         return True
 
@@ -4847,7 +4984,7 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
         )
         send_safe_whatsapp_message(
             from_phone_raw,
-            WHATSAPP_CODE_VALIDATION_ERROR,
+            get_whatsapp_client_text("code_validation_error", language),
         )
         return True
 
@@ -4890,11 +5027,10 @@ def handle_whatsapp_activation_message(from_phone_raw: str, text_body: str, wa_m
     enable_proposal_automation_after_whatsapp_activation(application_id)
     maybe_start_auto_extraction_after_whatsapp_activation(application_id, app_data)
 
-    reply = (
-        "Perfecto, hemos activado tu área personal.\n"
-        "Puedes consultar el estado de tu análisis aquí:\n"
-        f"{client_area_url}\n"
-        "Te avisaremos por WhatsApp cuando tu propuesta esté lista."
+    reply = get_whatsapp_client_text(
+        "activation_success",
+        language,
+        client_area_url=client_area_url,
     )
     outgoing_message_id = send_safe_whatsapp_message(from_phone_raw, reply)
     create_whatsapp_timeline_event(
@@ -5386,7 +5522,7 @@ async def submit_application(
     verification_code = generate_verification_code()
     secure_token = generate_secure_client_token()
     verification_expires_at = today + datetime.timedelta(hours=24)
-    whatsapp_url = build_whatsapp_activation_url(public_code, verification_code)
+    whatsapp_url = build_whatsapp_activation_url(public_code, verification_code, app_data.get("language"))
 
     application_data = {
         "public_code": public_code,
@@ -5767,8 +5903,18 @@ async def resend_application_verification_code(application_id: str):
 
         verification_code = generate_verification_code()
         verification_expires_at = now + datetime.timedelta(hours=24)
-        whatsapp_url = build_whatsapp_activation_url(public_code, verification_code)
-        activation_message = f"Hola, soy cliente de Entra y Compara. Mi código es {public_code} / {verification_code}."
+        lead_language = get_supported_language(app_data.get("language"))
+        whatsapp_url = build_whatsapp_activation_url(public_code, verification_code, lead_language)
+        activation_message_templates = {
+            "es": "Hola, soy cliente de Entra y Compara. Mi código es {public_code} / {verification_code}.",
+            "ru": "Здравствуйте, я клиент Entra y Compara. Мой код: {public_code} / {verification_code}.",
+            "uk": "Вітаю, я клієнт Entra y Compara. Мій код: {public_code} / {verification_code}.",
+            "eu": "Kaixo, Entra y Comparako bezeroa naiz. Nire kodea: {public_code} / {verification_code}.",
+        }
+        activation_message = activation_message_templates.get(
+            lead_language,
+            activation_message_templates["es"],
+        ).format(public_code=public_code, verification_code=verification_code)
 
         doc_ref.update({
             "verification_code_hash": hash_client_secret(verification_code),
@@ -6958,6 +7104,7 @@ async def create_simulation(application_id: str, input_data: SimulationInput):
         sim_ref.set(sim_data)
         # At least one simulation exists: comparison phase is completed from client perspective.
         maybe_advance_client_visible_status(doc_ref, "comparison_in_progress")
+        maybe_advance_pipeline_status(doc_ref, Status.PROPOSAL.value)
         
         event_id = create_timeline_event_internal(
             application_id=application_id,
@@ -7160,6 +7307,7 @@ async def select_simulation(application_id: str, simulation_id: str):
         sim_ref.update({"is_selected": True, "updated_at": datetime.datetime.utcnow()})
         # Final simulation selected for proposal preparation.
         maybe_advance_client_visible_status(doc_ref, "simulation_ready")
+        maybe_advance_pipeline_status(doc_ref, Status.PROPOSAL.value)
         
         event_id = create_timeline_event_internal(
             application_id=application_id,
@@ -9722,14 +9870,8 @@ async def api_send_whatsapp_proposal(data: WhatsAppProposalRequest):
         if not proposal_url:
             raise HTTPException(status_code=400, detail="КП не загружено. Сначала загрузите файл КП.")
         
-        lead_language = (app_data.get("language") or "es").lower()
-        proposal_caption_by_language = {
-            "es": "Propuesta comercial",
-            "ru": "Коммерческое предложение",
-            "uk": "Комерційна пропозиція",
-            "eu": "Proposamen komertziala",
-        }
-        proposal_caption = proposal_caption_by_language.get(lead_language, proposal_caption_by_language["es"])
+        lead_language = get_supported_language(app_data.get("language"))
+        proposal_caption = get_whatsapp_client_text("proposal_caption", lead_language)
 
         result = send_whatsapp_document(phone, proposal_url, proposal_caption)
         wa_message_id = result.get("messages", [{}])[0].get("id")
@@ -9816,8 +9958,9 @@ async def api_send_whatsapp_first_message(data: WhatsAppFirstMessageRequest):
             raise HTTPException(status_code=400, detail="У заявки отсутствует телефон клиента.")
         
         # Проверяем, не отправлялось ли уже первое сообщение
+        lead_language = get_supported_language(app_data.get("language"))
         if app_data.get("whatsapp_first_message_sent"):
-            return {"status": "already_sent", "message": "Первое сообщение уже отправлялось."}
+            return {"status": "already_sent", "message": get_whatsapp_client_text("first_message_already_sent", lead_language)}
         
         # Первый контакт отправляем approved-шаблоном hola.
         # Этот шаблон в Meta ожидает 2 параметра в body.
@@ -9843,9 +9986,15 @@ async def api_send_whatsapp_first_message(data: WhatsAppFirstMessageRequest):
         
         # Создаём запись в Timeline
         event_ref = doc_ref.collection("timeline").document()
+        first_message_log_by_language = {
+            "es": "Mensaje de bienvenida enviado (plantilla hola).",
+            "ru": "Отправлено приветственное сообщение (шаблон hola).",
+            "uk": "Надіслано вітальне повідомлення (шаблон hola).",
+            "eu": "Ongietorri mezua bidali da (hola txantiloia).",
+        }
         event_ref.set({
             "application_id": data.application_id,
-            "content": "Шаблонное приветственное сообщение отправлено (hola).",
+            "content": first_message_log_by_language.get(lead_language, first_message_log_by_language["es"]),
             "type": EventType.WHATSAPP.value,
             "created_by": "Operator",
             "created_at": datetime.datetime.utcnow(),
@@ -9936,6 +10085,9 @@ async def whatsapp_webhook_receive(request: Request):
                                 break
                         
                         if matched_app_id:
+                            matched_ref = firestore_client.collection(FIRESTORE_COLLECTION).document(matched_app_id)
+                            matched_doc = matched_ref.get()
+                            matched_data = matched_doc.to_dict() if matched_doc.exists else {}
                             event_id = create_whatsapp_timeline_event(
                                 matched_app_id,
                                 text_body,
@@ -9943,6 +10095,10 @@ async def whatsapp_webhook_receive(request: Request):
                                 "incoming",
                                 wa_message_id=wa_message_id,
                             )
+                            current_status = (matched_data or {}).get("status")
+                            if current_status in {Status.PROPOSAL.value, Status.NEGOTIATION.value}:
+                                maybe_advance_pipeline_status(matched_ref, Status.NEGOTIATION.value)
+                                maybe_advance_client_visible_status(matched_ref, "client_contacted")
                             trigger_sales_department_reanalysis(
                                 matched_app_id,
                                 reason="incoming_whatsapp_message",

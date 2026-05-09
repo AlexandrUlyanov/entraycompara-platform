@@ -237,6 +237,14 @@ const KanbanBoard: React.FC<KanbanBoardProps> = ({ applications, onSelectApplica
                                                         
                                                         <h4 className="font-bold text-secondary mb-1 text-sm truncate" title={app.client_name}>{app.client_name}</h4>
                                                         <p className="text-xs text-secondary-light mb-3.5 truncate font-medium">{app.client_phone}</p>
+                                                        {(app.client_visible_label || app.client_visible_status) && (
+                                                          <div className="mb-3 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-700">
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                                                            <span className="truncate">
+                                                              {app.client_visible_label || app.client_visible_status}
+                                                            </span>
+                                                          </div>
+                                                        )}
                                                         <ClientFlowBadges application={app} compact />
                                                         
                                                         <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-50">

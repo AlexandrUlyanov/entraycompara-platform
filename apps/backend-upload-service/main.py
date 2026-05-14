@@ -7587,9 +7587,15 @@ async def get_latest_auto_simulation_status(application_id: str):
 async def select_tariff_for_auto_simulation(application_id: str, task_id: str, body: dict = Body(...)):
     """Менеджер выбирает тариф для продолжения автосимуляции."""
     try:
-        selected_index = body.get("selected_tariff_index")
-        if selected_index is None:
+        selected_index_raw = body.get("selected_tariff_index")
+        if selected_index_raw is None:
             raise HTTPException(status_code=400, detail="selected_tariff_index обязателен.")
+        try:
+            selected_index = int(selected_index_raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="selected_tariff_index должен быть целым числом.")
+        if selected_index < 0:
+            raise HTTPException(status_code=400, detail="selected_tariff_index не может быть отрицательным.")
 
         task = _get_task_status(application_id, task_id)
         if not task:
@@ -7597,6 +7603,10 @@ async def select_tariff_for_auto_simulation(application_id: str, task_id: str, b
 
         if task.get("status") != "awaiting_tariff_selection":
             raise HTTPException(status_code=400, detail=f"Некорректный статус задачи: {task.get('status')}")
+
+        tariffs = task.get("tariffs") or []
+        if tariffs and selected_index >= len(tariffs):
+            raise HTTPException(status_code=400, detail="selected_tariff_index вне диапазона доступных тарифов.")
 
         _set_task_status(application_id, task_id, {
             "status": "running",

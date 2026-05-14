@@ -63,7 +63,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
   const [autoProgressPercent, setAutoProgressPercent] = useState<number>(0);
   const [tariffSelectionDeadline, setTariffSelectionDeadline] = useState<string | null>(null);
   const [tariffSecondsLeft, setTariffSecondsLeft] = useState<number | null>(null);
-  const [autoTariffs, setAutoTariffs] = useState<Array<{ index: number; name: string; current_price: string; plenitude_price: string }> | null>(null);
+  const [autoTariffs, setAutoTariffs] = useState<Array<{ index: number | string; name: string; current_price: string; plenitude_price: string }> | null>(null);
   const [selectedTariffIndex, setSelectedTariffIndex] = useState<number | null>(null);
   const [isSelectingTariff, setIsSelectingTariff] = useState(false);
 
@@ -263,12 +263,16 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
     if (selectedTariffIndex === null || !autoTaskId) return;
     setIsSelectingTariff(true);
     try {
-      await selectAutoSimulationTariff(appId, autoTaskId, selectedTariffIndex);
+      const normalizedIndex = Number(selectedTariffIndex);
+      if (!Number.isFinite(normalizedIndex) || normalizedIndex < 0) {
+        throw new Error(t('proposalBuilder.simulation.tariffSelectionError'));
+      }
+      await selectAutoSimulationTariff(appId, autoTaskId, normalizedIndex);
       setAutoStatus('running');
       setAutoMessage(t('proposalBuilder.simulation.tariffSelected'));
       setAutoStepKey('apply_selected_tariff');
       setAutoStepLabel(t('proposalBuilder.simulation.step.apply_selected_tariff'));
-      setAutoStepDetails(t('proposalBuilder.simulation.stepDetails.tariffApplied', { number: selectedTariffIndex + 1 }));
+      setAutoStepDetails(t('proposalBuilder.simulation.stepDetails.tariffApplied', { number: normalizedIndex + 1 }));
       setAutoProgressPercent(88);
       setTariffSelectionDeadline(null);
       setTariffSecondsLeft(null);
@@ -429,7 +433,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ appId }) => {
                       name="tariff-selection"
                       value={tariff.index}
                       checked={selectedTariffIndex === tariff.index}
-                      onChange={() => setSelectedTariffIndex(tariff.index)}
+                      onChange={() => setSelectedTariffIndex(Number(tariff.index))}
                       className="w-4 h-4 text-primary focus:ring-primary"
                     />
                     <div className="flex-1 min-w-0">

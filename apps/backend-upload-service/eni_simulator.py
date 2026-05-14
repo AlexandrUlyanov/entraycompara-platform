@@ -20,6 +20,57 @@ class EniSimulationError(Exception):
     pass
 
 
+def _parse_price_to_float(raw: str | None) -> float | None:
+    if not raw:
+        return None
+    cleaned = str(raw).strip()
+    # Keep digits, comma, dot and minus.
+    cleaned = ''.join(ch for ch in cleaned if ch.isdigit() or ch in {',', '.', '-'})
+    if not cleaned:
+        return None
+    # Handle "1.234,56" and "1234.56".
+    if ',' in cleaned and '.' in cleaned:
+        if cleaned.rfind(',') > cleaned.rfind('.'):
+            cleaned = cleaned.replace('.', '').replace(',', '.')
+        else:
+            cleaned = cleaned.replace(',', '')
+    else:
+        cleaned = cleaned.replace(',', '.')
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _pick_best_tariff_index(tariffs: list[dict]) -> tuple[int | None, str]:
+    if not tariffs:
+        return None, "no_tariffs"
+
+    parsed: list[tuple[int, float, str, bool]] = []
+    for idx, item in enumerate(tariffs):
+        index_raw = item.get("index", idx)
+        try:
+            radio_index = int(index_raw)
+        except (TypeError, ValueError):
+            continue
+        name = str(item.get("name") or "")
+        price = _parse_price_to_float(item.get("plenitude_price")) or _parse_price_to_float(item.get("current_price"))
+        if price is None:
+            continue
+        lowered = name.lower()
+        is_indexed = any(token in lowered for token in ("index", "índex", "indexad", "indexado", "indexed"))
+        parsed.append((radio_index, price, name, is_indexed))
+
+    if not parsed:
+        return None, "no_price_data"
+
+    indexed_only = [row for row in parsed if row[3]]
+    pool = indexed_only if indexed_only else parsed
+    cheapest = min(pool, key=lambda row: row[1])
+    reason = "cheapest_indexed" if indexed_only else "cheapest_any"
+    return cheapest[0], reason
+
+
 async def run_eni_simulation(
     cups: str,
     client_type: str = "Hogar",
@@ -271,13 +322,19 @@ async def run_eni_simulation(
                 while selected_index is None:
                     if asyncio.get_event_loop().time() - wait_start > MANAGER_SELECTION_TIMEOUT_SECONDS:
                         print(f"[Eni] Manager did not select tariff within {MANAGER_SELECTION_TIMEOUT_SECONDS}s, using automatic fallback")
+                        fallback_index, fallback_reason = _pick_best_tariff_index(tariffs)
                         await _report_progress(
                             "auto_select_tariff",
                             "Выбираем тариф автоматически",
                             88,
-                            f"Менеджер не выбрал тариф за {MANAGER_SELECTION_TIMEOUT_SECONDS} секунд. Берём 3-й снизу по fallback-правилу.",
+                            f"Менеджер не выбрал тариф за {MANAGER_SELECTION_TIMEOUT_SECONDS} секунд. Применяем авто-правило: {fallback_reason}.",
                         )
-                        await _select_third_tariff_from_bottom(page)
+                        if fallback_index is not None:
+                            await _select_tariff_by_index(page, fallback_index)
+                            print(f"[Eni] Auto-selected tariff by fallback rule ({fallback_reason}), index={fallback_index}")
+                        else:
+                            await _select_third_tariff_from_bottom(page)
+                            print("[Eni] Fallback data is insufficient, used legacy 3rd-from-bottom rule")
                         await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
                         await _take_step_screenshot(page, "09_after_auto_fallback_selection")
                         break
@@ -292,10 +349,17 @@ async def run_eni_simulation(
                     await _take_step_screenshot(page, "09_after_tariff_selection")
             else:
                 # Автоматический режим: 3-й тариф снизу
-                await _report_progress("auto_select_tariff", "Выбираем тариф автоматически", 88, "Выбираем подходящий тариф по бизнес-правилу.")
-                print("[Eni] Step 9: Selecting tariff (3rd from bottom)...")
+                await _report_progress("auto_select_tariff", "Выбираем тариф автоматически", 88, "Выбираем самый дешёвый индексируемый тариф.")
+                print("[Eni] Step 9: Selecting best tariff by business rule...")
                 await _take_step_screenshot(page, "09_before_tariff_selection")
-                await _select_third_tariff_from_bottom(page)
+                tariffs = await _parse_tariffs_from_page(page)
+                best_index, best_reason = _pick_best_tariff_index(tariffs)
+                if best_index is not None:
+                    await _select_tariff_by_index(page, best_index)
+                    print(f"[Eni] Auto-selected tariff ({best_reason}), index={best_index}")
+                else:
+                    await _select_third_tariff_from_bottom(page)
+                    print("[Eni] Could not determine cheapest tariff, used legacy 3rd-from-bottom rule")
                 await asyncio.sleep(SHORT_UI_WAIT_SECONDS)
                 await _take_step_screenshot(page, "09_after_tariff_selection")
 

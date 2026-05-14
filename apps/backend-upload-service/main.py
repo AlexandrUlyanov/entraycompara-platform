@@ -2866,16 +2866,50 @@ def _generate_proposal_internal(application_id: str, *, comment: str = "", actor
         event_type=EventType.NOTE,
         created_by=actor,
     )
-    try:
-        notify_client_proposal_ready(
-            application_id,
-            normalize_firestore_value(doc_ref.get().to_dict() or {}),
-            proposal_url,
-            trigger="proposal_automation_auto_send",
+    savings_monthly = to_float(
+        selected_sim.get("savings_monthly_eur")
+        if isinstance(selected_sim, dict) else None
+    )
+    if savings_monthly is None and isinstance(selected_sim, dict):
+        savings_monthly = to_float(selected_sim.get("savings_monthly"))
+    if savings_monthly is None and isinstance(selected_sim, dict):
+        current_cost = to_float(selected_sim.get("current_monthly_cost_eur") or selected_sim.get("current_monthly_cost"))
+        new_cost = to_float(selected_sim.get("new_monthly_cost_eur") or selected_sim.get("new_monthly_cost"))
+        if current_cost is not None and new_cost is not None:
+            savings_monthly = round(current_cost - new_cost, 2)
+
+    auto_send_allowed = savings_monthly is not None and savings_monthly > 0
+    auto_send_skipped_reason = None
+
+    if auto_send_allowed:
+        try:
+            notify_client_proposal_ready(
+                application_id,
+                normalize_firestore_value(doc_ref.get().to_dict() or {}),
+                proposal_url,
+                trigger="proposal_automation_auto_send",
+            )
+        except Exception as notify_exc:
+            print(f"[Proposal Automation] Auto WhatsApp proposal notification failed: {notify_exc}")
+    else:
+        auto_send_skipped_reason = "non_positive_savings"
+        create_timeline_event_internal(
+            application_id=application_id,
+            content=(
+                "Автоотправка КП в WhatsApp пропущена.\n"
+                f"Причина: выгода не положительная ({savings_monthly if savings_monthly is not None else 'N/A'} € в месяц)."
+            ),
+            event_type=EventType.NOTE,
+            created_by="System",
         )
-    except Exception as notify_exc:
-        print(f"[Proposal Automation] Auto WhatsApp proposal notification failed: {notify_exc}")
-    return {"success": True, "proposal_file_url": proposal_url}
+
+    return {
+        "success": True,
+        "proposal_file_url": proposal_url,
+        "auto_send_allowed": auto_send_allowed,
+        "auto_send_skipped_reason": auto_send_skipped_reason,
+        "savings_monthly_eur": savings_monthly,
+    }
 
 
 def _pick_best_simulation_doc(doc_ref) -> tuple[str, dict] | None:
@@ -3082,14 +3116,36 @@ def run_proposal_automation_step(application_id: str, reason: str, actor: str = 
         }, merge=True)
 
     result = _generate_proposal_internal(application_id, actor=actor)
-    get_proposal_automation_ref(application_id).set({
+    automation_payload = {
         "status": "proposal_generated",
         "last_reason": reason,
         "last_action": "generate_proposal",
         "proposal_file_url": result.get("proposal_file_url"),
         "updated_at": datetime.datetime.utcnow(),
-    }, merge=True)
-    return {"success": True, "executed": True, "status": "proposal_generated", "proposal_file_url": result.get("proposal_file_url")}
+    }
+    if not result.get("auto_send_allowed", True):
+        automation_payload.update({
+            "last_action": "generate_proposal_auto_send_skipped",
+            "last_auto_send_status": "skipped",
+            "last_auto_send_reason": result.get("auto_send_skipped_reason") or "non_positive_savings",
+            "last_auto_send_savings_monthly_eur": result.get("savings_monthly_eur"),
+        })
+    else:
+        automation_payload.update({
+            "last_auto_send_status": "sent_or_attempted",
+            "last_auto_send_reason": None,
+            "last_auto_send_savings_monthly_eur": result.get("savings_monthly_eur"),
+        })
+    get_proposal_automation_ref(application_id).set(automation_payload, merge=True)
+    return {
+        "success": True,
+        "executed": True,
+        "status": "proposal_generated",
+        "proposal_file_url": result.get("proposal_file_url"),
+        "auto_send_allowed": result.get("auto_send_allowed", True),
+        "auto_send_skipped_reason": result.get("auto_send_skipped_reason"),
+        "savings_monthly_eur": result.get("savings_monthly_eur"),
+    }
 
 
 def run_proposal_extraction_task(application_id: str, task_id: str, request_payload: dict):
